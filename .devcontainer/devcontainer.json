@@ -1,0 +1,29 @@
+{
+    "name": "dink-dev",
+    "image": "mcr.microsoft.com/devcontainers/go:1.26-trixie",
+    "features": {
+        "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+            "moby": false
+        }
+    },
+    "mounts": [
+        {
+            "type": "bind",
+            "source": "/var/run/docker.sock",
+            "target": "/var/run/docker.sock"
+        }
+    ],
+    "runArgs": [
+        "--add-host=host.docker.internal:host-gateway"
+    ],
+    "remoteUser": "vscode",
+    "postCreateCommand": "bash .devcontainer/post-create.sh",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "golang.Go",
+                "ms-kubernetes-tools.vscode-kubernetes-tools"
+            ]
+        }
+    }
+}
