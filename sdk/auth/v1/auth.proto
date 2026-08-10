@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package sdk.auth.v1;
+
+option go_package = "github.com/sysson/dink/sdk/auth/v1;auth";
+
+service AuthPluginService {
+  rpc AuthZReq(AuthZReqRequest) returns (AuthZReqResponse);
+  rpc AuthZRes(AuthZResRequest) returns (AuthZResResponse);
+}
+
+message AuthZReqRequest {
+  string user = 1;
+  string user_authn_method = 2;
+  string request_method = 3;
+  string request_uri = 4;
+  bytes request_body = 5;
+  map<string, string> headers = 6;
+}
+
+message AuthZReqResponse {
+  bool allow = 1;
+  string msg = 2;
+  string err = 3;
+}
+
+message AuthZResRequest {
+  string user = 1;
+  string user_authn_method = 2;
+  string request_method = 3;
+  string request_uri = 4;
+  bytes request_body = 5;
+  map<string, string> request_header = 6;
+  bytes response_body = 7;
+  map<string, string> response_header = 8;
+  int32 response_status_code = 9;
+}
+
+message AuthZResResponse {
+  bool allow = 1;
+  string msg = 2;
+  string err = 3;
+}

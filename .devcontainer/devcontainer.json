@@ -22,7 +22,8 @@
         "vscode": {
             "extensions": [
                 "golang.Go",
-                "ms-kubernetes-tools.vscode-kubernetes-tools"
+                "ms-kubernetes-tools.vscode-kubernetes-tools",
+                "bufbuild.buf"
             ]
         }
     }

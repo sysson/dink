@@ -1,7 +1,8 @@
-PROTOC ?= protoc
+BUF ?= buf
 GO  ?= go
+GOLANGLINT ?= golangci-lint
 
-.PHONY: all build test generate lint clean
+.PHONY: all build test generate lint clean fix
 
 all: build
 
@@ -13,11 +14,12 @@ test:
 
 ## generate: Re-generate protobuf + gRPC stubs from proto/ into sdk/*/gen/
 generate:
-	$(PROTOC) --proto_path=./sdk/proto --go_out=./sdk --go_opt=paths=source_relative --go-grpc_out=./sdk --go-grpc_opt=paths=source_relative $(shell find ./sdk/proto -name "*.proto")
+	$(BUF) generate
 
 ## lint: Run golangci-lint and buf lint
 lint:
-	golangci-lint run ./...
+	$(BUF) lint
+	$(GOLANGLINT) run ./...
 
 clean:
 	$(GO) clean ./...
