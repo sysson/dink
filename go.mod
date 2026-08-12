@@ -9,6 +9,7 @@ require (
 	github.com/knadh/koanf/parsers/yaml v1.1.1
 	github.com/moby/moby/client v0.5.1
 	github.com/urfave/cli/v3 v3.3.3
+	golang.org/x/net v0.57.0
 	google.golang.org/grpc v1.83.0
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
 	k8s.io/api v0.36.3
@@ -49,7 +50,6 @@ require (
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
-	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/term v0.45.0 // indirect
