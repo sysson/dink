@@ -18,6 +18,19 @@ var (
 )
 
 type HTTPFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request) error
+type APIVersion struct{}
+
+func APIVersionFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if v := ctx.Value(APIVersion{}); v != nil {
+		if version, ok := v.(string); ok {
+			return version
+		}
+	}
+	return ""
+}
 
 type HTTPError struct {
 	StatusCode int

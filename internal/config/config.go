@@ -13,6 +13,7 @@ import (
 
 type Config struct {
 	LogLevel        string       `json:"logLevel"`
+	ServerVersion   string       `json:"serverVersion"`
 	MinAPIVersion   string       `json:"minAPIVersion"`
 	APIVersion      string       `json:"apiVersion"`
 	KubeConfigPath  string       `json:"kubeConfigPath"`
@@ -33,6 +34,7 @@ type AuthPlugin struct {
 func NewConfig() *Config {
 	return &Config{
 		LogLevel:       "info",
+		ServerVersion:  "v1.0.0",
 		MinAPIVersion:  "v1.40",
 		APIVersion:     "v1.55",
 		KubeConfigPath: "",

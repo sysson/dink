@@ -19,16 +19,14 @@ import (
 	"github.com/sysson/dink/internal/k8s"
 	"github.com/sysson/dink/internal/server"
 	"github.com/sysson/dink/internal/server/middleware"
-	"github.com/sysson/dink/internal/server/router"
-	"github.com/sysson/dink/internal/server/router/container"
 	"github.com/sysson/dink/internal/translator"
 	"google.golang.org/grpc"
 )
 
 const (
-	defaultReadTimeout       = 5 * time.Second
-	defaultReadHeaderTimeout = 5 * time.Second
-	defaultWriteTimeout      = 10 * time.Second
+	defaultReadTimeout       = 60 * time.Second
+	defaultReadHeaderTimeout = 60 * time.Second
+	defaultWriteTimeout      = 0
 	defaultIdleTimeout       = 120 * time.Second
 )
 
@@ -57,6 +55,8 @@ func Dink(ctx context.Context, config *config.Config) error {
 
 	server := server.New(logger)
 	server.Use(middleware.Logging(logger))
+	server.Use(middleware.RequestID())
+	server.Use(middleware.Version(config.ServerVersion, config.APIVersion, config.MinAPIVersion))
 
 	router := buildRouters(translator)
 	api := server.CreateMux(ctx, router...)
@@ -77,12 +77,6 @@ func Dink(ctx context.Context, config *config.Config) error {
 	}
 
 	return serve(ctx, logger, config, tls, handler)
-}
-
-func buildRouters(t *translator.Translator) []router.Router {
-	return []router.Router{
-		container.New(t),
-	}
 }
 
 func serve(
@@ -129,9 +123,12 @@ func serve(
 	if !config.DisableTLS {
 		tlsServer := newServer(":"+config.TLSPort, handler, true, false)
 		tlsServer.TLSConfig = &tls.Config{
-			MinVersion:   tls.VersionTLS12,
-			Certificates: tlsConfig.Certificates,
-			RootCAs:      tlsConfig.RootCA,
+			MinVersion:         tls.VersionTLS12,
+			Certificates:       tlsConfig.Certificates,
+			RootCAs:            tlsConfig.RootCA,
+			ClientAuth:         tls.RequireAndVerifyClientCert,
+			InsecureSkipVerify: false,
+			NextProtos:         []string{"h2", "http/1.1"},
 		}
 		servers = append(servers, tlsServer)
 

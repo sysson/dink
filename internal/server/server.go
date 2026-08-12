@@ -48,8 +48,7 @@ func (s *Server) makeHTTPHandler(route router.Route) http.HandlerFunc {
 		if err == nil {
 			return
 		}
-		var httpErr *httputils.HTTPError
-		if errors.As(err, &httpErr) {
+		if httpErr, ok := errors.AsType[*httputils.HTTPError](err); ok {
 			s.logger.ErrorContext(r.Context(), "HTTP handler error", "error", err)
 			_ = httpErr.WriteJSON(w)
 			return
