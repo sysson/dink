@@ -33,6 +33,5 @@ func dink(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("unable to set config :%w", err)
 	}
 
-	d := command.New(cfg)
-	return d.Start(ctx)
+	return command.Dink(ctx, cfg)
 }

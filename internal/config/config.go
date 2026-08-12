@@ -12,19 +12,17 @@ import (
 )
 
 type Config struct {
-	LogLevel         string       `json:"logLevel"`
-	MinAPIVersion    string       `json:"minAPIVersion"`
-	APIVersion       string       `json:"apiVersion"`
-	KubeConfigPath   string       `json:"kubeConfigPath"`
-	DefaultNamespace string       `json:"defaultNamespace"`
-	Port             string       `json:"port"`
-	TLSOnly          bool         `json:"tlsOnly"`
-	TLSPort          string       `json:"tlsPort"`
-	CertFile         string       `json:"certFile"`
-	KeyFile          string       `json:"keyFile"`
-	ClientCAFile     string       `json:"clientCAFile"`
-	EnvPrefix        string       `json:"envPrefix"`
-	AuthPlugins      []AuthPlugin `json:"authPlugins"`
+	LogLevel        string       `json:"logLevel"`
+	MinAPIVersion   string       `json:"minAPIVersion"`
+	APIVersion      string       `json:"apiVersion"`
+	KubeConfigPath  string       `json:"kubeConfigPath"`
+	Namespace       string       `json:"namespace"`
+	Port            string       `json:"port"`
+	DisableTLS      bool         `json:"disableTLS"`
+	TLSPort         string       `json:"tlsPort"`
+	EnvPrefix       string       `json:"envPrefix"`
+	BuildKitAddress string       `json:"buildKitAddress"`
+	AuthPlugins     []AuthPlugin `json:"authPlugins"`
 }
 
 type AuthPlugin struct {
@@ -34,19 +32,16 @@ type AuthPlugin struct {
 
 func NewConfig() *Config {
 	return &Config{
-		LogLevel:         "info",
-		MinAPIVersion:    "v1.40",
-		APIVersion:       "v1.55",
-		KubeConfigPath:   "",
-		DefaultNamespace: "dink",
-		Port:             "2375",
-		TLSOnly:          true,
-		TLSPort:          "2776",
-		CertFile:         "/etc/dink/tls/tls.crt",
-		KeyFile:          "/etc/dink/tls/tls.key",
-		ClientCAFile:     "/etc/dink/tls/ca.crt",
-		EnvPrefix:        "DINK",
-		AuthPlugins:      []AuthPlugin{},
+		LogLevel:       "info",
+		MinAPIVersion:  "v1.40",
+		APIVersion:     "v1.55",
+		KubeConfigPath: "",
+		Namespace:      "dink",
+		Port:           "2375",
+		DisableTLS:     false,
+		TLSPort:        "2776",
+		EnvPrefix:      "DINK",
+		AuthPlugins:    []AuthPlugin{},
 	}
 }
 

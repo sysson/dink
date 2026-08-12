@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"google.golang.org/grpc"
 )
@@ -22,7 +23,7 @@ func newHTTPHandler(ctx context.Context, apiServer http.Handler, grpcServer *grp
 }
 
 func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.ProtoMajor == 2 && r.Header.Get("Content-Type") == "application/grpc" {
+	if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
 		h.grpcServer.ServeHTTP(w, r)
 	} else {
 		h.apiServer.ServeHTTP(w, r)
