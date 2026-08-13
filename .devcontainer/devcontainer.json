@@ -11,11 +11,6 @@
             "type": "bind",
             "source": "/var/run/docker.sock",
             "target": "/var/run/docker.sock"
-        },
-        {
-            "source": "${localEnv:HOME}${localEnv:USERPROFILE}/.ssh",
-            "target": "${localEnv:HOME}${localEnv:USERPROFILE}/.ssh",
-            "type": "bind"
         }
     ],
     "runArgs": [
