@@ -16,6 +16,13 @@
     "runArgs": [
         "--add-host=host.docker.internal:host-gateway"
     ],
+    "remoteEnv": {
+        "KUBECONFIG": "${containerWorkspaceFolder}/.devcontainer/.kube/config",
+        "DINK_KUBECONFIGPATH": "${containerWorkspaceFolder}/.devcontainer/.kube/config",
+        "DINK_TLSCERTFILE": "${containerWorkspaceFolder}/.devcontainer/certs/server.crt",
+        "DINK_TLSKEYFILE": "${containerWorkspaceFolder}/.devcontainer/certs/server.key",
+        "DINK_CLIENTCAFILE": "${containerWorkspaceFolder}/.devcontainer/certs/ca.crt"
+    },
     "remoteUser": "vscode",
     "postCreateCommand": "bash .devcontainer/post-create.sh",
     "customizations": {

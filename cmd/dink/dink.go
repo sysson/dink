@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/sysson/dink/cmd/version"
-	"github.com/sysson/dink/dink/command"
+	"github.com/sysson/dink/internal/command"
 	"github.com/sysson/dink/internal/config"
 	"github.com/urfave/cli/v3"
 )

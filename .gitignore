@@ -27,6 +27,12 @@ go.work.sum
 # env file
 .env
 
+# devcontainer-local kubeconfig (dedicated to the dink-dev kind cluster)
+.devcontainer/.kube/
+
+# devcontainer-local dev TLS material (self-signed CA/server/client certs)
+.devcontainer/certs/
+
 # Editor/IDE
 # .idea/
 # .vscode/

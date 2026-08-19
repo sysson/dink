@@ -10,12 +10,13 @@ service AuthPluginService {
 }
 
 message AuthZReqRequest {
-  string user = 1;
-  string user_authn_method = 2;
-  string request_method = 3;
-  string request_uri = 4;
-  bytes request_body = 5;
-  map<string, string> headers = 6;
+  string namespace = 1;
+  string user = 2;
+  string user_authn_method = 3;
+  string request_method = 4;
+  string request_uri = 5;
+  bytes request_body = 6;
+  map<string, string> headers = 7;
 }
 
 message AuthZReqResponse {
@@ -25,15 +26,16 @@ message AuthZReqResponse {
 }
 
 message AuthZResRequest {
-  string user = 1;
-  string user_authn_method = 2;
-  string request_method = 3;
-  string request_uri = 4;
-  bytes request_body = 5;
-  map<string, string> request_header = 6;
-  bytes response_body = 7;
-  map<string, string> response_header = 8;
-  int32 response_status_code = 9;
+  string namespace = 1;
+  string user = 2;
+  string user_authn_method = 3;
+  string request_method = 4;
+  string request_uri = 5;
+  bytes request_body = 6;
+  map<string, string> request_header = 7;
+  bytes response_body = 8;
+  map<string, string> response_header = 9;
+  int32 response_status_code = 10;
 }
 
 message AuthZResResponse {

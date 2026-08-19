@@ -19,11 +19,30 @@ type Config struct {
 	KubeConfigPath  string       `json:"kubeConfigPath"`
 	Namespace       string       `json:"namespace"`
 	Port            string       `json:"port"`
-	DisableTLS      bool         `json:"disableTLS"`
 	TLSPort         string       `json:"tlsPort"`
 	EnvPrefix       string       `json:"envPrefix"`
 	BuildKitAddress string       `json:"buildKitAddress"`
 	AuthPlugins     []AuthPlugin `json:"authPlugins"`
+
+	// DisableTLS is an explicit operator opt-out to serve plaintext only.
+	// When false (the default), a valid TLSCertFile/TLSKeyFile is required
+	// at startup — TLS is never silently disabled because of missing/invalid
+	// certificates.
+	DisableTLS bool `json:"disableTLS"`
+	// TLSCertFile/TLSKeyFile is the server certificate/key pair. When both
+	// are valid, the server listens with TLS.
+	TLSCertFile string `json:"tlsCertFile"`
+	TLSKeyFile  string `json:"tlsKeyFile"`
+	// ClientCAFile, when set alongside a valid server certificate, enables
+	// mTLS: clients must present a certificate signed by this CA.
+	ClientCAFile string `json:"clientCAFile"`
+	// MinTLSVersion is "1.2" or "1.3".
+	MinTLSVersion string `json:"minTLSVersion"`
+
+	// DisableNamespaceCreation stops the server from auto-provisioning the
+	// per-tenant namespace derived from an mTLS client certificate's
+	// Organization; the namespace must then already exist.
+	DisableNamespaceCreation bool `json:"disableNamespaceCreation"`
 }
 
 type AuthPlugin struct {
@@ -33,17 +52,19 @@ type AuthPlugin struct {
 
 func NewConfig() *Config {
 	return &Config{
-		LogLevel:       "info",
-		ServerVersion:  "v1.0.0",
-		MinAPIVersion:  "v1.40",
-		APIVersion:     "v1.55",
-		KubeConfigPath: "",
-		Namespace:      "dink",
-		Port:           "2375",
-		DisableTLS:     false,
-		TLSPort:        "2776",
-		EnvPrefix:      "DINK",
-		AuthPlugins:    []AuthPlugin{},
+		LogLevel:                 "info",
+		ServerVersion:            "v1.0.0",
+		MinAPIVersion:            "v1.40",
+		APIVersion:               "v1.55",
+		KubeConfigPath:           "",
+		Namespace:                "dink",
+		Port:                     "2375",
+		TLSPort:                  "2776",
+		DisableTLS:               false,
+		MinTLSVersion:            "1.2",
+		DisableNamespaceCreation: false,
+		EnvPrefix:                "DINK",
+		AuthPlugins:              []AuthPlugin{},
 	}
 }
 

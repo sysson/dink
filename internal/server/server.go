@@ -1,11 +1,11 @@
 package server
 
 import (
-	"slices"
 	"context"
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/sysson/dink/internal/server/httputils"

@@ -3,7 +3,6 @@ package command
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,11 +14,14 @@ import (
 
 	"github.com/go-chi/httplog/v3"
 	"github.com/sysson/dink/cmd/version"
+	"github.com/sysson/dink/internal/auth"
 	"github.com/sysson/dink/internal/config"
+	"github.com/sysson/dink/internal/identity"
 	"github.com/sysson/dink/internal/k8s"
 	"github.com/sysson/dink/internal/server"
 	"github.com/sysson/dink/internal/server/middleware"
 	"github.com/sysson/dink/internal/translator"
+	"github.com/sysson/dink/utils/tlsconfig"
 	"google.golang.org/grpc"
 )
 
@@ -29,11 +31,6 @@ const (
 	defaultWriteTimeout      = 0
 	defaultIdleTimeout       = 120 * time.Second
 )
-
-type tlsConfig struct {
-	RootCA       *x509.CertPool
-	Certificates []tls.Certificate
-}
 
 func Dink(ctx context.Context, config *config.Config) error {
 	ctx, cancel := context.WithCancel(ctx)
@@ -46,9 +43,22 @@ func Dink(ctx context.Context, config *config.Config) error {
 		slog.String("version", version.Version),
 	)
 
+	tlsConfig, err := tlsconfig.Load(config)
+	if err != nil {
+		return fmt.Errorf("loading TLS configuration: %w", err)
+	}
+	if config.DisableTLS {
+		logger.WarnContext(ctx, "TLS is disabled; serving plaintext only")
+	}
+
 	client, err := k8s.New(ctx, config)
 	if err != nil {
 		return fmt.Errorf("unable to create Kubernetes client: %w", err)
+	}
+
+	authChain, err := auth.NewChain(config.AuthPlugins)
+	if err != nil {
+		return fmt.Errorf("configuring auth plugins: %w", err)
 	}
 
 	translator := translator.New(client)
@@ -57,33 +67,27 @@ func Dink(ctx context.Context, config *config.Config) error {
 	server.Use(middleware.Logging(logger))
 	server.Use(middleware.RequestID())
 	server.Use(middleware.Version(config.ServerVersion, config.APIVersion, config.MinAPIVersion))
+	server.Use(identity.Middleware(identity.MiddlewareConfig{
+		BaseNamespace:            config.Namespace,
+		DisableNamespaceCreation: config.DisableNamespaceCreation,
+		Ensurer:                  client,
+		Logger:                   logger,
+	}))
+	server.Use(auth.Middleware(authChain))
 
 	router := buildRouters(translator)
 	api := server.CreateMux(ctx, router...)
 	gs := grpc.NewServer()
 	handler := newHTTPHandler(ctx, api, gs)
 
-	tls := new(tlsConfig)
-	if !config.DisableTLS {
-		tlsCert, err := client.LoadOrCreateServerTLS(ctx)
-		if err != nil {
-			return fmt.Errorf("loading or creating server TLS: %w", err)
-		}
-		tls.Certificates = append(tls.Certificates, *tlsCert)
-		tls.RootCA, err = client.GetRootCA(ctx)
-		if err != nil {
-			return fmt.Errorf("getting root CA: %w", err)
-		}
-	}
-
-	return serve(ctx, logger, config, tls, handler)
+	return serve(ctx, logger, config, tlsConfig, handler)
 }
 
 func serve(
 	ctx context.Context,
 	logger *slog.Logger,
 	config *config.Config,
-	tlsConfig *tlsConfig,
+	tlsConfig *tls.Config,
 	handler http.Handler,
 ) error {
 	execCtx, execCancel := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
@@ -120,16 +124,9 @@ func serve(
 	logger.InfoContext(ctx, "Starting plaintext server", "addr", plainServer.Addr)
 	serveServer(plainServer, plainServer.ListenAndServe)
 
-	if !config.DisableTLS {
+	if tlsConfig != nil {
 		tlsServer := newServer(":"+config.TLSPort, handler, true, false)
-		tlsServer.TLSConfig = &tls.Config{
-			MinVersion:         tls.VersionTLS12,
-			Certificates:       tlsConfig.Certificates,
-			RootCAs:            tlsConfig.RootCA,
-			ClientAuth:         tls.RequireAndVerifyClientCert,
-			InsecureSkipVerify: false,
-			NextProtos:         []string{"h2", "http/1.1"},
-		}
+		tlsServer.TLSConfig = tlsConfig
 		servers = append(servers, tlsServer)
 
 		logger.InfoContext(ctx, "Starting TLS server", "addr", tlsServer.Addr)
