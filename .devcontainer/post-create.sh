@@ -12,9 +12,7 @@ fi
 
 CLUSTER_NAME="dink-dev"
 
-minikube start -p "${CLUSTER_NAME}" \
-  --driver=docker \ \
-  --embed-certs
+minikube start -p "${CLUSTER_NAME}"
 
 CERTS_DIR=".devcontainer/certs"
 CA_CERT="${CERTS_DIR}/ca.crt"
