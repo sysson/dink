@@ -8,25 +8,37 @@ import (
 )
 
 var (
-	Version = "Dev"     //nolint:gochecknoglobals // overridden at build time
-	Commit  = "None"    //nolint:gochecknoglobals // overridden at build time
-	Date    = "Unknown" //nolint:gochecknoglobals // overridden at build time
+	version = "Dev"
+	commit  = "None"
+	date    = "Unknown"
 )
 
-func VersionCmd() *cli.Command {
+func Cmd() *cli.Command {
 	return &cli.Command{
 		Name:    "version",
 		Usage:   "Show the version information",
-		Version: Version,
+		Version: version,
 		Action:  versionAction,
 	}
 }
 
 func versionAction(_ context.Context, _ *cli.Command) error {
-	fmt.Println("Version:", Version)
+	fmt.Println("Version:", version)
 	return nil
 }
 
 func IsDev() bool {
-	return Version == "Dev"
+	return version == "Dev"
+}
+
+func GetVersion() string {
+	return version
+}
+
+func GetCommit() string {
+	return commit
+}
+
+func GetDate() string {
+	return date
 }

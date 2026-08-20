@@ -27,8 +27,11 @@ go.work.sum
 # env file
 .env
 
-# devcontainer-local kubeconfig (dedicated to the dink-dev kind cluster)
+# devcontainer-local kubeconfig (dedicated to the dink-dev minikube cluster)
 .devcontainer/.kube/
+
+# devcontainer-local minikube state (MINIKUBE_HOME), so it survives rebuilds
+.devcontainer/.minikube/
 
 # devcontainer-local dev TLS material (self-signed CA/server/client certs)
 .devcontainer/certs/

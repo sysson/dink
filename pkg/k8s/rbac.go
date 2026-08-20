@@ -23,13 +23,11 @@ func (kc *KubeClient) EnsureRBAC(ctx context.Context, namespace string) error {
 
 func (kc *KubeClient) ensureRole(ctx context.Context, namespace string) error {
 	role := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      tenantRoleName,
-			Namespace: namespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": kc.serviceAccountName,
-				"dink.io/owner":                namespace,
-			},
+		Name:      tenantRoleName,
+		Namespace: namespace,
+		Labels: map[string]string{
+			"app.kubernetes.io/managed-by": kc.serviceAccountName,
+			"dink.io/owner":                namespace,
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
@@ -84,13 +82,11 @@ func (kc *KubeClient) ensureRole(ctx context.Context, namespace string) error {
 
 func (kc *KubeClient) ensureRoleBinding(ctx context.Context, namespace string) error {
 	rb := &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      tenantRoleBindingName,
-			Namespace: namespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": kc.serviceAccountName,
-				"dink.io/owner":                namespace,
-			},
+		Name:      tenantRoleBindingName,
+		Namespace: namespace,
+		Labels: map[string]string{
+			"app.kubernetes.io/managed-by": kc.serviceAccountName,
+			"dink.io/owner":                namespace,
 		},
 		RoleRef: rbacv1.RoleRef{
 			APIGroup: "rbac.authorization.k8s.io",

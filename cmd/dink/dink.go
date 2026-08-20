@@ -48,7 +48,7 @@ func dink(ctx context.Context, cmd *cli.Command) error {
 	logger := slog.New(slog.NewJSONHandler(
 		os.Stdout, &slog.HandlerOptions{Level: getLogLevel(cfg.LogLevel), ReplaceAttr: logFormat.ReplaceAttr},
 	)).With(
-		slog.String("version", version.Version),
+		slog.String("version", version.GetVersion()),
 	)
 
 	tlsConfig, err := tlsconfig.Load(&tlsconfig.TLSConfigOptions{

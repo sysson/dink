@@ -10,46 +10,12 @@ if ! command -v golangci-lint >/dev/null 2>&1; then
   curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.12.2
 fi
 
-if ! command -v kubectl >/dev/null 2>&1; then
-  curl -fsSL "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o /tmp/kubectl
-  sudo install -m 0755 /tmp/kubectl /usr/local/bin/kubectl
-fi
-
-if ! command -v kind >/dev/null 2>&1; then
-  curl -fsSL https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64 -o /tmp/kind
-  sudo install -m 0755 /tmp/kind /usr/local/bin/kind
-fi
-
 CLUSTER_NAME="dink-dev"
-CONFIG_FILE=".devcontainer/dev-cluster.yaml"
-# Dedicated kubeconfig, scoped to only this cluster, living in the (bind-mounted)
-# workspace so it survives container rebuilds without needing to mount $HOME/.kube.
-KUBECONFIG_PATH=".devcontainer/.kube/config"
 
-API_HOST=$(getent hosts host.docker.internal | awk '{print $1}')
-if [[ -z "${API_HOST}" ]]; then
-  echo "host.docker.internal not resolvable — falling back to 172.17.0.1"
-  API_HOST="172.17.0.1"
-fi
+minikube start -p "${CLUSTER_NAME}" \
+  --driver=docker \ \
+  --embed-certs
 
-mkdir -p "$(dirname "${KUBECONFIG_PATH}")"
-
-if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
-  echo "Kind cluster '${CLUSTER_NAME}' already exists."
-else
-  TMP_CONFIG=$(mktemp)
-  sed "s/apiServerAddress: \".*\"/apiServerAddress: \"${API_HOST}\"/" "${CONFIG_FILE}" > "${TMP_CONFIG}"
-  kind create cluster --name "${CLUSTER_NAME}" --config "${TMP_CONFIG}"
-fi
-
-# Always (re)write the kubeconfig: the container's $HOME is ephemeral across
-# rebuilds even though the kind cluster (running on the host's docker daemon)
-# persists, so a fresh container otherwise loses access to it.
-kind export kubeconfig --name "${CLUSTER_NAME}" --kubeconfig "${KUBECONFIG_PATH}"
-
-# Dev-only TLS material for exercising dink's TLS/mTLS server flags locally.
-# Never committed — see .gitignore — and regenerated only if missing, so it
-# survives container rebuilds via the bind-mounted workspace.
 CERTS_DIR=".devcontainer/certs"
 CA_CERT="${CERTS_DIR}/ca.crt"
 CA_KEY="${CERTS_DIR}/ca.key"

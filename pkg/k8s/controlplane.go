@@ -29,13 +29,11 @@ func (kc *KubeClient) ensureControlPlane(ctx context.Context) error {
 
 func (kc *KubeClient) ensureServiceAccount(ctx context.Context, client kubernetes.Interface, namespace, serviceAccount string) error {
 	sa := &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      serviceAccount,
-			Namespace: namespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/name":       serviceAccount,
-				"app.kubernetes.io/managed-by": serviceAccount,
-			},
+		Name:      serviceAccount,
+		Namespace: namespace,
+		Labels: map[string]string{
+			"app.kubernetes.io/name":       serviceAccount,
+			"app.kubernetes.io/managed-by": serviceAccount,
 		},
 	}
 

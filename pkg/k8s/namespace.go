@@ -11,15 +11,13 @@ import (
 
 func (k *KubeClient) EnsureNamespace(ctx context.Context, namespace, owner string) error {
 	ns := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: namespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": k.serviceAccountName,
-				"dink.io/owner":                owner,
-			},
-			Annotations: map[string]string{
-				"dink.io/created-by": k.serviceAccountName,
-			},
+		Name: namespace,
+		Labels: map[string]string{
+			"app.kubernetes.io/managed-by": k.serviceAccountName,
+			"dink.io/owner":                owner,
+		},
+		Annotations: map[string]string{
+			"dink.io/created-by": k.serviceAccountName,
 		},
 	}
 
