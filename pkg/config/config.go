@@ -12,37 +12,24 @@ import (
 )
 
 type Config struct {
-	LogLevel        string       `json:"logLevel"`
-	ServerVersion   string       `json:"serverVersion"`
-	MinAPIVersion   string       `json:"minAPIVersion"`
-	APIVersion      string       `json:"apiVersion"`
-	KubeConfigPath  string       `json:"kubeConfigPath"`
-	Namespace       string       `json:"namespace"`
-	Port            string       `json:"port"`
-	TLSPort         string       `json:"tlsPort"`
-	EnvPrefix       string       `json:"envPrefix"`
-	BuildKitAddress string       `json:"buildKitAddress"`
-	AuthPlugins     []AuthPlugin `json:"authPlugins"`
-
-	// DisableTLS is an explicit operator opt-out to serve plaintext only.
-	// When false (the default), a valid TLSCertFile/TLSKeyFile is required
-	// at startup — TLS is never silently disabled because of missing/invalid
-	// certificates.
-	DisableTLS bool `json:"disableTLS"`
-	// TLSCertFile/TLSKeyFile is the server certificate/key pair. When both
-	// are valid, the server listens with TLS.
-	TLSCertFile string `json:"tlsCertFile"`
-	TLSKeyFile  string `json:"tlsKeyFile"`
-	// ClientCAFile, when set alongside a valid server certificate, enables
-	// mTLS: clients must present a certificate signed by this CA.
-	ClientCAFile string `json:"clientCAFile"`
-	// MinTLSVersion is "1.2" or "1.3".
-	MinTLSVersion string `json:"minTLSVersion"`
-
-	// DisableNamespaceCreation stops the server from auto-provisioning the
-	// per-tenant namespace derived from an mTLS client certificate's
-	// Organization; the namespace must then already exist.
-	DisableNamespaceCreation bool `json:"disableNamespaceCreation"`
+	LogLevel                 string       `json:"logLevel"`
+	ServerVersion            string       `json:"serverVersion"`
+	MinAPIVersion            string       `json:"minAPIVersion"`
+	APIVersion               string       `json:"apiVersion"`
+	KubeConfigPath           string       `json:"kubeConfigPath"`
+	Namespace                string       `json:"namespace"`
+	Port                     string       `json:"port"`
+	TLSPort                  string       `json:"tlsPort"`
+	EnvPrefix                string       `json:"envPrefix"`
+	BuildKitAddress          string       `json:"buildKitAddress"`
+	AuthPlugins              []AuthPlugin `json:"authPlugins"`
+	PluginDir                string       `json:"pluginDir"`
+	DisableTLS               bool         `json:"disableTLS"`
+	TLSCertFile              string       `json:"tlsCertFile"`
+	TLSKeyFile               string       `json:"tlsKeyFile"`
+	ClientCAFile             string       `json:"clientCAFile"`
+	MinTLSVersion            string       `json:"minTLSVersion"`
+	DisableNamespaceCreation bool         `json:"disableNamespaceCreation"`
 }
 
 type AuthPlugin struct {
@@ -65,6 +52,7 @@ func NewConfig() *Config {
 		DisableNamespaceCreation: false,
 		EnvPrefix:                "DINK",
 		AuthPlugins:              []AuthPlugin{},
+		PluginDir:                "/var/lib/dink/plugins",
 	}
 }
 

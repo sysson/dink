@@ -8,6 +8,8 @@ import (
 	"github.com/sysson/dink/pkg/server/router/debug"
 	"github.com/sysson/dink/pkg/server/router/distribution"
 	"github.com/sysson/dink/pkg/server/router/grpc"
+	"github.com/sysson/dink/pkg/server/router/image"
+	"github.com/sysson/dink/pkg/server/router/network"
 	"github.com/sysson/dink/pkg/translator"
 )
 
@@ -20,5 +22,7 @@ func buildRouters(t *translator.Translator) []router.Router {
 		debug.New(),
 		distribution.New(t),
 		grpc.New(t),
+		image.New(t, t),
+		network.New(t, t),
 	}
 }

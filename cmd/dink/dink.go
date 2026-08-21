@@ -16,6 +16,7 @@ import (
 	"github.com/sysson/dink/cmd/version"
 	"github.com/sysson/dink/pkg/auth"
 	"github.com/sysson/dink/pkg/config"
+	"github.com/sysson/dink/pkg/constants"
 	"github.com/sysson/dink/pkg/identity"
 	"github.com/sysson/dink/pkg/k8s"
 	"github.com/sysson/dink/pkg/server"
@@ -24,13 +25,6 @@ import (
 	"github.com/sysson/dink/pkg/utils/tlsconfig"
 	"github.com/urfave/cli/v3"
 	"google.golang.org/grpc"
-)
-
-const (
-	defaultReadTimeout       = 60 * time.Second
-	defaultReadHeaderTimeout = 60 * time.Second
-	defaultWriteTimeout      = 0
-	defaultIdleTimeout       = 120 * time.Second
 )
 
 func dink(ctx context.Context, cmd *cli.Command) error {
@@ -65,7 +59,10 @@ func dink(ctx context.Context, cmd *cli.Command) error {
 		logger.WarnContext(ctx, "TLS is disabled; serving plaintext only")
 	}
 
-	client, err := k8s.New(ctx, cfg)
+	client, err := k8s.New(ctx, &k8s.Options{
+		Namespace:      cfg.Namespace,
+		KubeConfigPath: cfg.KubeConfigPath,
+	})
 	if err != nil {
 		return fmt.Errorf("unable to create Kubernetes client: %w", err)
 	}
@@ -115,10 +112,10 @@ func serve(
 			Addr:              addr,
 			Handler:           serverHandler,
 			ErrorLog:          slog.NewLogLogger(logger.Handler(), getLogLevel(cfg.LogLevel)),
-			ReadTimeout:       defaultReadTimeout,
-			ReadHeaderTimeout: defaultReadHeaderTimeout,
-			WriteTimeout:      defaultWriteTimeout,
-			IdleTimeout:       defaultIdleTimeout,
+			ReadTimeout:       constants.ReadTimeout,
+			ReadHeaderTimeout: constants.ReadHeaderTimeout,
+			WriteTimeout:      constants.WriteTimeout,
+			IdleTimeout:       constants.IdleTimeout,
 			Protocols:         proto,
 		}
 	}

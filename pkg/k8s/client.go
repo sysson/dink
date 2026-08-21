@@ -6,12 +6,20 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sysson/dink/pkg/config"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/metrics/pkg/client/clientset/versioned"
 )
+
+const (
+	defaultNamespace = "dink"
+)
+
+type Options struct {
+	Namespace      string
+	KubeConfigPath string
+}
 
 type KubeClient struct {
 	client             *kubernetes.Clientset
@@ -22,12 +30,18 @@ type KubeClient struct {
 	restConfig         *rest.Config
 }
 
-func New(ctx context.Context, cfg *config.Config) (*KubeClient, error) {
-	if cfg == nil {
-		cfg = config.NewConfig()
+func New(ctx context.Context, opts *Options) (*KubeClient, error) {
+	if opts == nil {
+		opts = &Options{}
+	}
+	if opts.Namespace == "" {
+		opts.Namespace = defaultNamespace
+	}
+	if opts.KubeConfigPath == "" {
+		opts.KubeConfigPath = defaultConfigPath()
 	}
 
-	restConfig, err := loadConfig(cfg.KubeConfigPath)
+	restConfig, err := clientcmd.BuildConfigFromFlags("", opts.KubeConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("unable to build Kubernetes config: %w", err)
 	}
@@ -45,7 +59,7 @@ func New(ctx context.Context, cfg *config.Config) (*KubeClient, error) {
 	k := &KubeClient{
 		client:             client,
 		restConfig:         restConfig,
-		namespace:          cfg.Namespace,
+		namespace:          opts.Namespace,
 		serviceAccountName: defaultControlServiceAccount,
 		metricsAvailable:   metricsClient != nil,
 		metricsClient:      metricsClient,
@@ -58,19 +72,13 @@ func New(ctx context.Context, cfg *config.Config) (*KubeClient, error) {
 	return k, nil
 }
 
-func loadConfig(kubeConfigPath string) (*rest.Config, error) {
-
-	if kubeConfigPath != "" {
-		return clientcmd.BuildConfigFromFlags("", kubeConfigPath)
-	}
-
+func defaultConfigPath() string {
 	home, exists := os.LookupEnv("HOME")
 	if !exists {
 		home = "/root"
 	}
 
-	configPath := filepath.Join(home, ".kube", "config")
-	return clientcmd.BuildConfigFromFlags("", configPath)
+	return filepath.Join(home, ".kube", "config")
 }
 
 func (kc *KubeClient) Client() *kubernetes.Clientset {
