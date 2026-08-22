@@ -7,28 +7,23 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/sysson/dink/pkg/config"
 	"github.com/sysson/dink/sdk/auth/v1/authconnect"
 )
 
-// plugin is a single configured authorization plugin.
 type plugin struct {
 	name   string
 	client authconnect.AuthPluginServiceClient
 }
 
-// newPlugin builds a connect client for cfg. cfg.Path is either a unix
-// socket path (dialed directly, Docker authz-plugin style) or an http(s)
-// base URL.
-func newPlugin(cfg config.AuthPlugin) (plugin, error) {
-	if cfg.Name == "" || cfg.Path == "" {
+func newPlugin(a AuthPlugin) (plugin, error) {
+	if a.Name == "" || a.Path == "" {
 		return plugin{}, fmt.Errorf("auth plugin requires both a name and a path")
 	}
 
 	httpClient := http.DefaultClient
-	baseURL := cfg.Path
-	if socket, ok := strings.CutPrefix(cfg.Path, "unix://"); ok {
-		baseURL = "http://" + cfg.Name
+	baseURL := a.Path
+	if socket, ok := strings.CutPrefix(a.Path, "unix://"); ok {
+		baseURL = "http://" + a.Name
 		httpClient = &http.Client{
 			Transport: &http.Transport{
 				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -39,7 +34,7 @@ func newPlugin(cfg config.AuthPlugin) (plugin, error) {
 	}
 
 	return plugin{
-		name:   cfg.Name,
+		name:   a.Name,
 		client: authconnect.NewAuthPluginServiceClient(httpClient, baseURL),
 	}, nil
 }

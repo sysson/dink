@@ -1,4 +1,4 @@
-package tlsconfig
+package tlsutils
 
 import (
 	"crypto/tls"
@@ -15,7 +15,7 @@ type TLSConfigOptions struct {
 	ClientCAFile  string
 }
 
-func Load(cfg *TLSConfigOptions) (*tls.Config, error) {
+func Config(cfg *TLSConfigOptions) (*tls.Config, error) {
 	if cfg.DisableTLS {
 		return nil, nil
 	}

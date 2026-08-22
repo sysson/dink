@@ -22,7 +22,7 @@ import (
 	"github.com/sysson/dink/pkg/server"
 	"github.com/sysson/dink/pkg/server/middleware"
 	"github.com/sysson/dink/pkg/translator"
-	"github.com/sysson/dink/pkg/utils/tlsconfig"
+	"github.com/sysson/dink/pkg/utils/tlsutils"
 	"github.com/urfave/cli/v3"
 	"google.golang.org/grpc"
 )
@@ -45,7 +45,7 @@ func dink(ctx context.Context, cmd *cli.Command) error {
 		slog.String("version", version.GetVersion()),
 	)
 
-	tlsConfig, err := tlsconfig.Load(&tlsconfig.TLSConfigOptions{
+	tlsConfig, err := tlsutils.Config(&tlsutils.TLSConfigOptions{
 		DisableTLS:    cfg.DisableTLS,
 		TLSCertFile:   cfg.TLSCertFile,
 		TLSKeyFile:    cfg.TLSKeyFile,
@@ -67,7 +67,15 @@ func dink(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("unable to create Kubernetes client: %w", err)
 	}
 
-	authChain, err := auth.NewChain(cfg.AuthPlugins)
+	ap := []auth.AuthPlugin{}
+	for _, p := range cfg.AuthPlugins {
+		ap = append(ap, auth.AuthPlugin{
+			Name: p.Name,
+			Path: p.Path,
+		})
+	}
+
+	authChain, err := auth.NewChain(ap)
 	if err != nil {
 		return fmt.Errorf("configuring auth plugins: %w", err)
 	}
@@ -84,7 +92,7 @@ func dink(ctx context.Context, cmd *cli.Command) error {
 		Ensurer:                  client,
 		Logger:                   logger,
 	}))
-	server.Use(auth.Middleware(authChain))
+	server.Use(auth.Middleware(authChain, logger))
 
 	router := buildRouters(translator)
 	api := server.CreateMux(ctx, router...)
