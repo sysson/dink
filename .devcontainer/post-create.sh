@@ -2,28 +2,50 @@
 set -euo pipefail
 
 sudo apt-get update -y
-sudo apt-get install -y --no-install-recommends ca-certificates curl jq unzip git build-essential
+sudo apt-get install -y --no-install-recommends ca-certificates curl openssl
 
-if ! command -v protoc >/dev/null 2>&1; then
-  URL=$(curl -s https://api.github.com/repos/protocolbuffers/protobuf/releases/latest \
-  | jq -r '.assets[] | select(.name | endswith("linux-x86_64.zip")) | .browser_download_url')
-  curl -LO $URL
-  sudo unzip -o $(basename $URL) -d /usr/local/bin/protoc
-
-  go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-  go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-fi
+go install github.com/bufbuild/buf/cmd/buf@latest
 
 if ! command -v golangci-lint >/dev/null 2>&1; then
   curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.12.2
 fi
 
-if ! command -v kubectl >/dev/null 2>&1; then
-  curl -fsSL "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o /tmp/kubectl
-  sudo install -m 0755 /tmp/kubectl /usr/local/bin/kubectl
-fi
+CLUSTER_NAME="dink-dev"
 
-if ! command -v kind >/dev/null 2>&1; then
-  curl -fsSL https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64 -o /tmp/kind
-  sudo install -m 0755 /tmp/kind /usr/local/bin/kind
+minikube start -p "${CLUSTER_NAME}"
+
+CERTS_DIR=".devcontainer/certs"
+CA_CERT="${CERTS_DIR}/ca.crt"
+CA_KEY="${CERTS_DIR}/ca.key"
+SERVER_CERT="${CERTS_DIR}/server.crt"
+SERVER_KEY="${CERTS_DIR}/server.key"
+CLIENT_NAMES=(testing staging)
+
+if [[ -f "${SERVER_CERT}" && -f "${SERVER_KEY}" && -f "${CA_CERT}" ]]; then
+  echo "Dev TLS material already present in ${CERTS_DIR}."
+else
+  mkdir -p "${CERTS_DIR}"
+  WORKDIR=$(mktemp -d)
+  trap 'rm -rf "${WORKDIR}"' EXIT
+
+  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
+    -keyout "${CA_KEY}" -out "${CA_CERT}" -days 3650 -subj "/CN=dink-dev CA"
+
+  cat > "${WORKDIR}/server-ext.cnf" <<EOF
+subjectAltName = DNS:localhost,DNS:dink,IP:127.0.0.1,DNS:host.docker.internal
+EOF
+  openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
+    -keyout "${SERVER_KEY}" -out "${WORKDIR}/server.csr" -subj "/CN=dink"
+  openssl x509 -req -in "${WORKDIR}/server.csr" -CA "${CA_CERT}" -CAkey "${CA_KEY}" -CAcreateserial \
+    -out "${SERVER_CERT}" -days 397 -extfile "${WORKDIR}/server-ext.cnf"
+
+  for name in "${CLIENT_NAMES[@]}"; do
+    openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
+      -keyout "${CERTS_DIR}/client-${name}.key" -out "${WORKDIR}/client-${name}.csr" \
+      -subj "/O=${name}/CN=dink-client-${name}"
+    openssl x509 -req -in "${WORKDIR}/client-${name}.csr" -CA "${CA_CERT}" -CAkey "${CA_KEY}" -CAcreateserial \
+      -out "${CERTS_DIR}/client-${name}.crt" -days 90
+  done
+
+  echo "Generated dev CA, server cert, and client certs (${CLIENT_NAMES[*]}) in ${CERTS_DIR}."
 fi

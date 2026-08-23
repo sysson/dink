@@ -1,0 +1,12 @@
+version: v2
+plugins:
+  - local: [go, tool, protoc-gen-go]
+    out: .
+    opt: paths=source_relative
+  - local: [go, tool, protoc-gen-connect-go]
+    out: .
+    opt:
+      - paths=source_relative
+      - simple
+managed:
+  enabled: true

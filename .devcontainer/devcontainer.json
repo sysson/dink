@@ -1,28 +1,37 @@
 {
     "name": "dink-dev",
-    "image": "mcr.microsoft.com/devcontainers/go:1.26-trixie",
+    "image": "mcr.microsoft.com/devcontainers/base:bullseye",
+    "runArgs": [
+        "--privileged",
+        "--device",
+        "/dev/kvm"
+    ],
     "features": {
-        "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
-            "moby": false
+        "ghcr.io/devcontainers/features/docker-in-docker:4.0.0": {
+            "enableNonRootDocker": "true",
+            "moby": "true"
+        },
+        "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
+            "version": "latest",
+            "helm": "latest",
+            "minikube": "latest"
+        },
+        "ghcr.io/devcontainers/features/go:1": {
+            "version": "latest"
         }
     },
-    "mounts": [
-        {
-            "type": "bind",
-            "source": "/var/run/docker.sock",
-            "target": "/var/run/docker.sock"
-        }
-    ],
-    "runArgs": [
-        "--add-host=host.docker.internal:host-gateway"
-    ],
+    "remoteEnv": {
+        "DINK_TLSCERTFILE": "${containerWorkspaceFolder}/.devcontainer/certs/server.crt",
+        "DINK_TLSKEYFILE": "${containerWorkspaceFolder}/.devcontainer/certs/server.key",
+        "DINK_CLIENTCAFILE": "${containerWorkspaceFolder}/.devcontainer/certs/ca.crt"
+    },
     "remoteUser": "vscode",
     "postCreateCommand": "bash .devcontainer/post-create.sh",
     "customizations": {
         "vscode": {
             "extensions": [
-                "golang.Go",
-                "ms-kubernetes-tools.vscode-kubernetes-tools"
+                "ms-kubernetes-tools.vscode-kubernetes-tools",
+                "bufbuild.vscode-buf"
             ]
         }
     }
