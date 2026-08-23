@@ -1,22 +1,20 @@
 package auth
 
 import (
-	"log/slog"
+	"fmt"
 	"net/http"
 
 	"github.com/sysson/dink/pkg/identity"
+	"github.com/sysson/dink/pkg/utils/httputils"
 	"github.com/sysson/dink/pkg/utils/ioutils"
 )
 
-func Middleware(chain *AuthChain, logger *slog.Logger) func(next http.Handler) http.Handler {
-	if logger == nil {
-		logger = slog.Default()
-	}
-	return func(next http.Handler) http.Handler {
+func Middleware(chain *AuthChain) func(next httputils.HTTPFunc) httputils.HTTPFunc {
+	return func(next httputils.HTTPFunc) httputils.HTTPFunc {
 		if chain.Len() == 0 {
 			return next
 		}
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		return func(w http.ResponseWriter, r *http.Request) error {
 			authMethod := "TLS"
 			id, ok := identity.FromContext(r.Context())
 			if !ok {
@@ -31,18 +29,17 @@ func Middleware(chain *AuthChain, logger *slog.Logger) func(next http.Handler) h
 			})
 
 			if err := authCtx.AuthZRequest(w, r); err != nil {
-				logger.Error("AuthZRequest returned error", slog.String("method", r.Method), slog.String("uri", r.RequestURI), slog.Any("error", err))
-				http.Error(w, err.Error(), http.StatusForbidden)
-				return
+				return httputils.Forbidden(fmt.Errorf("AuthZRequest returned error: %w", err))
 			}
 
 			rw := ioutils.NewResponseModifier(w)
-			next.ServeHTTP(rw, r)
-			if err := authCtx.AuthZResponse(rw, r); err != nil {
-				logger.Error("AuthZResponse returned error", slog.String("method", r.Method), slog.String("uri", r.RequestURI), slog.Any("error", err))
-				http.Error(w, err.Error(), http.StatusForbidden)
-				return
+			if err := next(rw, r); err != nil {
+				return err
 			}
-		})
+			if err := authCtx.AuthZResponse(rw, r); err != nil {
+				return httputils.Forbidden(fmt.Errorf("AuthZResponse returned error: %w", err))
+			}
+			return nil
+		}
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 )
 
@@ -15,10 +16,44 @@ var (
 	ErrHTTPForbidden      = errors.New("forbidden")
 	ErrHTTPUnauthorized   = errors.New("unauthorized")
 	ErrHTTPRequestTimeout = errors.New("request timeout")
+	ErrHTTPBadRequest     = errors.New("bad request")
 )
 
 type HTTPFunc func(w http.ResponseWriter, r *http.Request) error
 type APIVersion struct{}
+
+func HTTPHandler(handler HTTPFunc, logger *slog.Logger) http.HandlerFunc {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		err := handler(w, r)
+		if err == nil {
+			return
+		}
+		if httpErr, ok := errors.AsType[*HTTPError](err); ok {
+			logHTTPRequest(r, logger, httpErr)
+			_ = httpErr.WriteJSON(w)
+			return
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			_ = RequestTimeout(ErrHTTPRequestTimeout).WriteJSON(w)
+			return
+		}
+		logHTTPRequest(r, logger, err)
+		_ = ServerError(ErrHTTPServerError).WriteJSON(w)
+	}
+}
+
+func logHTTPRequest(r *http.Request, logger *slog.Logger, err error) {
+	if err == nil {
+		return
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.ErrorContext(r.Context(), "HTTP request error", "method", r.Method, "url", r.URL.String(), "error", err)
+}
 
 func APIVersionFromContext(ctx context.Context) string {
 	if ctx == nil {
@@ -61,26 +96,30 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("HTTP error %d: %s", e.StatusCode, e.Msg)
 }
 
-func InvalidJSON() *HTTPError {
-	return NewHTTPError(http.StatusBadRequest, ErrHTTPInvalidJSON)
+func InvalidJSON(err error) *HTTPError {
+	return NewHTTPError(http.StatusBadRequest, err)
 }
 
-func ServerError() *HTTPError {
-	return NewHTTPError(http.StatusInternalServerError, ErrHTTPServerError)
+func ServerError(err error) *HTTPError {
+	return NewHTTPError(http.StatusInternalServerError, err)
 }
 
-func NotFound() *HTTPError {
-	return NewHTTPError(http.StatusNotFound, ErrHTTPNotFound)
+func NotFound(err error) *HTTPError {
+	return NewHTTPError(http.StatusNotFound, err)
 }
 
-func Forbidden() *HTTPError {
-	return NewHTTPError(http.StatusForbidden, ErrHTTPForbidden)
+func Forbidden(err error) *HTTPError {
+	return NewHTTPError(http.StatusForbidden, err)
 }
 
-func Unauthorized() *HTTPError {
-	return NewHTTPError(http.StatusUnauthorized, ErrHTTPUnauthorized)
+func Unauthorized(err error) *HTTPError {
+	return NewHTTPError(http.StatusUnauthorized, err)
 }
 
-func RequestTimeout() *HTTPError {
-	return NewHTTPError(http.StatusRequestTimeout, ErrHTTPRequestTimeout)
+func RequestTimeout(err error) *HTTPError {
+	return NewHTTPError(http.StatusRequestTimeout, err)
+}
+
+func BadRequest(err error) *HTTPError {
+	return NewHTTPError(http.StatusBadRequest, err)
 }

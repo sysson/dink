@@ -13,11 +13,18 @@ import (
 	"github.com/sysson/dink/pkg/utils/httputils"
 )
 
-type Middleware func(next http.Handler) http.Handler
+type Middleware func(next httputils.HTTPFunc) httputils.HTTPFunc
 
 func RequestID() Middleware {
-	return func(next http.Handler) http.Handler {
-		return middleware.RequestID(next)
+	return func(next httputils.HTTPFunc) httputils.HTTPFunc {
+		return func(w http.ResponseWriter, r *http.Request) error {
+			var err error
+			handler := middleware.RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				err = next(w, r)
+			}))
+			handler.ServeHTTP(w, r)
+			return err
+		}
 	}
 }
 
@@ -25,7 +32,7 @@ func Logging(logger *slog.Logger) Middleware {
 	isDebugHeaderSet := func(r *http.Request) bool {
 		return r.Header.Get("Debug") == "reveal-body-logs"
 	}
-	return httplog.RequestLogger(logger, &httplog.Options{
+	requestLogger := httplog.RequestLogger(logger, &httplog.Options{
 		Level:         slog.LevelInfo,
 		Schema:        httplog.SchemaOTEL,
 		RecoverPanics: true,
@@ -44,10 +51,20 @@ func Logging(logger *slog.Logger) Middleware {
 			}
 		},
 	})
+	return func(next httputils.HTTPFunc) httputils.HTTPFunc {
+		return func(w http.ResponseWriter, r *http.Request) error {
+			var err error
+			handler := requestLogger(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				err = next(w, r)
+			}))
+			handler.ServeHTTP(w, r)
+			return err
+		}
+	}
 }
 func Version(serverVersion, defaultAPIVersion, minAPIVersion string) Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return func(next httputils.HTTPFunc) httputils.HTTPFunc {
+		return func(w http.ResponseWriter, r *http.Request) error {
 			w.Header().Set("Server", fmt.Sprintf("Docker/%s (%s)", serverVersion, runtime.GOOS))
 			w.Header().Set("Api-Version", defaultAPIVersion)
 			w.Header().Set("Ostype", runtime.GOOS)
@@ -56,16 +73,14 @@ func Version(serverVersion, defaultAPIVersion, minAPIVersion string) Middleware 
 				apiVersion = defaultAPIVersion
 			}
 			if versions.LessThan(apiVersion, minAPIVersion) {
-				http.Error(w, fmt.Sprintf("API version %s is not supported. Minimum supported version is %s", apiVersion, minAPIVersion), http.StatusBadRequest)
-				return
+				return httputils.BadRequest(fmt.Errorf("API version %s is not supported. Minimum supported version is %s", apiVersion, minAPIVersion))
 			}
 			if versions.GreaterThan(apiVersion, defaultAPIVersion) {
-				http.Error(w, fmt.Sprintf("API version %s is not supported. Maximum supported version is %s", apiVersion, defaultAPIVersion), http.StatusBadRequest)
-				return
+				return httputils.BadRequest(fmt.Errorf("API version %s is not supported. Maximum supported version is %s", apiVersion, defaultAPIVersion))
 			}
 			ctx := context.WithValue(r.Context(), httputils.APIVersion{}, apiVersion)
 			r = r.WithContext(ctx)
-			next.ServeHTTP(w, r)
-		})
+			return next(w, r)
+		}
 	}
 }

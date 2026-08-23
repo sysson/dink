@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/sysson/dink/pkg/utils/httputils"
 	"github.com/sysson/dink/pkg/utils/ioutils"
 	"github.com/sysson/dink/pkg/utils/tlsutils"
 	authv1 "github.com/sysson/dink/sdk/auth/v1"
@@ -62,15 +63,13 @@ func (ctx *Ctx) AuthZRequest(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	ctx.authReq = &authv1.AuthZReqRequest{
-		Request: &authv1.AuthZRequest{
-			Namespace:       ctx.Namespace,
-			User:            ctx.User,
-			UserAuthNMethod: ctx.UserAuthNMethod,
-			RequestMethod:   ctx.RequestMethod,
-			RequestURI:      ctx.RequestURI,
-			RequestBody:     body,
-			RequestHeaders:  headers(r.Header),
-		},
+		Namespace:       ctx.Namespace,
+		User:            ctx.User,
+		UserAuthNMethod: ctx.UserAuthNMethod,
+		RequestMethod:   ctx.RequestMethod,
+		RequestURI:      ctx.RequestURI,
+		RequestBody:     body,
+		RequestHeaders:  headers(r.Header),
 	}
 
 	if r.TLS != nil {
@@ -80,7 +79,7 @@ func (ctx *Ctx) AuthZRequest(w http.ResponseWriter, r *http.Request) error {
 			if err != nil {
 				return err
 			}
-			ctx.authReq.Request.RequestPeerCertificates = append(ctx.authReq.Request.RequestPeerCertificates, b)
+			ctx.authReq.RequestPeerCertificates = append(ctx.authReq.RequestPeerCertificates, b)
 		}
 	}
 
@@ -92,7 +91,7 @@ func (ctx *Ctx) AuthZRequest(w http.ResponseWriter, r *http.Request) error {
 		}
 
 		if !authRes.Allow {
-			return newAuthorizationError(plugin.name, authRes.Msg)
+			return httputils.Forbidden(fmt.Errorf("authorization denied by plugin %s: %s", plugin.name, authRes.Msg))
 		}
 	}
 
@@ -101,15 +100,21 @@ func (ctx *Ctx) AuthZRequest(w http.ResponseWriter, r *http.Request) error {
 
 func (ctx *Ctx) AuthZResponse(rm ioutils.ResponseModifier, r *http.Request) error {
 	ctx.authRes = &authv1.AuthZResRequest{
-		Request: ctx.authReq.Request,
-		Response: &authv1.AuthZResponse{
-			ResponseStatusCode: int32(rm.StatusCode()),
-			ResponseHeaders:    headers(rm.Header()),
-		},
+		Namespace:               ctx.authReq.Namespace,
+		User:                    ctx.authReq.User,
+		UserAuthNMethod:         ctx.authReq.UserAuthNMethod,
+		RequestMethod:           ctx.authReq.RequestMethod,
+		RequestURI:              ctx.authReq.RequestURI,
+		RequestBody:             ctx.authReq.RequestBody,
+		RequestHeaders:          ctx.authReq.RequestHeaders,
+		RequestPeerCertificates: ctx.authReq.RequestPeerCertificates,
+		ResponseBody:            rm.RawBody(),
+		ResponseHeaders:         headers(rm.Header()),
+		ResponseStatusCode:      int32(rm.StatusCode()),
 	}
 
 	if sendBody(ctx.RequestURI, rm.Header()) {
-		ctx.authRes.Response.ResponseBody = rm.RawBody()
+		ctx.authRes.ResponseBody = rm.RawBody()
 	}
 	for _, plugin := range ctx.plugins {
 
@@ -119,11 +124,11 @@ func (ctx *Ctx) AuthZResponse(rm ioutils.ResponseModifier, r *http.Request) erro
 		}
 
 		if !authRes.Allow {
-			return newAuthorizationError(plugin.name, authRes.Msg)
+			return httputils.Forbidden(fmt.Errorf("authorization denied by plugin %s: %s", plugin.name, authRes.Msg))
 		}
 	}
 
-	rm.FlushAll()
+	_ = rm.FlushAll()
 
 	return nil
 }
@@ -166,14 +171,4 @@ func headers(header http.Header) map[string]string {
 		}
 	}
 	return v
-}
-
-type authorizationError struct {
-	error
-}
-
-func (authorizationError) Forbidden() {}
-
-func newAuthorizationError(plugin, msg string) authorizationError {
-	return authorizationError{error: fmt.Errorf("authorization denied by plugin %s: %s", plugin, msg)}
 }

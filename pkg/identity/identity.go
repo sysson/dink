@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+
+	"github.com/sysson/dink/pkg/utils/httputils"
 )
 
 // Identity is the tenant resolved for a request. Anonymous is true when no
@@ -112,24 +114,22 @@ type MiddlewareConfig struct {
 // Middleware resolves the caller's Identity from its client certificate (if
 // any) and stores it in the request context, provisioning the tenant
 // namespace on first use unless namespace creation is disabled.
-func Middleware(cfg MiddlewareConfig) func(next http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func Middleware(cfg MiddlewareConfig) func(next httputils.HTTPFunc) httputils.HTTPFunc {
+	return func(next httputils.HTTPFunc) httputils.HTTPFunc {
+		return func(w http.ResponseWriter, r *http.Request) error {
 			id, err := Resolve(cfg.BaseNamespace, PeerCertificate(r))
 			if err != nil {
-				http.Error(w, fmt.Sprintf("resolving identity: %v", err), http.StatusForbidden)
-				return
+				return httputils.Forbidden(fmt.Errorf("resolving identity: %w", err))
 			}
 
 			if !id.Anonymous && !cfg.DisableNamespaceCreation && cfg.Ensurer != nil {
 				if err := cfg.Ensurer.EnsureNamespace(r.Context(), id.Namespace, id.Organization); err != nil {
 					cfg.Logger.ErrorContext(r.Context(), "provisioning tenant namespace", "namespace", id.Namespace, "error", err)
-					http.Error(w, "provisioning tenant namespace", http.StatusInternalServerError)
-					return
+					return httputils.ServerError(fmt.Errorf("provisioning tenant namespace: %w", err))
 				}
 			}
 
-			next.ServeHTTP(w, r.WithContext(NewContext(r.Context(), id)))
-		})
+			return next(w, r.WithContext(NewContext(r.Context(), id)))
+		}
 	}
 }

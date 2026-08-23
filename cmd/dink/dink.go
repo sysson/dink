@@ -92,7 +92,7 @@ func dink(ctx context.Context, cmd *cli.Command) error {
 		Ensurer:                  client,
 		Logger:                   logger,
 	}))
-	server.Use(auth.Middleware(authChain, logger))
+	server.Use(auth.Middleware(authChain))
 
 	router := buildRouters(translator)
 	api := server.CreateMux(ctx, router...)

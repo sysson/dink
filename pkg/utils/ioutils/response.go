@@ -112,11 +112,11 @@ func (rm *responseModifier) RawHeaders() ([]byte, error) {
 
 func (rm *responseModifier) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	rm.hijacked = true
-	rm.FlushAll()
+	_ = rm.FlushAll()
 
 	hijacker, ok := rm.rw.(http.Hijacker)
 	if !ok {
-		return nil, nil, errors.New("Internal response writer doesn't support the Hijacker interface")
+		return nil, nil, errors.New("internal response writer doesn't support the Hijacker interface")
 	}
 	return hijacker.Hijack()
 }
@@ -127,7 +127,7 @@ func (rm *responseModifier) Flush() {
 		return
 	}
 
-	rm.FlushAll()
+	_ = rm.FlushAll()
 	flusher.Flush()
 }
 

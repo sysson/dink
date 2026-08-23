@@ -51,7 +51,7 @@ func NewCancelReadCloser(ctx context.Context, in io.ReadCloser) io.ReadCloser {
 		default:
 			p.closeWithError(err)
 		}
-		in.Close()
+		_ = in.Close()
 	}()
 	go func() {
 		for {

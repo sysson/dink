@@ -9,7 +9,7 @@ service AuthPluginService {
   rpc AuthZRes(AuthZResRequest) returns (AuthZResResponse);
 }
 
-message AuthZRequest {
+message AuthZReqRequest {
   string namespace = 1;
   string user = 2;
   string user_auth_n_method = 3;
@@ -20,16 +20,6 @@ message AuthZRequest {
   repeated bytes request_peer_certificates = 8;
 }
 
-message AuthZResponse {
-  bytes response_body = 1;
-  map<string, string> response_headers = 2;
-  int32 response_status_code = 3;
-}
-
-message AuthZReqRequest {
-  AuthZRequest request = 1;
-}
-
 message AuthZReqResponse {
   bool allow = 1;
   string msg = 2;
@@ -37,8 +27,17 @@ message AuthZReqResponse {
 }
 
 message AuthZResRequest {
-  AuthZRequest request = 1;
-  AuthZResponse response = 2;
+  string namespace = 1;
+  string user = 2;
+  string user_auth_n_method = 3;
+  string request_method = 4;
+  string request_u_r_i = 5;
+  bytes request_body = 6;
+  map<string, string> request_headers = 7;
+  repeated bytes request_peer_certificates = 8;
+  bytes response_body = 9;
+  map<string, string> response_headers = 10;
+  int32 response_status_code = 11;
 }
 
 message AuthZResResponse {

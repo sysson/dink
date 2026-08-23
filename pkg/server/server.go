@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -35,7 +34,7 @@ func (s *Server) Use(m middleware.Middleware) {
 	s.middlewares = append(s.middlewares, m)
 }
 
-func (s *Server) withMiddleware(next http.Handler) http.Handler {
+func (s *Server) withMiddleware(next httputils.HTTPFunc) httputils.HTTPFunc {
 	for _, v := range slices.Backward(s.middlewares) {
 		next = v(next)
 	}
@@ -43,25 +42,7 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 }
 
 func (s *Server) makeHTTPHandler(route router.Route) http.HandlerFunc {
-	handlerFunc := func(w http.ResponseWriter, r *http.Request) {
-		err := route.Handler()(w, r)
-		if err == nil {
-			return
-		}
-		if httpErr, ok := errors.AsType[*httputils.HTTPError](err); ok {
-			s.logger.ErrorContext(r.Context(), "HTTP handler error", "error", err)
-			_ = httpErr.WriteJSON(w)
-			return
-		}
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			_ = httputils.RequestTimeout().WriteJSON(w)
-			return
-		}
-		s.logger.ErrorContext(r.Context(), "HTTP server error", "error", err)
-		_ = httputils.ServerError().WriteJSON(w)
-	}
-	handler := s.withMiddleware(http.HandlerFunc(handlerFunc))
-	return handler.ServeHTTP
+	return httputils.HTTPHandler(s.withMiddleware((route.Handler())), s.logger)
 }
 
 func (s *Server) CreateMux(ctx context.Context, routers ...router.Router) *chi.Mux {
@@ -75,7 +56,7 @@ func (s *Server) CreateMux(ctx context.Context, routers ...router.Router) *chi.M
 	}
 
 	notFoundHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = httputils.NotFound().WriteJSON(w)
+		_ = httputils.NotFound(httputils.ErrHTTPNotFound).WriteJSON(w)
 	})
 	r.HandleFunc(versionMatcher+"/*", notFoundHandler)
 	r.NotFound(notFoundHandler)
