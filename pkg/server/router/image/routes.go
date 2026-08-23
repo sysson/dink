@@ -1,43 +1,51 @@
 package image
 
-import "github.com/sysson/dink/pkg/server/router"
+import "net/http"
 
-type imageRouter struct {
-	translator Translator
-	searcher   Searcher
-	routes     []router.Route
+func (ir *imageRouter) getImagesJSON(w http.ResponseWriter, r *http.Request) error {
+	return nil
 }
 
-func New(translator Translator, searcher Searcher) router.Router {
-	ir := &imageRouter{
-		translator: translator,
-		searcher:   searcher,
-		routes:     []router.Route{},
-	}
-	ir.initRoutes()
-	return ir
+func (ir *imageRouter) getImagesSearch(w http.ResponseWriter, r *http.Request) error {
+	return nil
 }
 
-func (ir *imageRouter) Routes() []router.Route {
-	return ir.routes
+func (ir *imageRouter) getImagesGet(w http.ResponseWriter, r *http.Request) error {
+	return nil
 }
-func (ir *imageRouter) initRoutes() {
-	ir.routes = []router.Route{
-		// GET
-		router.NewGetRoute("/images/json", ir.getImagesJSON),
-		router.NewGetRoute("/images/search", ir.getImagesSearch),
-		router.NewGetRoute("/images/get", ir.getImagesGet),
-		router.NewGetRoute("/images/{name:.*}/get", ir.getImagesGet),
-		router.NewGetRoute("/images/{name:.*}/history", ir.getImagesHistory),
-		router.NewGetRoute("/images/{name:.*}/json", ir.getImagesByName),
-		router.NewGetRoute("/images/{name:.*}/attestations", ir.getImageAttestations, router.WithMinAPIVersion("1.55")),
-		// POST
-		router.NewPostRoute("/images/load", ir.postImagesLoad),
-		router.NewPostRoute("/images/create", ir.postImagesCreate),
-		router.NewPostRoute("/images/{name:.*}/push", ir.postImagesPush),
-		router.NewPostRoute("/images/{name:.*}/tag", ir.postImagesTag),
-		router.NewPostRoute("/images/prune", ir.postImagesPrune, router.WithMinAPIVersion("1.25")),
-		// DELETE
-		router.NewDeleteRoute("/images/{name:.*}", ir.deleteImages),
-	}
+
+func (ir *imageRouter) getImagesHistory(w http.ResponseWriter, r *http.Request) error {
+	return nil
+}
+
+func (ir *imageRouter) getImagesByName(w http.ResponseWriter, r *http.Request) error {
+	return nil
+}
+
+func (ir *imageRouter) getImageAttestations(w http.ResponseWriter, r *http.Request) error {
+	return nil
+}
+
+func (ir *imageRouter) postImagesLoad(w http.ResponseWriter, r *http.Request) error {
+	return nil
+}
+
+func (ir *imageRouter) postImagesCreate(w http.ResponseWriter, r *http.Request) error {
+	return nil
+}
+
+func (ir *imageRouter) postImagesPush(w http.ResponseWriter, r *http.Request) error {
+	return nil
+}
+
+func (ir *imageRouter) postImagesTag(w http.ResponseWriter, r *http.Request) error {
+	return nil
+}
+
+func (ir *imageRouter) postImagesPrune(w http.ResponseWriter, r *http.Request) error {
+	return nil
+}
+
+func (ir *imageRouter) deleteImages(w http.ResponseWriter, r *http.Request) error {
+	return nil
 }

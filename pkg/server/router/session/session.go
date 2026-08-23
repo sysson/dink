@@ -7,7 +7,7 @@ type sessionRouter struct {
 	routes     []router.Route
 }
 
-func NewRouter(t Translator) router.Router {
+func New(t Translator) router.Router {
 	r := &sessionRouter{
 		translator: t,
 	}

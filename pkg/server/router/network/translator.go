@@ -11,10 +11,10 @@ type Translator interface {
 }
 
 type ClusterTranslator interface {
-	GetClusterNetworks()
-	GetClusterNetworkSummaries()
-	GetClusterNetwork()
-	GetClusterNetworksByName()
-	CreateClusterNetwork()
-	RemoveClusterNetwork()
+	GetNetworks()
+	GetNetworkSummaries()
+	GetNetwork()
+	GetNetworksByName()
+	CreateNetwork()
+	RemoveNetwork()
 }

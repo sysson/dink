@@ -1,125 +1,125 @@
 package translator
 
-func (t *Translator) ContainerExecCreate() {
+func (d *Docker) ContainerExecCreate() {
 
 }
 
-func (t *Translator) ContainerExecInspect() {
+func (d *Docker) ContainerExecInspect() {
 
 }
 
-func (t *Translator) ContainerExecResize() {
+func (d *Docker) ContainerExecResize() {
 
 }
 
-func (t *Translator) ContainerExecStart() {
+func (d *Docker) ContainerExecStart() {
 
 }
 
-func (t *Translator) ExecExists() {
+func (d *Docker) ExecExists() {
 
 }
 
-func (t *Translator) ContainerArchivePath() {
+func (d *Docker) ContainerArchivePath() {
 
 }
 
-func (t *Translator) ContainerExport() {
+func (d *Docker) ContainerExport() {
 
 }
 
-func (t *Translator) ContainerExtractToDir() {
+func (d *Docker) ContainerExtractToDir() {
 
 }
 
-func (t *Translator) ContainerStatPath() {
+func (d *Docker) ContainerStatPath() {
 
 }
 
-func (t *Translator) ContainerCreate() {
+func (d *Docker) ContainerCreate() {
 
 }
 
-func (t *Translator) ContainerKill() {
+func (d *Docker) ContainerKill() {
 
 }
 
-func (t *Translator) ContainerPause() {
+func (d *Docker) ContainerPause() {
 
 }
 
-func (t *Translator) ContainerRename() {
+func (d *Docker) ContainerRename() {
 
 }
 
-func (t *Translator) ContainerResize() {
+func (d *Docker) ContainerResize() {
 
 }
 
-func (t *Translator) ContainerRestart() {
+func (d *Docker) ContainerRestart() {
 
 }
 
-func (t *Translator) ContainerRm() {
+func (d *Docker) ContainerRm() {
 
 }
 
-func (t *Translator) ContainerStart() {
+func (d *Docker) ContainerStart() {
 
 }
 
-func (t *Translator) ContainerStop() {
+func (d *Docker) ContainerStop() {
 
 }
 
-func (t *Translator) ContainerUnpause() {
+func (d *Docker) ContainerUnpause() {
 
 }
 
-func (t *Translator) ContainerUpdate() {
+func (d *Docker) ContainerUpdate() {
 
 }
 
-func (t *Translator) ContainerWait() {
+func (d *Docker) ContainerWait() {
 
 }
 
-func (t *Translator) ContainerAttach() {
+func (d *Docker) ContainerAttach() {
 
 }
 
-func (t *Translator) ContainerChanges() {
+func (d *Docker) ContainerChanges() {
 
 }
 
-func (t *Translator) ContainerInspect() {
+func (d *Docker) ContainerInspect() {
 
 }
 
-func (t *Translator) ContainerLogs() {
+func (d *Docker) ContainerLogs() {
 
 }
 
-func (t *Translator) ContainerStats() {
+func (d *Docker) ContainerStats() {
 
 }
 
-func (t *Translator) ContainerTop() {
+func (d *Docker) ContainerTop() {
 
 }
 
-func (t *Translator) Containers() {
+func (d *Docker) Containers() {
 
 }
 
-func (t *Translator) ContainerPrune() {
+func (d *Docker) ContainerPrune() {
 
 }
 
-func (t *Translator) CreateImageFromContainer() {
+func (d *Docker) CreateImageFromContainer() {
 
 }
 
-func (t *Translator) RawSysInfo() {
+func (d *Docker) RawSysInfo() {
 
 }

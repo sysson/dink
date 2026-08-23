@@ -1,4 +1,4 @@
 package translator
 
-func (t *Translator) GetRepositories() {
+func (d *Docker) GetRepositories() {
 }

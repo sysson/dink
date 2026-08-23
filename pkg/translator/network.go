@@ -1,16 +1,16 @@
 package translator
 
-func (t *Translator) GetNetworks()                    {}
-func (t *Translator) GetNetworkSummaries()            {}
-func (t *Translator) CreateNetwork()                  {}
-func (t *Translator) ConnectContainerToNetwork()      {}
-func (t *Translator) DisconnectContainerFromNetwork() {}
-func (t *Translator) DeleteNetwork()                  {}
-func (t *Translator) NetworkPrune()                   {}
+func (d *Docker) GetNetworks()                    {}
+func (d *Docker) GetNetworkSummaries()            {}
+func (d *Docker) CreateNetwork()                  {}
+func (d *Docker) ConnectContainerToNetwork()      {}
+func (d *Docker) DisconnectContainerFromNetwork() {}
+func (d *Docker) DeleteNetwork()                  {}
+func (d *Docker) NetworkPrune()                   {}
 
-func (t *Translator) GetClusterNetworks()         {}
-func (t *Translator) GetClusterNetworkSummaries() {}
-func (t *Translator) GetClusterNetwork()          {}
-func (t *Translator) GetClusterNetworksByName()   {}
-func (t *Translator) CreateClusterNetwork()       {}
-func (t *Translator) RemoveClusterNetwork()       {}
+func (c *Cluster) GetNetworks()         {}
+func (c *Cluster) GetNetworkSummaries() {}
+func (c *Cluster) GetNetwork()          {}
+func (c *Cluster) GetNetworksByName()   {}
+func (c *Cluster) CreateNetwork()       {}
+func (c *Cluster) RemoveNetwork()       {}

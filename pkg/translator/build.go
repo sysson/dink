@@ -1,7 +1,7 @@
 package translator
 
-func (t *Translator) Build() {}
+func (b *Builder) Build() {}
 
-func (t *Translator) PruneCache() {}
+func (b *Builder) PruneCache() {}
 
-func (t *Translator) Cancel() {}
+func (b *Builder) Cancel() {}

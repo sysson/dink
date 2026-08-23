@@ -1,10 +1,10 @@
 package translator
 
-func (t *Translator) CheckpointCreate() {
+func (d *Docker) CheckpointCreate() {
 }
 
-func (t *Translator) CheckpointDelete() {
+func (d *Docker) CheckpointDelete() {
 }
 
-func (t *Translator) CheckpointList() {
+func (d *Docker) CheckpointList() {
 }

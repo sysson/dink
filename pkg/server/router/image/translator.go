@@ -1,51 +1,33 @@
 package image
 
-import "net/http"
-
-func (ir *imageRouter) getImagesJSON(w http.ResponseWriter, r *http.Request) error {
-	return nil
+type Translator interface {
+	imageTranslator
+	importExportTranslator
+	registryTranslator
 }
 
-func (ir *imageRouter) getImagesSearch(w http.ResponseWriter, r *http.Request) error {
-	return nil
+type imageTranslator interface {
+	ImageDelete()
+	ImageHistory()
+	Images()
+	GetImage()
+	ImageInspect()
+	ImageAttestations()
+	TagImage()
+	ImagePrune()
 }
 
-func (ir *imageRouter) getImagesGet(w http.ResponseWriter, r *http.Request) error {
-	return nil
+type importExportTranslator interface {
+	LoadImage()
+	ImportImage()
+	ExportImage()
 }
 
-func (ir *imageRouter) getImagesHistory(w http.ResponseWriter, r *http.Request) error {
-	return nil
+type registryTranslator interface {
+	PullImage()
+	PushImage()
 }
 
-func (ir *imageRouter) getImagesByName(w http.ResponseWriter, r *http.Request) error {
-	return nil
-}
-
-func (ir *imageRouter) getImageAttestations(w http.ResponseWriter, r *http.Request) error {
-	return nil
-}
-
-func (ir *imageRouter) postImagesLoad(w http.ResponseWriter, r *http.Request) error {
-	return nil
-}
-
-func (ir *imageRouter) postImagesCreate(w http.ResponseWriter, r *http.Request) error {
-	return nil
-}
-
-func (ir *imageRouter) postImagesPush(w http.ResponseWriter, r *http.Request) error {
-	return nil
-}
-
-func (ir *imageRouter) postImagesTag(w http.ResponseWriter, r *http.Request) error {
-	return nil
-}
-
-func (ir *imageRouter) postImagesPrune(w http.ResponseWriter, r *http.Request) error {
-	return nil
-}
-
-func (ir *imageRouter) deleteImages(w http.ResponseWriter, r *http.Request) error {
-	return nil
+type Searcher interface {
+	Search()
 }
