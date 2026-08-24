@@ -15,8 +15,6 @@ const (
 	defaultControlServiceAccount = "dink"
 )
 
-// EnsureControlPlane ensures Lumine's control namespace and service account
-// exist before serving traffic.
 func (kc *KubeClient) ensureControlPlane(ctx context.Context) error {
 	if err := kc.EnsureNamespace(ctx, kc.SystemNamespace(), kc.serviceAccountName); err != nil {
 		return err

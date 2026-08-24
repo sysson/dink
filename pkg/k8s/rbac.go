@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	tenantRoleName        = "dink-tenant"
-	tenantRoleBindingName = "dink-tenant"
+	controlPlaneRoleName        = "dink-control-plane"
+	controlPlaneRoleBindingName = "dink-control-plane"
 )
 
 func (kc *KubeClient) EnsureRBAC(ctx context.Context, namespace string) error {
@@ -23,7 +23,7 @@ func (kc *KubeClient) EnsureRBAC(ctx context.Context, namespace string) error {
 
 func (kc *KubeClient) ensureRole(ctx context.Context, namespace string) error {
 	role := &rbacv1.Role{
-		Name:      tenantRoleName,
+		Name:      controlPlaneRoleName,
 		Namespace: namespace,
 		Labels: map[string]string{
 			"app.kubernetes.io/managed-by": kc.serviceAccountName,
@@ -75,14 +75,14 @@ func (kc *KubeClient) ensureRole(ctx context.Context, namespace string) error {
 
 	_, err := kc.client.RbacV1().Roles(namespace).Create(ctx, role, metav1.CreateOptions{})
 	if err != nil && !k8serrors.IsAlreadyExists(err) {
-		return fmt.Errorf("creating role %q in namespace %q: %w", tenantRoleName, namespace, err)
+		return fmt.Errorf("creating role %q in namespace %q: %w", controlPlaneRoleName, namespace, err)
 	}
 	return nil
 }
 
 func (kc *KubeClient) ensureRoleBinding(ctx context.Context, namespace string) error {
 	rb := &rbacv1.RoleBinding{
-		Name:      tenantRoleBindingName,
+		Name:      controlPlaneRoleBindingName,
 		Namespace: namespace,
 		Labels: map[string]string{
 			"app.kubernetes.io/managed-by": kc.serviceAccountName,
@@ -91,7 +91,7 @@ func (kc *KubeClient) ensureRoleBinding(ctx context.Context, namespace string) e
 		RoleRef: rbacv1.RoleRef{
 			APIGroup: "rbac.authorization.k8s.io",
 			Kind:     "Role",
-			Name:     tenantRoleName,
+			Name:     controlPlaneRoleName,
 		},
 		Subjects: []rbacv1.Subject{
 			{
@@ -104,7 +104,7 @@ func (kc *KubeClient) ensureRoleBinding(ctx context.Context, namespace string) e
 
 	_, err := kc.client.RbacV1().RoleBindings(namespace).Create(ctx, rb, metav1.CreateOptions{})
 	if err != nil && !k8serrors.IsAlreadyExists(err) {
-		return fmt.Errorf("creating rolebinding %q in namespace %q: %w", tenantRoleBindingName, namespace, err)
+		return fmt.Errorf("creating rolebinding %q in namespace %q: %w", controlPlaneRoleBindingName, namespace, err)
 	}
 	return nil
 }
