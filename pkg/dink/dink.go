@@ -23,7 +23,6 @@ import (
 	"github.com/sysson/dink/pkg/server/middleware"
 	"github.com/sysson/dink/pkg/translator"
 	"github.com/sysson/dink/pkg/utils/tlsutils"
-	"github.com/urfave/cli/v3"
 	"google.golang.org/grpc"
 )
 
@@ -34,13 +33,7 @@ type Dink struct {
 	handler   *httpHandler
 }
 
-func Init(ctx context.Context, cmd *cli.Command) (*Dink, error) {
-
-	cfg := config.NewConfig()
-	err := cfg.SetEffectiveConfig(cmd)
-	if err != nil {
-		return nil, fmt.Errorf("unable to set config :%w", err)
-	}
+func Init(ctx context.Context, cfg *config.Config) (*Dink, error) {
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -134,8 +127,7 @@ func (d *Dink) Run(ctx context.Context) error {
 		}
 	}
 
-	plainServer := newServer(":"+d.cfg.Port, d.handler, true, true)
-	servers := []*http.Server{plainServer}
+	servers := []*http.Server{}
 
 	serveServer := func(server *http.Server, serve func() error) {
 		go func() {
@@ -146,8 +138,16 @@ func (d *Dink) Run(ctx context.Context) error {
 		}()
 	}
 
-	d.logger.InfoContext(ctx, "Starting plaintext server", "addr", plainServer.Addr)
-	serveServer(plainServer, plainServer.ListenAndServe)
+	startPlaintext := d.cfg.DisableTLS || d.tlsConfig == nil || d.cfg.AllowPlaintextWithTLS
+	if startPlaintext {
+		plainServer := newServer(":"+d.cfg.Port, d.handler, true, true)
+		servers = append(servers, plainServer)
+
+		d.logger.InfoContext(ctx, "Starting plaintext server", "addr", plainServer.Addr)
+		serveServer(plainServer, plainServer.ListenAndServe)
+	} else {
+		d.logger.InfoContext(ctx, "Plaintext listener disabled while TLS is enabled")
+	}
 
 	if d.tlsConfig != nil {
 		tlsServer := newServer(":"+d.cfg.TLSPort, d.handler, true, false)
