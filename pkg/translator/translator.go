@@ -5,7 +5,7 @@ import "github.com/sysson/dink/pkg/k8s"
 type Translator struct {
 	k8s     *k8s.KubeClient
 	docker  Docker
-	cluster Cluster
+	swarm   Swarm
 	builder Builder
 }
 
@@ -13,7 +13,7 @@ type Docker struct {
 	k8s *k8s.KubeClient
 }
 
-type Cluster struct {
+type Swarm struct {
 	k8s *k8s.KubeClient
 }
 
@@ -27,7 +27,7 @@ func New(k *k8s.KubeClient) *Translator {
 		docker: Docker{
 			k8s: k,
 		},
-		cluster: Cluster{
+		swarm: Swarm{
 			k8s: k,
 		},
 		builder: Builder{
@@ -40,8 +40,8 @@ func (t *Translator) Docker() *Docker {
 	return &t.docker
 }
 
-func (t *Translator) Cluster() *Cluster {
-	return &t.cluster
+func (t *Translator) Swarm() *Swarm {
+	return &t.swarm
 }
 
 func (t *Translator) Builder() *Builder {

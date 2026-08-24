@@ -15,20 +15,20 @@ func (d *Docker) RemoveVolume() {
 func (d *Docker) PruneVolumes() {
 }
 
-func (c *Cluster) GetVolume() {
+func (s *Swarm) GetVolume() {
 }
 
-func (c *Cluster) GetVolumes() {
+func (s *Swarm) GetVolumes() {
 }
 
-func (c *Cluster) CreateVolume() {
+func (s *Swarm) CreateVolume() {
 }
 
-func (c *Cluster) RemoveVolume() {
+func (s *Swarm) RemoveVolume() {
 }
 
-func (c *Cluster) UpdateVolume() {
+func (s *Swarm) UpdateVolume() {
 }
 
-func (c *Cluster) IsManager() {
+func (s *Swarm) IsManager() {
 }

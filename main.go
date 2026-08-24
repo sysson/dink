@@ -5,11 +5,18 @@ import (
 	"log"
 	"os"
 
-	"github.com/sysson/dink/cmd/dink"
+	"github.com/sysson/dink/cmd/health"
+	"github.com/sysson/dink/cmd/root"
+	"github.com/sysson/dink/cmd/version"
 )
 
 func main() {
-	if err := dink.RootCmd().Run(context.Background(), os.Args); err != nil {
+	cmd := root.Cmd()
+
+	cmd.Commands = append(cmd.Commands, version.Cmd())
+	cmd.Commands = append(cmd.Commands, health.Cmd())
+
+	if err := cmd.Run(context.Background(), os.Args); err != nil {
 		log.Fatal(err)
 	}
 }

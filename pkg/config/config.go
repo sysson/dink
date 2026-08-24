@@ -13,6 +13,7 @@ import (
 
 type Config struct {
 	LogLevel                 string       `json:"logLevel"`
+	AccessLogLevel           string       `json:"accessLogLevel"`
 	ServerVersion            string       `json:"serverVersion"`
 	MinAPIVersion            string       `json:"minAPIVersion"`
 	APIVersion               string       `json:"apiVersion"`
@@ -40,13 +41,14 @@ type AuthPlugin struct {
 func NewConfig() *Config {
 	return &Config{
 		LogLevel:                 "info",
+		AccessLogLevel:           "error",
 		ServerVersion:            "v1.0.0",
-		MinAPIVersion:            "v1.40",
-		APIVersion:               "v1.55",
+		MinAPIVersion:            "1.40",
+		APIVersion:               "1.55",
 		KubeConfigPath:           "",
 		Namespace:                "dink",
 		Port:                     "2375",
-		TLSPort:                  "2776",
+		TLSPort:                  "2376",
 		DisableTLS:               false,
 		MinTLSVersion:            "1.2",
 		DisableNamespaceCreation: false,

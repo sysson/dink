@@ -28,11 +28,11 @@ func buildRouters(t *translator.Translator) []router.Router {
 		distribution.New(t.Docker()),
 		grpc.New(t.Docker()),
 		image.New(t.Docker(), t.Docker()),
-		network.New(t.Docker(), t.Cluster()),
+		network.New(t.Docker(), t.Swarm()),
 		plugin.New(t.Docker()),
 		session.New(t.Docker()),
-		swarm.New(t.Cluster()),
-		system.New(t.Docker(), t.Cluster(), t.Builder(), func() map[string]bool { return map[string]bool{} }),
-		volume.New(t.Docker(), t.Cluster()),
+		swarm.New(t.Swarm()),
+		system.New(t.Docker(), t.Swarm(), t.Builder(), func() map[string]bool { return map[string]bool{} }),
+		volume.New(t.Docker(), t.Swarm()),
 	}
 }

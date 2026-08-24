@@ -10,7 +10,6 @@ import (
 )
 
 var (
-	ErrHTTPInvalidJSON    = errors.New("invalid JSON")
 	ErrHTTPServerError    = errors.New("internal server error")
 	ErrHTTPNotFound       = errors.New("not found")
 	ErrHTTPForbidden      = errors.New("forbidden")
@@ -19,40 +18,32 @@ var (
 	ErrHTTPBadRequest     = errors.New("bad request")
 )
 
+const statusClientClosedRequest = 499
+
 type HTTPFunc func(w http.ResponseWriter, r *http.Request) error
 type APIVersion struct{}
 
 func HTTPHandler(handler HTTPFunc, logger *slog.Logger) http.HandlerFunc {
-	if logger == nil {
-		logger = slog.Default()
-	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		err := handler(w, r)
 		if err == nil {
 			return
 		}
+		if r.Context().Err() != nil {
+			logger.InfoContext(r.Context(), "request cancelled by client", "method", r.Method, "url", r.URL.String(), "error", err)
+			_ = NewHTTPError(statusClientClosedRequest, r.Context().Err()).WriteJSON(w)
+			return
+		}
 		if httpErr, ok := errors.AsType[*HTTPError](err); ok {
-			logHTTPRequest(r, logger, httpErr)
 			_ = httpErr.WriteJSON(w)
+			if httpErr.StatusCode >= 500 {
+				logger.ErrorContext(r.Context(), "Handler returned error", "method", r.Method, "url", r.URL.String(), "error", err)
+			}
 			return
 		}
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			_ = RequestTimeout(ErrHTTPRequestTimeout).WriteJSON(w)
-			return
-		}
-		logHTTPRequest(r, logger, err)
+		logger.ErrorContext(r.Context(), "server error", "method", r.Method, "url", r.URL.String(), "error", err)
 		_ = ServerError(ErrHTTPServerError).WriteJSON(w)
 	}
-}
-
-func logHTTPRequest(r *http.Request, logger *slog.Logger, err error) {
-	if err == nil {
-		return
-	}
-	if logger == nil {
-		logger = slog.Default()
-	}
-	logger.ErrorContext(r.Context(), "HTTP request error", "method", r.Method, "url", r.URL.String(), "error", err)
 }
 
 func APIVersionFromContext(ctx context.Context) string {
@@ -94,10 +85,6 @@ func NewHTTPError(statusCode int, err error) *HTTPError {
 
 func (e *HTTPError) Error() string {
 	return fmt.Sprintf("HTTP error %d: %s", e.StatusCode, e.Msg)
-}
-
-func InvalidJSON(err error) *HTTPError {
-	return NewHTTPError(http.StatusBadRequest, err)
 }
 
 func ServerError(err error) *HTTPError {

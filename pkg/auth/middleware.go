@@ -33,13 +33,12 @@ func Middleware(chain *AuthChain) func(next httputils.HTTPFunc) httputils.HTTPFu
 			}
 
 			rw := ioutils.NewResponseModifier(w)
-			if err := next(rw, r); err != nil {
-				return err
-			}
+			errH := next(rw, r)
+
 			if err := authCtx.AuthZResponse(rw, r); err != nil {
 				return httputils.Forbidden(fmt.Errorf("AuthZResponse returned error: %w", err))
 			}
-			return nil
+			return errH
 		}
 	}
 }

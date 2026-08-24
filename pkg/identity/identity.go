@@ -1,4 +1,3 @@
-// Package identity resolves the tenant an incoming request belongs to.
 package identity
 
 import (
@@ -13,9 +12,6 @@ import (
 	"github.com/sysson/dink/pkg/utils/httputils"
 )
 
-// Identity is the tenant resolved for a request. Anonymous is true when no
-// client certificate was presented, in which case Namespace is the base
-// namespace rather than a derived per-tenant one.
 type Identity struct {
 	Namespace    string
 	Organization string
@@ -23,8 +19,6 @@ type Identity struct {
 	Anonymous    bool
 }
 
-// reserved holds namespace suffixes that must never be produced by cert
-// input, since they could collide with cluster or dink control namespaces.
 var reserved = map[string]bool{
 	"system":          true,
 	"default":         true,
@@ -37,9 +31,6 @@ var invalidLabelChars = regexp.MustCompile(`[^a-z0-9-]+`)
 
 const maxNamespaceLength = 63
 
-// Resolve derives the tenant identity for base namespace, from the
-// Organization of a verified mTLS client certificate. A nil cert (plain TLS
-// or plaintext) resolves to the anonymous identity in the base namespace.
 func Resolve(base string, cert *x509.Certificate) (Identity, error) {
 	if cert == nil || len(cert.Subject.Organization) == 0 || cert.Subject.Organization[0] == "" {
 		id := Identity{Namespace: base, Anonymous: true}
@@ -73,19 +64,11 @@ func sanitize(org string) string {
 
 type contextKey struct{}
 
-// NewContext returns a copy of ctx carrying id.
-func NewContext(ctx context.Context, id Identity) context.Context {
-	return context.WithValue(ctx, contextKey{}, id)
-}
-
-// FromContext returns the Identity previously stored with NewContext.
 func FromContext(ctx context.Context) (Identity, bool) {
 	id, ok := ctx.Value(contextKey{}).(Identity)
 	return id, ok
 }
 
-// PeerCertificate returns the verified client certificate presented on r's
-// TLS connection, or nil if the request wasn't made over mTLS.
 func PeerCertificate(r *http.Request) *x509.Certificate {
 	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
 		return nil
@@ -93,27 +76,17 @@ func PeerCertificate(r *http.Request) *x509.Certificate {
 	return r.TLS.PeerCertificates[0]
 }
 
-// NamespaceEnsurer provisions a tenant namespace (and its RBAC) on first use.
 type NamespaceEnsurer interface {
 	EnsureNamespace(ctx context.Context, namespace, owner string) error
 }
 
-// MiddlewareConfig controls how per-request tenant identity is resolved from
-// mTLS client certificates.
 type MiddlewareConfig struct {
-	// BaseNamespace is the namespace used for anonymous (non-mTLS) requests,
-	// and the prefix tenant namespaces are derived from.
-	BaseNamespace string
-	// DisableNamespaceCreation requires a tenant's namespace to already
-	// exist instead of provisioning it on first use.
+	BaseNamespace            string
 	DisableNamespaceCreation bool
 	Ensurer                  NamespaceEnsurer
 	Logger                   *slog.Logger
 }
 
-// Middleware resolves the caller's Identity from its client certificate (if
-// any) and stores it in the request context, provisioning the tenant
-// namespace on first use unless namespace creation is disabled.
 func Middleware(cfg MiddlewareConfig) func(next httputils.HTTPFunc) httputils.HTTPFunc {
 	return func(next httputils.HTTPFunc) httputils.HTTPFunc {
 		return func(w http.ResponseWriter, r *http.Request) error {
@@ -129,7 +102,7 @@ func Middleware(cfg MiddlewareConfig) func(next httputils.HTTPFunc) httputils.HT
 				}
 			}
 
-			return next(w, r.WithContext(NewContext(r.Context(), id)))
+			return next(w, r.WithContext(context.WithValue(r.Context(), contextKey{}, id)))
 		}
 	}
 }

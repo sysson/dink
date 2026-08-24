@@ -51,6 +51,10 @@ func New(ctx context.Context, opts *Options) (*KubeClient, error) {
 		return nil, fmt.Errorf("unable to create Kubernetes client: %w", err)
 	}
 
+	if _, err := client.Discovery().ServerVersion(); err != nil {
+		return nil, fmt.Errorf("unable to reach Kubernetes API server: %w", err)
+	}
+
 	metricsClient, err := versioned.NewForConfig(restConfig)
 	if err != nil {
 		metricsClient = nil

@@ -28,12 +28,12 @@ func RequestID() Middleware {
 	}
 }
 
-func Logging(logger *slog.Logger) Middleware {
+func Logging(logger *slog.Logger, level slog.Level) Middleware {
 	isDebugHeaderSet := func(r *http.Request) bool {
 		return r.Header.Get("Debug") == "reveal-body-logs"
 	}
 	requestLogger := httplog.RequestLogger(logger, &httplog.Options{
-		Level:         slog.LevelInfo,
+		Level:         level,
 		Schema:        httplog.SchemaOTEL,
 		RecoverPanics: true,
 		Skip: func(req *http.Request, respStatus int) bool {

@@ -18,7 +18,7 @@ func (d *Docker) UnsubscribeFromEvents() {
 func (d *Docker) AuthenticateToRegistry() {
 }
 
-func (c *Cluster) Info() {
+func (s *Swarm) Info() {
 }
 
 func (b *Builder) DiskUsage() {

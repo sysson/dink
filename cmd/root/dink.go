@@ -1,18 +1,19 @@
-package dink
+package root
 
 import (
-	"github.com/sysson/dink/cmd/health"
+	"context"
+
 	"github.com/sysson/dink/cmd/version"
+	"github.com/sysson/dink/pkg/dink"
 	"github.com/urfave/cli/v3"
 )
 
-func RootCmd() *cli.Command {
-
-	cmd := &cli.Command{
+func Cmd() *cli.Command {
+	return &cli.Command{
 		Name:    "dink",
 		Usage:   "A Kubernetes API compatibility proxy",
 		Version: version.GetVersion(),
-		Action:  dink,
+		Action:  dinkAction,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:  "config",
@@ -21,7 +22,12 @@ func RootCmd() *cli.Command {
 			},
 		},
 	}
-	cmd.Commands = append(cmd.Commands, version.Cmd())
-	cmd.Commands = append(cmd.Commands, health.Cmd())
-	return cmd
+}
+
+func dinkAction(ctx context.Context, cmd *cli.Command) error {
+	svr, err := dink.Init(ctx, cmd)
+	if err != nil {
+		return err
+	}
+	return svr.Run(ctx)
 }
