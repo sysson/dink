@@ -34,10 +34,10 @@ func HTTPHandler(handler HTTPFunc, logger *slog.Logger) http.HandlerFunc {
 			_ = NewHTTPError(statusClientClosedRequest, r.Context().Err()).WriteJSON(w)
 			return
 		}
-		if httpErr, ok := errors.AsType[*HTTPError](err); ok {
-			_ = httpErr.WriteJSON(w)
-			if httpErr.StatusCode >= 500 {
-				logger.ErrorContext(r.Context(), "Handler returned error", "method", r.Method, "url", r.URL.String(), "error", err)
+		if httpResp, ok := errors.AsType[*HTTPResponse](err); ok {
+			_ = httpResp.WriteJSON(w)
+			if httpResp.StatusCode >= 500 {
+				logger.ErrorContext(r.Context(), "handler returned error", "method", r.Method, "url", r.URL.String(), "error", httpResp.Unwrap().Error())
 			}
 			return
 		}
@@ -58,55 +58,59 @@ func APIVersionFromContext(ctx context.Context) string {
 	return ""
 }
 
-type HTTPError struct {
+type HTTPResponse struct {
 	StatusCode int
-	Msg        string
+	Msg        any
 }
 
-func (e *HTTPError) WriteJSON(w http.ResponseWriter) error {
+func (e *HTTPResponse) WriteJSON(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(e.StatusCode)
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
-
-	type errorResponse struct {
-		Message string `json:"message"`
+	if err, ok := e.Msg.(error); ok {
+		return enc.Encode(struct {
+			Message string `json:"message"`
+		}{Message: err.Error()})
 	}
-
-	return enc.Encode(errorResponse{Message: e.Msg})
+	return enc.Encode(e.Msg)
 }
 
-func NewHTTPError(statusCode int, err error) *HTTPError {
-	return &HTTPError{
+func NewHTTPError(statusCode int, err error) *HTTPResponse {
+	return &HTTPResponse{
 		StatusCode: statusCode,
-		Msg:        err.Error(),
+		Msg:        err,
 	}
 }
 
-func (e *HTTPError) Error() string {
-	return fmt.Sprintf("HTTP error %d: %s", e.StatusCode, e.Msg)
+func (e *HTTPResponse) Unwrap() error {
+	return e.Msg.(error)
 }
 
-func ServerError(err error) *HTTPError {
+func (e *HTTPResponse) Error() string {
+	return fmt.Sprintf("HTTP error %d: %s", e.StatusCode, e.Msg.(error).Error())
+}
+
+func ServerError(err error) *HTTPResponse {
 	return NewHTTPError(http.StatusInternalServerError, err)
 }
 
-func NotFound(err error) *HTTPError {
+func NotFound(err error) *HTTPResponse {
 	return NewHTTPError(http.StatusNotFound, err)
 }
 
-func Forbidden(err error) *HTTPError {
+func Forbidden(err error) *HTTPResponse {
 	return NewHTTPError(http.StatusForbidden, err)
 }
 
-func Unauthorized(err error) *HTTPError {
+func Unauthorized(err error) *HTTPResponse {
 	return NewHTTPError(http.StatusUnauthorized, err)
 }
 
-func RequestTimeout(err error) *HTTPError {
+func RequestTimeout(err error) *HTTPResponse {
 	return NewHTTPError(http.StatusRequestTimeout, err)
 }
 
-func BadRequest(err error) *HTTPError {
+func BadRequest(err error) *HTTPResponse {
 	return NewHTTPError(http.StatusBadRequest, err)
 }

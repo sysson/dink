@@ -3,19 +3,19 @@ package system
 import "github.com/sysson/dink/pkg/server/router"
 
 type systemRouter struct {
-	backend  Translator
-	cluster  ClusterTranslator
-	routes   []router.Route
-	builder  BuildTranslator
-	features func() map[string]bool
+	translator Translator
+	cluster    ClusterTranslator
+	routes     []router.Route
+	builder    BuildTranslator
+	features   func() map[string]bool
 }
 
 func New(t Translator, c ClusterTranslator, builder BuildTranslator, features func() map[string]bool) router.Router {
 	r := &systemRouter{
-		backend:  t,
-		cluster:  c,
-		builder:  builder,
-		features: features,
+		translator: t,
+		cluster:    c,
+		builder:    builder,
+		features:   features,
 	}
 
 	r.routes = []router.Route{

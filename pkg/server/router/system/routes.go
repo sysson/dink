@@ -1,6 +1,10 @@
 package system
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/sysson/dink/pkg/utils/httputils"
+)
 
 func optionsHandler(w http.ResponseWriter, r *http.Request) error {
 	w.WriteHeader(http.StatusOK)
@@ -29,7 +33,15 @@ func (s *systemRouter) getInfo(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (s *systemRouter) getVersion(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	version, err := s.translator.SystemVersion()
+	if err != nil {
+		return err
+	}
+	resp := httputils.HTTPResponse{
+		StatusCode: http.StatusOK,
+		Msg:        version,
+	}
+	return resp.WriteJSON(w)
 }
 
 func (s *systemRouter) getDiskUsage(w http.ResponseWriter, r *http.Request) error {

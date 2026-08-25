@@ -1,8 +1,10 @@
 package system
 
+import "github.com/moby/moby/api/types/system"
+
 type Translator interface {
 	SystemInfo()
-	SystemVersion()
+	SystemVersion() (system.VersionResponse, error)
 	SystemDiskUsage()
 	SubscribeToEvents()
 	UnsubscribeFromEvents()
