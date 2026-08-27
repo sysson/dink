@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log/slog"
 	"net"
 	"net/http"
 	"sync"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/sysson/dink/dink/pkg/auth"
 	"github.com/sysson/dink/dink/pkg/config"
-	"github.com/sysson/dink/dink/pkg/constants"
 	"github.com/sysson/dink/dink/pkg/identity"
 	"github.com/sysson/dink/dink/pkg/k8s"
 	"github.com/sysson/dink/dink/pkg/server"
@@ -57,21 +55,25 @@ func newCLI(opts *options) (*dinkCLI, error) {
 }
 
 func loadCLIConfig(opts *options) error {
-	cfg, err := config.Load(opts.configFile)
+	fileConfig, err := loadConfigFile(opts.configFile)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
-		cfg = config.New()
+		fileConfig = new(config.Config)
 	}
 
-	if err := mergeConfig(cfg, opts); err != nil {
-		return err
+	merged := new(config.Config)
+	for _, src := range []*config.Config{opts.defaults, fileConfig, opts.cfg} {
+		if err := mergeConfig(src, merged); err != nil {
+			return err
+		}
 	}
-	if err := cfg.Validate(); err != nil {
+
+	if err := merged.Validate(); err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
-	opts.cfg = cfg
+	opts.cfg = merged
 
 	return nil
 }
@@ -103,6 +105,11 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 		log.G(ctx).Warn("TLS is disabled; serving plaintext only")
 	}
 
+	lss, err := loadListeners(c.cfg, c.tlsConfig)
+	if err != nil {
+		return fmt.Errorf("unable to load listeners: %w", err)
+	}
+
 	client, err := k8s.New(ctx, &k8s.Options{
 		Namespace:      c.cfg.Namespace,
 		KubeConfigPath: c.cfg.KubeConfigPath,
@@ -124,124 +131,123 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 		return fmt.Errorf("configuring auth plugins: %w", err)
 	}
 
-	translator := translator.New(client)
+	httpServer := &http.Server{
+		ReadHeaderTimeout: 5 * time.Minute,
+	}
+	apiShutdownCtx, apiShutdownCancel := context.WithCancel(context.WithoutCancel(ctx))
+	apiShutdownDone := make(chan struct{})
+	trap(ctx, c.stop)
+	go func() {
+		<-c.apiShutdown
+		if err := httpServer.Shutdown(apiShutdownCtx); err != nil {
+			log.G(ctx).WithError(err).Error("Error shutting down http server")
+		}
+		close(apiShutdownDone)
+	}()
+	defer func() {
+		select {
+		case <-c.apiShutdown:
+			tmr := time.AfterFunc(5*time.Second, apiShutdownCancel)
+			defer tmr.Stop()
+			<-apiShutdownDone
+		default:
+			if err := httpServer.Close(); err != nil {
+				log.G(ctx).WithError(err).Error("Error closing http server")
+			}
+		}
+	}()
 
 	server := server.New()
 	server.Use(middleware.RequestID())
-	server.Use(middleware.Logging(c.stdOut, getLogLevel(c.cfg.AccessLogLevel)))
+	server.Use(middleware.Logging(c.stdOut, c.cfg.AccessLogLevel))
 	server.Use(middleware.Version(c.cfg.ServerVersion, c.cfg.APIVersion, c.cfg.MinAPIVersion))
 	server.Use(identity.Middleware(identity.MiddlewareConfig{
 		BaseNamespace:            c.cfg.Namespace,
 		DisableNamespaceCreation: isBool(c.cfg.DisableNamespaceCreation),
 		Ensurer:                  client,
 	}))
+	translator := translator.New(client)
 	server.Use(auth.Middleware(authChain))
-
-	trap(ctx, c.stop)
-
 	router := buildRouters(translator)
-	api := server.CreateMux(ctx, router...)
 	gs := grpc.NewServer()
-	handler := newHTTPHandler(ctx, api, gs)
 
 	proto := new(http.Protocols)
 	proto.SetHTTP1(true)
 	proto.SetHTTP2(true)
 	proto.SetUnencryptedHTTP2(true)
-	httpServer := &http.Server{
-		Handler:           handler,
-		ReadTimeout:       constants.ReadTimeout,
-		ReadHeaderTimeout: constants.ReadHeaderTimeout,
-		WriteTimeout:      constants.WriteTimeout,
-		IdleTimeout:       constants.IdleTimeout,
-		Protocols:         proto,
-	}
+	httpServer.Protocols = proto
+	httpServer.Handler = newHTTPHandler(ctx, server.CreateMux(ctx, router...), gs)
+	log.G(ctx).Info("completed initialization;")
 
-	listeners := []net.Listener{}
-	closeListeners := func() {
-		for _, listener := range listeners {
-			if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-				log.G(ctx).WithError(err).Error("error closing listener", "addr", listener.Addr())
+	var (
+		apiWG      sync.WaitGroup
+		errAPI     = make(chan error, 1)
+		apiStartWG sync.WaitGroup
+	)
+
+	apiStartWG.Add(len(lss))
+	for _, ls := range lss {
+		apiWG.Go(func() {
+			log.G(ctx).Info("API listen on", "addr", ls.Addr())
+			apiStartWG.Done()
+			if err := httpServer.Serve(ls); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.G(ctx).With("error", err,
+					"listener", ls.Addr(),
+				).Error("ServeAPI error")
+
+				select {
+				case errAPI <- err:
+				default:
+				}
 			}
-		}
+		})
 	}
-	defer closeListeners()
+	apiStartWG.Wait()
+	apiWG.Wait()
+	close(errAPI)
 
-	listen := func(addr string) (net.Listener, error) {
-		listener, err := net.Listen("tcp", addr)
-		if err != nil {
-			return nil, err
-		}
-		return listener, nil
+	if err, ok := <-errAPI; ok {
+		return fmt.Errorf("shutting down due to ServeAPI error: %w", err)
 	}
-
-	serveListener := func(listener net.Listener) {
-		go func() {
-			if err := httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.G(ctx).WithError(err).Error("fatal server error", "addr", listener.Addr())
-				c.stop()
-			}
-		}()
-	}
-
-	startPlaintext := c.tlsConfig == nil || isBool(c.cfg.AllowPlaintextWithTLS)
-	if startPlaintext {
-		listener, err := listen(":" + c.cfg.Port)
-		if err != nil {
-			return fmt.Errorf("unable to listen for plaintext server: %w", err)
-		}
-		listeners = append(listeners, listener)
-
-		log.G(ctx).Info("starting plaintext server", "addr", listener.Addr())
-		serveListener(listener)
-	} else {
-		log.G(ctx).Info("plaintext listener disabled while TLS is enabled")
-	}
-
-	if c.tlsConfig != nil {
-		listener, err := listen(":" + c.cfg.TLSPort)
-		if err != nil {
-			return fmt.Errorf("unable to listen for TLS server: %w", err)
-		}
-		listener = tls.NewListener(listener, c.tlsConfig)
-		listeners = append(listeners, listener)
-
-		log.G(ctx).Info("starting TLS server", "addr", listener.Addr())
-		serveListener(listener)
-	}
-
-	<-c.apiShutdown
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Minute)
-	defer shutdownCancel()
-
-	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		log.G(ctx).WithError(err).Error("error during server shutdown")
-	}
-
-	log.G(ctx).Info("server shutdown")
-
 	return nil
+}
+
+func loadListeners(cfg *config.Config, tlsConfig *tls.Config) (listeners []net.Listener, retErr error) {
+	defer func() {
+		if retErr != nil {
+			for _, ls := range listeners {
+				_ = ls.Close()
+			}
+		}
+	}()
+
+	if tlsConfig == nil || isBool(cfg.AllowPlaintextWithTLS) {
+		ls, err := net.Listen("tcp", net.JoinHostPort(cfg.Host, cfg.Port))
+		if err != nil {
+			return nil, fmt.Errorf("unable to listen for plaintext server: %w", err)
+		}
+		listeners = append(listeners, ls)
+	}
+
+	if tlsConfig != nil {
+		ls, err := net.Listen("tcp", net.JoinHostPort(cfg.Host, cfg.TLSPort))
+		if err != nil {
+			return nil, fmt.Errorf("unable to listen for TLS server: %w", err)
+		}
+		listeners = append(listeners, tls.NewListener(ls, tlsConfig))
+	}
+
+	if len(listeners) == 0 {
+		return nil, errors.New("no listeners configured")
+	}
+
+	return listeners, nil
 }
 
 func (c *dinkCLI) stop() {
 	c.stopOnce.Do(func() {
 		close(c.apiShutdown)
 	})
-}
-
-func getLogLevel(level string) slog.Level {
-	switch level {
-	case "debug":
-		return slog.LevelDebug
-	case "info":
-		return slog.LevelInfo
-	case "warn":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
-	}
 }
 
 func isBool(b *bool) bool {

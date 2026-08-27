@@ -1,10 +1,11 @@
 package config
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
+	"regexp"
 	"strconv"
 )
 
@@ -16,6 +17,7 @@ type Config struct {
 	APIVersion               string       `json:"apiVersion,omitempty"`
 	KubeConfigPath           string       `json:"kubeConfigPath,omitempty"`
 	Namespace                string       `json:"namespace,omitempty"`
+	Host                     string       `json:"host,omitempty"`
 	Port                     string       `json:"port,omitempty"`
 	TLSPort                  string       `json:"tlsPort,omitempty"`
 	BuildKitAddress          string       `json:"buildKitAddress,omitempty"`
@@ -35,7 +37,7 @@ type AuthPlugin struct {
 	Path string `json:"path"`
 }
 
-func New() *Config {
+func Default() *Config {
 	return &Config{
 		LogLevel:                 "info",
 		AccessLogLevel:           "error",
@@ -44,6 +46,7 @@ func New() *Config {
 		APIVersion:               "1.55",
 		KubeConfigPath:           "",
 		Namespace:                "dink",
+		Host:                     "",
 		Port:                     "2375",
 		TLSPort:                  "2376",
 		DisableTLS:               new(false),
@@ -53,20 +56,6 @@ func New() *Config {
 		AuthPlugins:              []AuthPlugin{},
 		PluginDir:                "/var/lib/dink/plugins",
 	}
-}
-
-func Load(configFile string) (*Config, error) {
-	data, err := os.ReadFile(configFile)
-	if err != nil {
-		return nil, fmt.Errorf("reading config file %q: %w", configFile, err)
-	}
-
-	cfg := new(Config)
-	if err := json.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("decoding config file %q: %w", configFile, err)
-	}
-
-	return cfg, nil
 }
 
 func (c *Config) Validate() error {
@@ -80,6 +69,10 @@ func (c *Config) Validate() error {
 		errs = append(errs, err)
 	}
 	if err := validateLogLevel("accessLogLevel", c.AccessLogLevel); err != nil {
+		errs = append(errs, err)
+	}
+
+	if err := validateHost(c.Host); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -157,6 +150,22 @@ func validateMinTLSVersion(v string) error {
 	default:
 		return fmt.Errorf("minTLSVersion=%q is invalid; expected 1.2 or 1.3", v)
 	}
+}
+
+// hostnameRE follows RFC 1123 label rules, permitting one or more dot-separated labels.
+var hostnameRE = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`)
+
+func validateHost(value string) error {
+	if value == "" {
+		return nil
+	}
+	if net.ParseIP(value) != nil {
+		return nil
+	}
+	if len(value) <= 253 && hostnameRE.MatchString(value) {
+		return nil
+	}
+	return fmt.Errorf("host=%q is invalid; expected an IP address or hostname", value)
 }
 
 func validatePort(field, value string) error {

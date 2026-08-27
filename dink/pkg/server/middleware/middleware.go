@@ -29,14 +29,19 @@ func RequestID() Middleware {
 	}
 }
 
-func Logging(out io.Writer, level slog.Level) Middleware {
+func Logging(out io.Writer, level string) Middleware {
 	isDebugHeaderSet := func(r *http.Request) bool {
 		return r.Header.Get("Debug") == "reveal-body-logs"
 	}
+	leveler := new(slog.LevelVar)
+	err := leveler.UnmarshalText([]byte(level))
+	if err != nil {
+		leveler.Set(slog.LevelInfo)
+	}
 	requestLogger := httplog.RequestLogger(slog.New(slog.NewJSONHandler(
-		out, &slog.HandlerOptions{Level: level},
+		out, &slog.HandlerOptions{Level: leveler},
 	)), &httplog.Options{
-		Level:         level,
+		Level:         leveler.Level(),
 		Schema:        httplog.SchemaOTEL,
 		RecoverPanics: true,
 		Skip: func(req *http.Request, respStatus int) bool {

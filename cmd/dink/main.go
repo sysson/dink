@@ -20,7 +20,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := r.Run(ctx); err != nil {
+	if err := r.Run(ctx, os.Args[0:]); err != nil {
 		_, _ = fmt.Fprintf(stdErr, "error: %v\n", err)
 		os.Exit(1)
 	}

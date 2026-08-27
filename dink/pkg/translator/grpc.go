@@ -1,3 +1,3 @@
 package translator
 
-func (d *Docker) RegisterGRPC() {}
+func (B *Builder) RegisterGRPC() {}

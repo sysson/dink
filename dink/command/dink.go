@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"log/slog"
-	"os"
 
 	"github.com/go-chi/httplog/v3"
 	"github.com/sysson/dink/dink/pkg/config"
@@ -13,7 +12,7 @@ import (
 )
 
 type Runner interface {
-	Run(ctx context.Context) error
+	Run(ctx context.Context, args []string) error
 }
 
 type runner struct {
@@ -24,21 +23,22 @@ func New(stdout, stderr io.Writer) (Runner, error) {
 	v := version.Get()
 
 	logFormat := httplog.SchemaOTEL.Concise(version.IsDev())
-	setDefaultLogger(stderr, slog.LevelInfo, v.Version, logFormat.ReplaceAttr)
+	logLevel := new(slog.LevelVar)
+	logger := slog.New(slog.NewJSONHandler(
+		stderr, &slog.HandlerOptions{Level: logLevel, ReplaceAttr: logFormat.ReplaceAttr},
+	)).With(
+		slog.String("version", v.Version),
+	)
+	slog.SetDefault(logger)
 
-	cmd := runnerCmd(stdout, stderr)
+	cmd := runnerCmd(stdout, stderr, logLevel)
 	return &runner{
 		Command: cmd,
 	}, nil
 }
 
-func (r *runner) Run(ctx context.Context) error {
-	return r.Command.Run(ctx, os.Args)
-}
-
-func runnerCmd(stdout, stderr io.Writer) *cli.Command {
-	cfg := config.New()
-	opts := newOptions(cfg)
+func runnerCmd(stdout, stderr io.Writer, leveler *slog.LevelVar) *cli.Command {
+	opts := newOptions(config.Default(), new(config.Config))
 
 	cmd := cli.Command{
 		Name:      "dink",
@@ -55,22 +55,14 @@ func runnerCmd(stdout, stderr io.Writer) *cli.Command {
 			cli.stdErr = stderr
 			cli.stdOut = stdout
 			version.SetAPI(cli.cfg.APIVersion, cli.cfg.MinAPIVersion)
-			logFormat := httplog.SchemaOTEL.Concise(version.IsDev())
-			setDefaultLogger(stderr, getLogLevel(cli.cfg.LogLevel), version.Get().Version, logFormat.ReplaceAttr)
-			return run(ctx, cli)
+			_ = leveler.UnmarshalText([]byte(cli.cfg.LogLevel))
+			err = run(ctx, cli)
+			leveler.Set(slog.LevelInfo)
+			return err
 		},
 	}
 	opts.addFlags(&cmd.Flags)
 	return &cmd
-}
-
-func setDefaultLogger(out io.Writer, level slog.Level, version string, replaceAttr func(groups []string, a slog.Attr) slog.Attr) {
-	logger := slog.New(slog.NewJSONHandler(
-		out, &slog.HandlerOptions{Level: level, ReplaceAttr: replaceAttr},
-	)).With(
-		slog.String("version", version),
-	)
-	slog.SetDefault(logger)
 }
 
 func run(ctx context.Context, cli *dinkCLI) error {

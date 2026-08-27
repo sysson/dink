@@ -26,7 +26,7 @@ func buildRouters(t *translator.Translator) []router.Router {
 		container.New(t.Docker()),
 		debug.New(),
 		distribution.New(t.Docker()),
-		grpc.New(t.Docker()),
+		grpc.New(t.Builder()),
 		image.New(t.Docker(), t.Docker()),
 		network.New(t.Docker(), t.Swarm()),
 		plugin.New(t.Docker()),

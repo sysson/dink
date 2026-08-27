@@ -2,6 +2,7 @@ package command
 
 import (
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -30,7 +31,7 @@ func TestLoadCLIConfigPrecedence(t *testing.T) {
 	t.Setenv("DINK_PORT", "2380")
 	t.Setenv("DINK_CLIENTCAFILE", "")
 
-	opts := newOptions(config.New())
+	opts := newOptions(config.Default(), new(config.Config))
 
 	var flags []cli.Flag
 	opts.addFlags(&flags)
@@ -71,26 +72,29 @@ func TestLoadCLIConfigPrecedence(t *testing.T) {
 	if opts.cfg.DisableTLS == nil || !*opts.cfg.DisableTLS {
 		t.Fatal("disableTLS was not preserved from the file")
 	}
-	if opts.cfg.TLSPort != "" {
-		t.Fatalf("tls port = %q, want empty because it was omitted from the file", opts.cfg.TLSPort)
+	if opts.cfg.TLSPort != "2376" {
+		t.Fatalf("tls port = %q, want the default because it was omitted from the file", opts.cfg.TLSPort)
 	}
 }
 
 func TestMergeConfigExplicitFalseBool(t *testing.T) {
 	trueValue := true
 	falseValue := false
-	opts := newOptions(&config.Config{DisableTLS: &falseValue})
+	opts := newOptions(&config.Config{DisableTLS: &falseValue}, new(config.Config))
 	flag := &cli.BoolFlag{
-		Name:        "disableTLS",
-		Destination: opts.cfg.DisableTLS,
+		Name:   "disableTLS",
+		Action: setPtr(&opts.cfg.DisableTLS),
 	}
 	if err := flag.Set("disableTLS", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if err := flag.RunAction(t.Context(), &cli.Command{}); err != nil {
 		t.Fatal(err)
 	}
 	opts.flags = &[]cli.Flag{flag}
 
 	cfg := &config.Config{DisableTLS: &trueValue}
-	if err := mergeConfig(cfg, opts); err != nil {
+	if err := mergeConfig(opts.cfg, cfg); err != nil {
 		t.Fatal(err)
 	}
 	if cfg.DisableTLS == nil || *cfg.DisableTLS {
@@ -99,7 +103,7 @@ func TestMergeConfigExplicitFalseBool(t *testing.T) {
 }
 
 func TestRunnerCmdIncludesConfigFlags(t *testing.T) {
-	cmd := runnerCmd(os.Stdout, os.Stderr)
+	cmd := runnerCmd(os.Stdout, os.Stderr, new(slog.LevelVar))
 
 	for _, name := range []string{"tlsCertFile", "tlsKeyFile", "tlsPort"} {
 		found := false
