@@ -6,8 +6,8 @@ import (
 	"log/slog"
 
 	"github.com/go-chi/httplog/v3"
-	"github.com/sysson/dink/dink/pkg/config"
-	"github.com/sysson/dink/dink/pkg/version"
+	"github.com/sysson/dink/dink/config"
+	"github.com/sysson/dink/dink/version"
 	"github.com/urfave/cli/v3"
 )
 

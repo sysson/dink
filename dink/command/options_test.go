@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sysson/dink/dink/pkg/config"
+	"github.com/sysson/dink/dink/config"
 	"github.com/urfave/cli/v3"
 )
 

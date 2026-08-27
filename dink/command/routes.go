@@ -1,21 +1,21 @@
 package command
 
 import (
-	"github.com/sysson/dink/dink/pkg/server/router"
-	"github.com/sysson/dink/dink/pkg/server/router/build"
-	"github.com/sysson/dink/dink/pkg/server/router/checkpoint"
-	"github.com/sysson/dink/dink/pkg/server/router/container"
-	"github.com/sysson/dink/dink/pkg/server/router/debug"
-	"github.com/sysson/dink/dink/pkg/server/router/distribution"
-	"github.com/sysson/dink/dink/pkg/server/router/grpc"
-	"github.com/sysson/dink/dink/pkg/server/router/image"
-	"github.com/sysson/dink/dink/pkg/server/router/network"
-	"github.com/sysson/dink/dink/pkg/server/router/plugin"
-	"github.com/sysson/dink/dink/pkg/server/router/session"
-	"github.com/sysson/dink/dink/pkg/server/router/swarm"
-	"github.com/sysson/dink/dink/pkg/server/router/system"
-	"github.com/sysson/dink/dink/pkg/server/router/volume"
-	"github.com/sysson/dink/dink/pkg/translator"
+	"github.com/sysson/dink/dink/server/router"
+	"github.com/sysson/dink/dink/server/router/build"
+	"github.com/sysson/dink/dink/server/router/checkpoint"
+	"github.com/sysson/dink/dink/server/router/container"
+	"github.com/sysson/dink/dink/server/router/debug"
+	"github.com/sysson/dink/dink/server/router/distribution"
+	"github.com/sysson/dink/dink/server/router/grpc"
+	"github.com/sysson/dink/dink/server/router/image"
+	"github.com/sysson/dink/dink/server/router/network"
+	"github.com/sysson/dink/dink/server/router/plugin"
+	"github.com/sysson/dink/dink/server/router/session"
+	"github.com/sysson/dink/dink/server/router/swarm"
+	"github.com/sysson/dink/dink/server/router/system"
+	"github.com/sysson/dink/dink/server/router/volume"
+	"github.com/sysson/dink/dink/translator"
 )
 
 func buildRouters(t *translator.Translator) []router.Router {
