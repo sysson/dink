@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 
@@ -15,7 +14,7 @@ func Middleware(chain *AuthChain) func(next httputils.HTTPFunc) httputils.HTTPFu
 		if chain.Len() == 0 {
 			return next
 		}
-		return func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		return func(w http.ResponseWriter, r *http.Request) error {
 			authMethod := "TLS"
 			id, ok := identity.FromContext(r.Context())
 			if !ok {
@@ -34,7 +33,7 @@ func Middleware(chain *AuthChain) func(next httputils.HTTPFunc) httputils.HTTPFu
 			}
 
 			rw := ioutils.NewResponseModifier(w)
-			errH := next(ctx, rw, r)
+			errH := next(rw, r)
 
 			if err := authCtx.AuthZResponse(rw, r); err != nil {
 				return httputils.Forbidden(fmt.Errorf("AuthZResponse returned error: %w", err))

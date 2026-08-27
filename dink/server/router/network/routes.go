@@ -1,34 +1,33 @@
 package network
 
 import (
-	"context"
 	"net/http"
 )
 
-func (nr *networkRouter) getNetworksList(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (nr *networkRouter) getNetworksList(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (nr *networkRouter) getNetwork(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (nr *networkRouter) getNetwork(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (nr *networkRouter) postNetworkCreate(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (nr *networkRouter) postNetworkCreate(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (nr *networkRouter) postNetworkConnect(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (nr *networkRouter) postNetworkConnect(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (nr *networkRouter) postNetworkDisconnect(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (nr *networkRouter) postNetworkDisconnect(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (nr *networkRouter) postNetworkPrune(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (nr *networkRouter) postNetworkPrune(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (nr *networkRouter) deleteNetwork(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (nr *networkRouter) deleteNetwork(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }

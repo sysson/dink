@@ -1,7 +1,6 @@
 package router
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/sysson/dink/dink/pkg/httputils"
@@ -78,10 +77,10 @@ func WithMinAPIVersion(minVersion string) RouteWrapper {
 		return localRoute{
 			method: r.Method(),
 			path:   r.Path(),
-			handler: func(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
+			handler: func(w http.ResponseWriter, req *http.Request) error {
 				// Implement version checking logic here
 				// If the request's API version is less than minVersion, return an error
-				return r.Handler()(ctx, w, req)
+				return r.Handler()(w, req)
 			},
 		}
 	}

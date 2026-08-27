@@ -1,18 +1,17 @@
 package system
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/sysson/dink/dink/pkg/httputils"
 )
 
-func optionsHandler(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func optionsHandler(w http.ResponseWriter, r *http.Request) error {
 	w.WriteHeader(http.StatusOK)
 	return nil
 }
 
-func (s *systemRouter) pingHandler(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (s *systemRouter) pingHandler(w http.ResponseWriter, r *http.Request) error {
 	w.Header().Add("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Add("Pragma", "no-cache")
 
@@ -25,30 +24,26 @@ func (s *systemRouter) pingHandler(ctx context.Context, w http.ResponseWriter, r
 	return err
 }
 
-func (s *systemRouter) getEvents(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (s *systemRouter) getEvents(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (s *systemRouter) getInfo(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (s *systemRouter) getInfo(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (s *systemRouter) getVersion(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (s *systemRouter) getVersion(w http.ResponseWriter, r *http.Request) error {
 	version, err := s.translator.SystemVersion()
 	if err != nil {
 		return err
 	}
-	resp := httputils.HTTPResponse{
-		StatusCode: http.StatusOK,
-		Msg:        version,
-	}
-	return resp.WriteJSON(w)
+	return httputils.WriteJSON(w, http.StatusOK, version)
 }
 
-func (s *systemRouter) getDiskUsage(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (s *systemRouter) getDiskUsage(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (s *systemRouter) postAuth(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (s *systemRouter) postAuth(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }

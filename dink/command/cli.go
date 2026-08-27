@@ -159,7 +159,7 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 
 	server := server.New()
 	server.Use(middleware.RequestID())
-	server.Use(middleware.Logging(c.stdOut, c.cfg.AccessLogLevel))
+	server.Use(middleware.Logging(ctx, c.stdOut, c.cfg.AccessLogLevel))
 	server.Use(middleware.Version(c.cfg.ServerVersion, c.cfg.APIVersion, c.cfg.MinAPIVersion))
 	server.Use(identity.Middleware(identity.MiddlewareConfig{
 		BaseNamespace:            c.cfg.Namespace,

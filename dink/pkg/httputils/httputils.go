@@ -21,29 +21,29 @@ var (
 
 const statusClientClosedRequest = 499
 
-type HTTPFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request) error
+type HTTPFunc func(w http.ResponseWriter, r *http.Request) error
 type APIVersion struct{}
 
-func HTTPHandler(ctx context.Context, handler HTTPFunc) http.HandlerFunc {
+func HTTPHandler(handler HTTPFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		err := handler(ctx, w, r)
+		err := handler(w, r)
 		if err == nil {
 			return
 		}
-		if r.Context().Err() != nil {
-			log.G(ctx).Info("request cancelled by client", "method", r.Method, "url", r.URL.String(), "error", err)
-			_ = NewHTTPError(statusClientClosedRequest, r.Context().Err()).WriteJSON(w)
+		if contextErr := r.Context().Err(); contextErr != nil {
+			log.G(r.Context()).Info("request cancelled by client", "method", r.Method, "url", r.URL.String(), "error", err)
+			w.WriteHeader(statusClientClosedRequest)
 			return
 		}
-		if httpResp, ok := errors.AsType[*HTTPResponse](err); ok {
-			_ = httpResp.WriteJSON(w)
+		if httpResp, ok := errors.AsType[*HTTPError](err); ok {
+			_ = WriteJSON(w, httpResp.StatusCode, httpResp)
 			if httpResp.StatusCode >= 500 {
-				log.G(ctx).Error("handler returned error", "method", r.Method, "url", r.URL.String(), "error", httpResp.Unwrap().Error())
+				log.G(r.Context()).Error("handler returned error", "method", r.Method, "url", r.URL.String(), "error", httpResp.Error())
 			}
 			return
 		}
-		log.G(ctx).Error("server error", "method", r.Method, "url", r.URL.String(), "error", err)
-		_ = ServerError(ErrHTTPServerError).WriteJSON(w)
+		log.G(r.Context()).Error("server error", "method", r.Method, "url", r.URL.String(), "error", err)
+		_ = WriteJSON(w, http.StatusInternalServerError, NewHTTPError(http.StatusInternalServerError, ErrHTTPServerError))
 	}
 }
 
@@ -59,59 +59,62 @@ func APIVersionFromContext(ctx context.Context) string {
 	return ""
 }
 
-type HTTPResponse struct {
+type HTTPError struct {
 	StatusCode int
-	Msg        any
+	Message    error
 }
 
-func (e *HTTPResponse) WriteJSON(w http.ResponseWriter) error {
+func (e *HTTPError) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Message string `json:"message"`
+	}{
+		Message: e.Message.Error(),
+	})
+}
+
+func WriteJSON(w http.ResponseWriter, code int, v any) error {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(e.StatusCode)
+	w.WriteHeader(code)
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
-	if err, ok := e.Msg.(error); ok {
-		return enc.Encode(struct {
-			Message string `json:"message"`
-		}{Message: err.Error()})
-	}
-	return enc.Encode(e.Msg)
+	return enc.Encode(v)
 }
 
-func NewHTTPError(statusCode int, err error) *HTTPResponse {
-	return &HTTPResponse{
+func NewHTTPError(statusCode int, err error) *HTTPError {
+	return &HTTPError{
 		StatusCode: statusCode,
-		Msg:        err,
+		Message:    err,
 	}
 }
 
-func (e *HTTPResponse) Unwrap() error {
-	return e.Msg.(error)
+func (e *HTTPError) Unwrap() error {
+	return e.Message
 }
 
-func (e *HTTPResponse) Error() string {
-	return fmt.Sprintf("HTTP error %d: %s", e.StatusCode, e.Msg.(error).Error())
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("HTTP error %d: %s", e.StatusCode, e.Message)
 }
 
-func ServerError(err error) *HTTPResponse {
+func ServerError(err error) *HTTPError {
 	return NewHTTPError(http.StatusInternalServerError, err)
 }
 
-func NotFound(err error) *HTTPResponse {
+func NotFound(err error) *HTTPError {
 	return NewHTTPError(http.StatusNotFound, err)
 }
 
-func Forbidden(err error) *HTTPResponse {
+func Forbidden(err error) *HTTPError {
 	return NewHTTPError(http.StatusForbidden, err)
 }
 
-func Unauthorized(err error) *HTTPResponse {
+func Unauthorized(err error) *HTTPError {
 	return NewHTTPError(http.StatusUnauthorized, err)
 }
 
-func RequestTimeout(err error) *HTTPResponse {
+func RequestTimeout(err error) *HTTPError {
 	return NewHTTPError(http.StatusRequestTimeout, err)
 }
 
-func BadRequest(err error) *HTTPResponse {
+func BadRequest(err error) *HTTPError {
 	return NewHTTPError(http.StatusBadRequest, err)
 }

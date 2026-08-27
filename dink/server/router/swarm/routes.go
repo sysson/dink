@@ -1,126 +1,125 @@
 package swarm
 
 import (
-	"context"
 	"net/http"
 )
 
-func (sr *swarmRouter) initCluster(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) initCluster(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) joinCluster(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) joinCluster(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) leaveCluster(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) leaveCluster(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) inspectCluster(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) inspectCluster(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) getUnlockKey(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) getUnlockKey(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) updateCluster(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) updateCluster(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) unlockCluster(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) unlockCluster(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) getServices(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) getServices(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) getService(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) getService(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) createService(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) createService(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) updateService(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) updateService(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) removeService(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) removeService(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) getServiceLogs(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) getServiceLogs(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) getNodes(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) getNodes(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) getNode(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) getNode(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) removeNode(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) removeNode(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) updateNode(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) updateNode(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) getTasks(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) getTasks(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) getTask(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) getTask(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) getTaskLogs(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) getTaskLogs(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) getSecrets(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) getSecrets(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) createSecret(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) createSecret(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) removeSecret(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) removeSecret(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) getSecret(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) getSecret(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) updateSecret(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) updateSecret(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) getConfigs(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) getConfigs(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) createConfig(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) createConfig(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) removeConfig(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) removeConfig(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) getConfig(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) getConfig(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (sr *swarmRouter) updateConfig(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+func (sr *swarmRouter) updateConfig(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }

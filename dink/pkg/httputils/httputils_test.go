@@ -35,7 +35,7 @@ func TestHTTPResponseWriteJSON(t *testing.T) {
 	response := NewHTTPError(http.StatusBadRequest, errors.New("invalid <input>"))
 	recorder := httptest.NewRecorder()
 
-	if err := response.WriteJSON(recorder); err != nil {
+	if err := WriteJSON(recorder, http.StatusBadRequest, response); err != nil {
 		t.Fatalf("WriteJSON() returned error: %v", err)
 	}
 	if got, want := recorder.Code, http.StatusBadRequest; got != want {
@@ -44,8 +44,12 @@ func TestHTTPResponseWriteJSON(t *testing.T) {
 	if got, want := recorder.Header().Get("Content-Type"), "application/json"; got != want {
 		t.Fatalf("content type = %q, want %q", got, want)
 	}
-	if got, want := recorder.Body.String(), "{\"message\":\"invalid <input>\"}\n"; got != want {
-		t.Fatalf("body = %q, want %q", got, want)
+	var body map[string]string
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response body: %v", err)
+	}
+	if got, want := body["message"], "invalid <input>"; got != want {
+		t.Fatalf("message = %q, want %q", got, want)
 	}
 }
 
@@ -70,14 +74,14 @@ func TestHTTPHandler(t *testing.T) {
 	}{
 		{
 			name: "success leaves response untouched",
-			handler: func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+			handler: func(w http.ResponseWriter, r *http.Request) error {
 				return nil
 			},
 			wantStatus: http.StatusOK,
 		},
 		{
 			name: "generic error becomes server error",
-			handler: func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+			handler: func(w http.ResponseWriter, r *http.Request) error {
 				return errors.New("database unavailable")
 			},
 			wantStatus: http.StatusInternalServerError,
@@ -85,33 +89,32 @@ func TestHTTPHandler(t *testing.T) {
 		},
 		{
 			name: "HTTPResponse preserves status and message",
-			handler: func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+			handler: func(w http.ResponseWriter, r *http.Request) error {
 				return Forbidden(ErrHTTPForbidden)
 			},
 			wantStatus: http.StatusForbidden,
 			wantBody:   `{"message":"forbidden"}`,
 		},
 		{
-			name: "cancelled request uses client closed status",
-			handler: func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+			name: "cancelled request records client closed status",
+			handler: func(w http.ResponseWriter, r *http.Request) error {
 				return errors.New("handler stopped")
 			},
 			wantStatus: statusClientClosedRequest,
-			wantBody:   `{"message":"context canceled"}`,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, "/resource", nil)
-			if tt.name == "cancelled request uses client closed status" {
+			if tt.name == "cancelled request records client closed status" {
 				ctx, cancel := context.WithCancel(request.Context())
 				cancel()
 				request = request.WithContext(ctx)
 			}
 
 			recorder := httptest.NewRecorder()
-			HTTPHandler(request.Context(), tt.handler).ServeHTTP(recorder, request)
+			HTTPHandler(tt.handler).ServeHTTP(recorder, request)
 
 			if recorder.Code != tt.wantStatus {
 				t.Fatalf("status code = %d, want %d", recorder.Code, tt.wantStatus)
@@ -131,7 +134,7 @@ func TestHTTPHandlerAcceptsWrappedHTTPResponse(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/resource", nil)
 
-	HTTPHandler(request.Context(), func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+	HTTPHandler(func(w http.ResponseWriter, r *http.Request) error {
 		return errors.Join(errors.New("context"), BadRequest(underlying))
 	}).ServeHTTP(recorder, request)
 
@@ -150,7 +153,7 @@ func TestHTTPHandlerAcceptsWrappedHTTPResponse(t *testing.T) {
 func TestHTTPErrorConstructors(t *testing.T) {
 	tests := []struct {
 		name        string
-		constructor func(error) *HTTPResponse
+		constructor func(error) *HTTPError
 		wantStatus  int
 	}{
 		{name: "server error", constructor: ServerError, wantStatus: http.StatusInternalServerError},

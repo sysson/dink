@@ -1,7 +1,6 @@
 package debug
 
 import (
-	"context"
 	"expvar"
 	"net/http"
 	"net/http/pprof"
@@ -37,14 +36,14 @@ func (r *debugRouter) Routes() []router.Route {
 }
 
 func frameworkAdaptHandler(handler http.Handler) httputils.HTTPFunc {
-	return func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+	return func(w http.ResponseWriter, r *http.Request) error {
 		handler.ServeHTTP(w, r)
 		return nil
 	}
 }
 
 func frameworkAdaptHandlerFunc(handler http.HandlerFunc) httputils.HTTPFunc {
-	return func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+	return func(w http.ResponseWriter, r *http.Request) error {
 		handler(w, r)
 		return nil
 	}

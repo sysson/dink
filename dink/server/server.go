@@ -38,14 +38,14 @@ func (s *Server) CreateMux(ctx context.Context, routers ...router.Router) *chi.M
 	r := chi.NewRouter()
 	for _, apiRouter := range routers {
 		for _, route := range apiRouter.Routes() {
-			f := httputils.HTTPHandler(ctx, s.withMiddleware(route.Handler()))
+			f := httputils.HTTPHandler(s.withMiddleware(route.Handler()))
 			r.Method(route.Method(), route.Path(), f)
 			r.Method(route.Method(), versionMatcher+route.Path(), f)
 		}
 	}
 
 	notFoundHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = httputils.NotFound(httputils.ErrHTTPNotFound).WriteJSON(w)
+		_ = httputils.WriteJSON(w, http.StatusNotFound, httputils.NewHTTPError(http.StatusNotFound, httputils.ErrHTTPNotFound))
 	})
 	r.HandleFunc(versionMatcher+"/*", notFoundHandler)
 	r.NotFound(notFoundHandler)
