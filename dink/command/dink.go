@@ -54,7 +54,6 @@ func runnerCmd(stdout, stderr io.Writer, leveler *slog.LevelVar) *cli.Command {
 			}
 			cli.stdErr = stderr
 			cli.stdOut = stdout
-			version.SetAPI(cli.cfg.APIVersion, cli.cfg.MinAPIVersion)
 			_ = leveler.UnmarshalText([]byte(cli.cfg.LogLevel))
 			err = run(ctx, cli)
 			leveler.Set(slog.LevelInfo)

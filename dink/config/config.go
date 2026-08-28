@@ -12,9 +12,6 @@ import (
 type Config struct {
 	LogLevel                 string       `json:"logLevel,omitempty"`
 	AccessLogLevel           string       `json:"accessLogLevel,omitempty"`
-	ServerVersion            string       `json:"serverVersion,omitempty"`
-	MinAPIVersion            string       `json:"minAPIVersion,omitempty"`
-	APIVersion               string       `json:"apiVersion,omitempty"`
 	KubeConfigPath           string       `json:"kubeConfigPath,omitempty"`
 	Namespace                string       `json:"namespace,omitempty"`
 	Host                     string       `json:"host,omitempty"`
@@ -41,9 +38,6 @@ func Default() *Config {
 	return &Config{
 		LogLevel:                 "info",
 		AccessLogLevel:           "error",
-		ServerVersion:            "v1.0.0",
-		MinAPIVersion:            "1.40",
-		APIVersion:               "1.55",
 		KubeConfigPath:           "",
 		Namespace:                "dink",
 		Host:                     "",
@@ -152,7 +146,6 @@ func validateMinTLSVersion(v string) error {
 	}
 }
 
-// hostnameRE follows RFC 1123 label rules, permitting one or more dot-separated labels.
 var hostnameRE = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`)
 
 func validateHost(value string) error {

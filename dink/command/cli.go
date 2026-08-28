@@ -21,6 +21,7 @@ import (
 	"github.com/sysson/dink/dink/server"
 	"github.com/sysson/dink/dink/server/middleware"
 	"github.com/sysson/dink/dink/translator"
+	"github.com/sysson/dink/dink/version"
 	"github.com/urfave/cli/v3"
 	"google.golang.org/grpc"
 )
@@ -157,17 +158,20 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 		}
 	}()
 
+	v := version.Get()
+
 	server := server.New()
 	server.Use(middleware.RequestID())
 	server.Use(middleware.Logging(ctx, c.stdOut, c.cfg.AccessLogLevel))
-	server.Use(middleware.Version(c.cfg.ServerVersion, c.cfg.APIVersion, c.cfg.MinAPIVersion))
+	server.Use(middleware.Version(v.Version, v.APIVersion, v.MinAPIVersion))
 	server.Use(identity.Middleware(identity.MiddlewareConfig{
 		BaseNamespace:            c.cfg.Namespace,
 		DisableNamespaceCreation: isBool(c.cfg.DisableNamespaceCreation),
 		Ensurer:                  client,
 	}))
-	translator := translator.New(client)
 	server.Use(auth.Middleware(authChain))
+
+	translator := translator.New(client)
 	router := buildRouters(translator)
 	gs := grpc.NewServer()
 

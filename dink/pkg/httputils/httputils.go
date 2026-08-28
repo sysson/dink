@@ -22,7 +22,6 @@ var (
 const statusClientClosedRequest = 499
 
 type HTTPFunc func(w http.ResponseWriter, r *http.Request) error
-type APIVersion struct{}
 
 func HTTPHandler(handler HTTPFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -47,16 +46,18 @@ func HTTPHandler(handler HTTPFunc) http.HandlerFunc {
 	}
 }
 
-func APIVersionFromContext(ctx context.Context) string {
+func KeyFromContext[T, V any](ctx context.Context, key T) (V, bool) {
 	if ctx == nil {
-		return ""
+		var zero V
+		return zero, false
 	}
-	if v := ctx.Value(APIVersion{}); v != nil {
-		if version, ok := v.(string); ok {
-			return version
+	if v := ctx.Value(key); v != nil {
+		if value, ok := v.(V); ok {
+			return value, true
 		}
 	}
-	return ""
+	var zero V
+	return zero, false
 }
 
 type HTTPError struct {

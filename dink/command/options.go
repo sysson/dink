@@ -55,27 +55,6 @@ func (o *options) addFlags(flags *[]cli.Flag) {
 			Destination: &o.cfg.AccessLogLevel,
 		},
 		&cli.StringFlag{
-			Name:        "serverVersion",
-			Usage:       "Server version reported by API",
-			DefaultText: o.defaults.ServerVersion,
-			Sources:     cli.EnvVars(defaultEnvPrefix + "_SERVERVERSION"),
-			Destination: &o.cfg.ServerVersion,
-		},
-		&cli.StringFlag{
-			Name:        "minAPIVersion",
-			Usage:       "Minimum Docker API version supported",
-			DefaultText: o.defaults.MinAPIVersion,
-			Sources:     cli.EnvVars(defaultEnvPrefix + "_MINAPIVERSION"),
-			Destination: &o.cfg.MinAPIVersion,
-		},
-		&cli.StringFlag{
-			Name:        "apiVersion",
-			Usage:       "Maximum Docker API version supported",
-			DefaultText: o.defaults.APIVersion,
-			Sources:     cli.EnvVars(defaultEnvPrefix + "_APIVERSION"),
-			Destination: &o.cfg.APIVersion,
-		},
-		&cli.StringFlag{
 			Name:        "kubeConfigPath",
 			Usage:       "Path to kubeconfig; empty means in-cluster/default",
 			DefaultText: o.defaults.KubeConfigPath,

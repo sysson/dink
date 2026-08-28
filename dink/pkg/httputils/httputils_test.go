@@ -10,22 +10,57 @@ import (
 	"testing"
 )
 
-func TestAPIVersionFromContext(t *testing.T) {
+func TestKeyFromContext(t *testing.T) {
+	type contextKey string
+
+	const key contextKey = "api-version"
+	type structKey = struct{}
+
 	tests := []struct {
 		name string
 		ctx  context.Context
-		want string
+		key  any
+		want any
+		ok   bool
 	}{
-		{name: "nil context", want: ""},
-		{name: "missing value", ctx: context.Background(), want: ""},
-		{name: "string value", ctx: context.WithValue(context.Background(), APIVersion{}, "v1"), want: "v1"},
-		{name: "wrong value type", ctx: context.WithValue(context.Background(), APIVersion{}, 1), want: ""},
+		{
+			name: "nil context",
+			key:  key,
+			want: "",
+		},
+		{
+			name: "missing value",
+			ctx:  context.Background(),
+			key:  key,
+			want: "",
+		},
+		{
+			name: "string value",
+			ctx:  context.WithValue(context.Background(), key, "v1"),
+			key:  key,
+			want: "v1",
+			ok:   true,
+		},
+		{
+			name: "wrong value type",
+			ctx:  context.WithValue(context.Background(), key, 1),
+			key:  key,
+			want: "",
+		},
+		{
+			name: "struct key",
+			ctx:  context.WithValue(context.Background(), structKey{}, "v1"),
+			key:  structKey{},
+			want: "v1",
+			ok:   true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := APIVersionFromContext(tt.ctx); got != tt.want {
-				t.Fatalf("APIVersionFromContext() = %q, want %q", got, tt.want)
+			got, ok := KeyFromContext[any, string](tt.ctx, tt.key)
+			if got != tt.want || ok != tt.ok {
+				t.Fatalf("KeyFromContext() = (%v, %t), want (%v, %t)", got, ok, tt.want, tt.ok)
 			}
 		})
 	}

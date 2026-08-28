@@ -1,9 +1,12 @@
 package router
 
 import (
+	"fmt"
 	"net/http"
 
+	"github.com/moby/moby/client/pkg/versions"
 	"github.com/sysson/dink/dink/pkg/httputils"
+	"github.com/sysson/dink/dink/server/middleware"
 )
 
 type Router interface {
@@ -78,8 +81,13 @@ func WithMinAPIVersion(minVersion string) RouteWrapper {
 			method: r.Method(),
 			path:   r.Path(),
 			handler: func(w http.ResponseWriter, req *http.Request) error {
-				// Implement version checking logic here
-				// If the request's API version is less than minVersion, return an error
+				v, ok := httputils.KeyFromContext[middleware.APIVersion, string](req.Context(), middleware.APIVersion{})
+				if !ok {
+					return httputils.BadRequest(fmt.Errorf("API version not specified"))
+				}
+				if versions.LessThan(v, minVersion) {
+					return httputils.BadRequest(fmt.Errorf("API version %s is not supported. Minimum supported version is %s", v, minVersion))
+				}
 				return r.Handler()(w, req)
 			},
 		}

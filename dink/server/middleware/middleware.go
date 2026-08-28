@@ -16,6 +16,7 @@ import (
 )
 
 type Middleware func(next httputils.HTTPFunc) httputils.HTTPFunc
+type APIVersion struct{}
 
 func RequestID() Middleware {
 	return func(next httputils.HTTPFunc) httputils.HTTPFunc {
@@ -87,7 +88,7 @@ func Version(serverVersion, defaultAPIVersion, minAPIVersion string) Middleware 
 			if versions.GreaterThan(apiVersion, defaultAPIVersion) {
 				return httputils.BadRequest(fmt.Errorf("API version %s is not supported. Maximum supported version is %s", apiVersion, defaultAPIVersion))
 			}
-			r = r.WithContext(context.WithValue(r.Context(), httputils.APIVersion{}, apiVersion))
+			r = r.WithContext(context.WithValue(r.Context(), APIVersion{}, apiVersion))
 			return next(w, r)
 		}
 	}

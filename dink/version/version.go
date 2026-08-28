@@ -18,11 +18,6 @@ type info struct {
 	MinAPIVersion string
 }
 
-func SetAPI(apiVersion, minAPIVersion string) {
-	v.APIVersion = apiVersion
-	v.MinAPIVersion = minAPIVersion
-}
-
 func IsDev() bool {
 	return v.Version == "Dev"
 }
