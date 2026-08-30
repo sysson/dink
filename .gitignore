@@ -27,8 +27,11 @@ go.work.sum
 # env file
 .env
 
-# devcontainer-local dev TLS material (self-signed CA/server/client certs)
-.devcontainer/certs/
+# locally generated dev TLS material (self-signed CA/server/client certs)
+/.certs/
+
+# Tilt build output
+/.tilt/
 
 # Editor/IDE
 # .idea/

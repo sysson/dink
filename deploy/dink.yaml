@@ -1,0 +1,240 @@
+---
+# dink control plane.
+#
+# The dink-system namespace and ServiceAccount are also reconciled by dink at
+# startup, but must exist beforehand because dink authenticates as this account.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dink-system
+  labels:
+    app.kubernetes.io/name: dink
+    app.kubernetes.io/managed-by: dink
+    dink.io/owner: dink-system
+  annotations:
+    dink.io/created-by: dink
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dink
+  namespace: dink-system
+  labels:
+    app.kubernetes.io/name: dink
+    app.kubernetes.io/managed-by: dink
+automountServiceAccountToken: true
+---
+# Cluster-scoped permissions. dink creates per-user namespaces and bootstraps a
+# Role/RoleBinding in each of them, so it must hold every permission it grants;
+# without that the API server rejects the writes as privilege escalation.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dink-control-plane
+  labels:
+    app.kubernetes.io/name: dink
+    app.kubernetes.io/managed-by: dink
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs:
+      [
+        "get",
+        "list",
+        "watch",
+        "create",
+        "update",
+        "patch",
+        "delete",
+        "bind",
+        "escalate",
+      ]
+  - apiGroups: [""]
+    resources:
+      [
+        "pods",
+        "pods/log",
+        "pods/exec",
+        "pods/attach",
+        "pods/status",
+        "pods/portforward",
+      ]
+    verbs: ["get", "list", "watch", "create", "delete", "patch"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list"]
+  - nonResourceURLs:
+      ["/version", "/version/*", "/apis", "/apis/*", "/api", "/api/*"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dink-control-plane
+  labels:
+    app.kubernetes.io/name: dink
+    app.kubernetes.io/managed-by: dink
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: dink-control-plane
+subjects:
+  - kind: ServiceAccount
+    name: dink
+    namespace: dink-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dink-config
+  namespace: dink-system
+  labels:
+    app.kubernetes.io/name: dink
+data:
+  config.json: |
+    {
+      "logLevel": "info",
+      "accessLogLevel": "error",
+      "namespace": "dink",
+      "port": "2375",
+      "tlsPort": "2376",
+      "healthPort": "8080",
+      "tlsCertFile": "/etc/dink/tls/tls.crt",
+      "tlsKeyFile": "/etc/dink/tls/tls.key",
+      "clientCAFile": "/etc/dink/tls/ca.crt",
+      "minTLSVersion": "1.3",
+      "pluginDir": "/var/lib/dink/plugins"
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dink
+  namespace: dink-system
+  labels:
+    app.kubernetes.io/name: dink
+    app.kubernetes.io/component: control-plane
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dink
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dink
+        app.kubernetes.io/component: control-plane
+    spec:
+      enableServiceLinks: false
+      serviceAccountName: dink
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dink
+          image: dink:dev
+          imagePullPolicy: Never
+          args:
+            - --config=/etc/dink/config/config.json
+          ports:
+            - name: https
+              containerPort: 2376
+              protocol: TCP
+            - name: health
+              containerPort: 8080
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: health
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+              scheme: HTTP
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/dink/config
+              readOnly: true
+            - name: tls
+              mountPath: /etc/dink/tls
+              readOnly: true
+            - name: plugins
+              mountPath: /var/lib/dink/plugins
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: dink-config
+        - name: tls
+          secret:
+            secretName: dink-tls
+            defaultMode: 0400
+        - name: plugins
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dink
+  namespace: dink-system
+  labels:
+    app.kubernetes.io/name: dink
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: dink
+  ports:
+    - name: https
+      port: 2376
+      targetPort: https
+      protocol: TCP

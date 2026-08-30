@@ -17,6 +17,7 @@ type Config struct {
 	Host                     string       `json:"host,omitempty"`
 	Port                     string       `json:"port,omitempty"`
 	TLSPort                  string       `json:"tlsPort,omitempty"`
+	HealthPort               string       `json:"healthPort,omitempty"`
 	BuildKitAddress          string       `json:"buildKitAddress,omitempty"`
 	AuthPlugins              []AuthPlugin `json:"authPlugins,omitempty"`
 	PluginDir                string       `json:"pluginDir,omitempty"`
@@ -43,6 +44,7 @@ func Default() *Config {
 		Host:                     "",
 		Port:                     "2375",
 		TLSPort:                  "2376",
+		HealthPort:               "8080",
 		DisableTLS:               new(false),
 		AllowPlaintextWithTLS:    new(false),
 		MinTLSVersion:            "1.2",
@@ -72,6 +74,12 @@ func (c *Config) Validate() error {
 
 	if err := validatePort("port", c.Port); err != nil {
 		errs = append(errs, err)
+	}
+	if err := validatePort("healthPort", c.HealthPort); err != nil {
+		errs = append(errs, err)
+	}
+	if c.HealthPort == c.Port || c.HealthPort == c.TLSPort {
+		errs = append(errs, errors.New("healthPort must differ from port and tlsPort"))
 	}
 
 	if c.DisableTLS != nil && *c.DisableTLS {

@@ -3,8 +3,6 @@ package k8s
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -37,10 +35,9 @@ func New(ctx context.Context, opts *Options) (*KubeClient, error) {
 	if opts.Namespace == "" {
 		opts.Namespace = defaultNamespace
 	}
-	if opts.KubeConfigPath == "" {
-		opts.KubeConfigPath = defaultConfigPath()
-	}
 
+	// An empty path makes BuildConfigFromFlags prefer the in-cluster config and
+	// fall back to KUBECONFIG/~/.kube/config, so it must not be defaulted here.
 	restConfig, err := clientcmd.BuildConfigFromFlags("", opts.KubeConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("unable to build Kubernetes config: %w", err)
@@ -74,15 +71,6 @@ func New(ctx context.Context, opts *Options) (*KubeClient, error) {
 	}
 
 	return k, nil
-}
-
-func defaultConfigPath() string {
-	home, exists := os.LookupEnv("HOME")
-	if !exists {
-		home = "/root"
-	}
-
-	return filepath.Join(home, ".kube", "config")
 }
 
 func (kc *KubeClient) Client() *kubernetes.Clientset {

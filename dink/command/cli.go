@@ -110,6 +110,11 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 	if err != nil {
 		return fmt.Errorf("unable to load listeners: %w", err)
 	}
+	healthListener, err := net.Listen("tcp", net.JoinHostPort(c.cfg.Host, c.cfg.HealthPort))
+	if err != nil {
+		return fmt.Errorf("unable to listen for health server: %w", err)
+	}
+	defer healthListener.Close()
 
 	client, err := k8s.New(ctx, &k8s.Options{
 		Namespace:      c.cfg.Namespace,
@@ -135,6 +140,17 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 	httpServer := &http.Server{
 		ReadHeaderTimeout: 5 * time.Minute,
 	}
+	healthServer := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/livez", "/readyz":
+				w.WriteHeader(http.StatusOK)
+			default:
+				http.NotFound(w, r)
+			}
+		}),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 	apiShutdownCtx, apiShutdownCancel := context.WithCancel(context.WithoutCancel(ctx))
 	apiShutdownDone := make(chan struct{})
 	trap(ctx, c.stop)
@@ -142,6 +158,9 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 		<-c.apiShutdown
 		if err := httpServer.Shutdown(apiShutdownCtx); err != nil {
 			log.G(ctx).WithError(err).Error("Error shutting down http server")
+		}
+		if err := healthServer.Shutdown(apiShutdownCtx); err != nil {
+			log.G(ctx).WithError(err).Error("Error shutting down health server")
 		}
 		close(apiShutdownDone)
 	}()
@@ -154,6 +173,9 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 		default:
 			if err := httpServer.Close(); err != nil {
 				log.G(ctx).WithError(err).Error("Error closing http server")
+			}
+			if err := healthServer.Close(); err != nil {
+				log.G(ctx).WithError(err).Error("Error closing health server")
 			}
 		}
 	}()
@@ -189,7 +211,7 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 		apiStartWG sync.WaitGroup
 	)
 
-	apiStartWG.Add(len(lss))
+	apiStartWG.Add(len(lss) + 1)
 	for _, ls := range lss {
 		apiWG.Go(func() {
 			log.G(ctx).Info("API listen on", "addr", ls.Addr())
@@ -206,6 +228,17 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 			}
 		})
 	}
+	apiWG.Go(func() {
+		log.G(ctx).Info("health listen on", "addr", healthListener.Addr())
+		apiStartWG.Done()
+		if err := healthServer.Serve(healthListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.G(ctx).With("error", err, "listener", healthListener.Addr()).Error("ServeHealth error")
+			select {
+			case errAPI <- err:
+			default:
+			}
+		}
+	})
 	apiStartWG.Wait()
 	apiWG.Wait()
 	close(errAPI)

@@ -1,15 +1,15 @@
 {
     "name": "dink-dev",
-    "image": "mcr.microsoft.com/devcontainers/base:bullseye",
+    "image": "mcr.microsoft.com/devcontainers/base:trixie",
     "runArgs": [
         "--privileged",
         "--device",
         "/dev/kvm"
     ],
     "features": {
-        "ghcr.io/devcontainers/features/docker-in-docker:4.0.0": {
+        "ghcr.io/devcontainers/features/docker-in-docker:4.1.0": {
             "enableNonRootDocker": "true",
-            "moby": "true"
+            "moby": "false"
         },
         "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
             "version": "latest",
@@ -19,11 +19,6 @@
         "ghcr.io/devcontainers/features/go:1": {
             "version": "latest"
         }
-    },
-    "remoteEnv": {
-        "DINK_TLSCERTFILE": "${containerWorkspaceFolder}/.devcontainer/certs/server.crt",
-        "DINK_TLSKEYFILE": "${containerWorkspaceFolder}/.devcontainer/certs/server.key",
-        "DINK_CLIENTCAFILE": "${containerWorkspaceFolder}/.devcontainer/certs/ca.crt"
     },
     "remoteUser": "vscode",
     "postCreateCommand": "bash .devcontainer/post-create.sh",

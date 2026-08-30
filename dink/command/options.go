@@ -90,6 +90,13 @@ func (o *options) addFlags(flags *[]cli.Flag) {
 			Destination: &o.cfg.TLSPort,
 		},
 		&cli.StringFlag{
+			Name:        "healthPort",
+			Usage:       "Plain HTTP health listen port",
+			DefaultText: o.defaults.HealthPort,
+			Sources:     cli.EnvVars(defaultEnvPrefix + "_HEALTHPORT"),
+			Destination: &o.cfg.HealthPort,
+		},
+		&cli.StringFlag{
 			Name:        "buildKitAddress",
 			Usage:       "BuildKit endpoint address",
 			DefaultText: o.defaults.BuildKitAddress,
