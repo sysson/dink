@@ -80,15 +80,15 @@ func loadCLIConfig(opts *options) error {
 }
 
 func newTLSConfig(cfg *config.Config) (*tls.Config, error) {
-	if cfg.DisableTLS != nil && *cfg.DisableTLS {
+	if cfg.Server.DisableTLS != nil && *cfg.Server.DisableTLS {
 		return nil, nil
 	}
 	return tlsutils.Config(&tlsutils.TLSConfigOptions{
 		DisableTLS:    false,
-		TLSCertFile:   cfg.TLSCertFile,
-		TLSKeyFile:    cfg.TLSKeyFile,
-		MinTLSVersion: cfg.MinTLSVersion,
-		ClientCAFile:  cfg.ClientCAFile,
+		TLSCertFile:   cfg.TLS.CertFile,
+		TLSKeyFile:    cfg.TLS.KeyFile,
+		MinTLSVersion: cfg.TLS.MinTLSVersion,
+		ClientCAFile:  cfg.TLS.ClientCAFile,
 	})
 }
 
@@ -110,22 +110,17 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 	if err != nil {
 		return fmt.Errorf("unable to load listeners: %w", err)
 	}
-	healthListener, err := net.Listen("tcp", net.JoinHostPort(c.cfg.Host, c.cfg.HealthPort))
-	if err != nil {
-		return fmt.Errorf("unable to listen for health server: %w", err)
-	}
-	defer healthListener.Close()
 
 	client, err := k8s.New(ctx, &k8s.Options{
-		Namespace:      c.cfg.Namespace,
-		KubeConfigPath: c.cfg.KubeConfigPath,
+		Namespace:      c.cfg.Kubernetes.Namespace,
+		KubeConfigPath: c.cfg.Kubernetes.KubeConfigPath,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to create Kubernetes client: %w", err)
 	}
 
 	ap := []auth.AuthPlugin{}
-	for _, p := range c.cfg.AuthPlugins {
+	for _, p := range c.cfg.Auth.Plugins {
 		ap = append(ap, auth.AuthPlugin{
 			Name: p.Name,
 			Path: p.Path,
@@ -141,6 +136,7 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 		ReadHeaderTimeout: 5 * time.Minute,
 	}
 	healthServer := &http.Server{
+		Addr: net.JoinHostPort(c.cfg.Server.Host, c.cfg.Kubernetes.HealthPort),
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/livez", "/readyz":
@@ -184,11 +180,11 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 
 	server := server.New()
 	server.Use(middleware.RequestID())
-	server.Use(middleware.Logging(ctx, c.stdOut, c.cfg.AccessLogLevel))
+	server.Use(middleware.Logging(ctx, c.stdOut, c.cfg.AccessLog.Level))
 	server.Use(middleware.Version(v.Version, v.APIVersion, v.MinAPIVersion))
 	server.Use(identity.Middleware(identity.MiddlewareConfig{
-		BaseNamespace:            c.cfg.Namespace,
-		DisableNamespaceCreation: isBool(c.cfg.DisableNamespaceCreation),
+		BaseNamespace:            c.cfg.Kubernetes.Namespace,
+		DisableNamespaceCreation: isBool(c.cfg.Kubernetes.NamespaceCreationEnabled),
 		Ensurer:                  client,
 	}))
 	server.Use(auth.Middleware(authChain))
@@ -229,10 +225,10 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 		})
 	}
 	apiWG.Go(func() {
-		log.G(ctx).Info("health listen on", "addr", healthListener.Addr())
+		log.G(ctx).Info("health listen on", "addr", healthServer.Addr)
 		apiStartWG.Done()
-		if err := healthServer.Serve(healthListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.G(ctx).With("error", err, "listener", healthListener.Addr()).Error("ServeHealth error")
+		if err := healthServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.G(ctx).With("error", err, "listener", healthServer.Addr).Error("ServeHealth error")
 			select {
 			case errAPI <- err:
 			default:
@@ -258,8 +254,8 @@ func loadListeners(cfg *config.Config, tlsConfig *tls.Config) (listeners []net.L
 		}
 	}()
 
-	if tlsConfig == nil || isBool(cfg.AllowPlaintextWithTLS) {
-		ls, err := net.Listen("tcp", net.JoinHostPort(cfg.Host, cfg.Port))
+	if tlsConfig == nil || isBool(cfg.Server.AllowPlaintextWithTLS) {
+		ls, err := net.Listen("tcp", net.JoinHostPort(cfg.Server.Host, cfg.Server.Port))
 		if err != nil {
 			return nil, fmt.Errorf("unable to listen for plaintext server: %w", err)
 		}
@@ -267,7 +263,7 @@ func loadListeners(cfg *config.Config, tlsConfig *tls.Config) (listeners []net.L
 	}
 
 	if tlsConfig != nil {
-		ls, err := net.Listen("tcp", net.JoinHostPort(cfg.Host, cfg.TLSPort))
+		ls, err := net.Listen("tcp", net.JoinHostPort(cfg.Server.Host, cfg.Server.TLSPort))
 		if err != nil {
 			return nil, fmt.Errorf("unable to listen for TLS server: %w", err)
 		}

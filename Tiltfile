@@ -23,7 +23,10 @@ custom_build(
     skips_local_docker=True,
 )
 
-k8s_yaml('deploy/dink.yaml')
+# configMapGenerator reads config.json, but kustomize() does not report it as a dep.
+watch_file('deploy/config.json')
+
+k8s_yaml(kustomize('deploy'))
 
 k8s_resource(
     'dink',

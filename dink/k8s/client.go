@@ -29,16 +29,19 @@ type KubeClient struct {
 }
 
 func New(ctx context.Context, opts *Options) (*KubeClient, error) {
-	if opts == nil {
-		opts = &Options{}
-	}
 	if opts.Namespace == "" {
 		opts.Namespace = defaultNamespace
 	}
 
-	// An empty path makes BuildConfigFromFlags prefer the in-cluster config and
-	// fall back to KUBECONFIG/~/.kube/config, so it must not be defaulted here.
-	restConfig, err := clientcmd.BuildConfigFromFlags("", opts.KubeConfigPath)
+	var err error
+	var restConfig *rest.Config
+
+	if opts.KubeConfigPath == "" {
+		restConfig, err = rest.InClusterConfig()
+	} else {
+		restConfig, err = clientcmd.BuildConfigFromFlags("", opts.KubeConfigPath)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("unable to build Kubernetes config: %w", err)
 	}

@@ -56,12 +56,12 @@ certs:
 
 ## deploy: Apply the manifests (expects `make load certs` first)
 deploy:
-	$(KUBECTL) apply -f deploy/dink.yaml
+	$(KUBECTL) apply -k deploy
 	$(KUBECTL) -n $(NAMESPACE) rollout status deployment/dink --timeout=120s
 
 ## undeploy: Remove the manifests from the cluster
 undeploy:
-	$(KUBECTL) delete -f deploy/dink.yaml --ignore-not-found
+	$(KUBECTL) delete -k deploy --ignore-not-found
 
 ## logs: Tail the dink control plane logs
 logs:

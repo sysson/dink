@@ -14,11 +14,10 @@ import (
 func TestLoadCLIConfigPrecedence(t *testing.T) {
 	configFile := filepath.Join(t.TempDir(), "config.json")
 	fileConfig := map[string]any{
-		"namespace":      "from-file",
-		"port":           "2375",
-		"logLevel":       "warn",
-		"accessLogLevel": "error",
-		"disableTLS":     true,
+		"kubernetes": map[string]any{"namespace": "from-file"},
+		"server":     map[string]any{"port": "2375", "disableTLS": true},
+		"log":        map[string]any{"level": "warn"},
+		"accessLog":  map[string]any{"level": "error"},
 	}
 	data, err := json.Marshal(fileConfig)
 	if err != nil {
@@ -27,9 +26,9 @@ func TestLoadCLIConfigPrecedence(t *testing.T) {
 	if err := os.WriteFile(configFile, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("DINK_NAMESPACE", "from-environment")
-	t.Setenv("DINK_PORT", "2380")
-	t.Setenv("DINK_CLIENTCAFILE", "")
+	t.Setenv("DINK_K8S_NAMESPACE", "from-environment")
+	t.Setenv("DINK_SERVER_PORT", "2380")
+	t.Setenv("DINK_TLS_CLIENTCAFILE", "")
 
 	opts := newOptions(config.Default(), new(config.Config))
 
@@ -60,30 +59,30 @@ func TestLoadCLIConfigPrecedence(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got, want := opts.cfg.Namespace, "from-environment"; got != want {
+	if got, want := opts.cfg.Kubernetes.Namespace, "from-environment"; got != want {
 		t.Fatalf("namespace = %q, want %q", got, want)
 	}
-	if got, want := opts.cfg.Port, "2390"; got != want {
+	if got, want := opts.cfg.Server.Port, "2390"; got != want {
 		t.Fatalf("port = %q, want %q", got, want)
 	}
-	if got, want := opts.cfg.LogLevel, "warn"; got != want {
+	if got, want := opts.cfg.Log.Level, "warn"; got != want {
 		t.Fatalf("log level = %q, want %q", got, want)
 	}
-	if opts.cfg.DisableTLS == nil || !*opts.cfg.DisableTLS {
+	if opts.cfg.Server.DisableTLS == nil || !*opts.cfg.Server.DisableTLS {
 		t.Fatal("disableTLS was not preserved from the file")
 	}
-	if opts.cfg.TLSPort != "2376" {
-		t.Fatalf("tls port = %q, want the default because it was omitted from the file", opts.cfg.TLSPort)
+	if opts.cfg.Server.TLSPort != "2376" {
+		t.Fatalf("tls port = %q, want the default because it was omitted from the file", opts.cfg.Server.TLSPort)
 	}
 }
 
 func TestMergeConfigExplicitFalseBool(t *testing.T) {
 	trueValue := true
 	falseValue := false
-	opts := newOptions(&config.Config{DisableTLS: &falseValue}, new(config.Config))
+	opts := newOptions(&config.Config{Server: config.Server{DisableTLS: &falseValue}}, new(config.Config))
 	flag := &cli.BoolFlag{
 		Name:   "disableTLS",
-		Action: setPtr(&opts.cfg.DisableTLS),
+		Action: setPtr(&opts.cfg.Server.DisableTLS),
 	}
 	if err := flag.Set("disableTLS", "false"); err != nil {
 		t.Fatal(err)
@@ -93,11 +92,11 @@ func TestMergeConfigExplicitFalseBool(t *testing.T) {
 	}
 	opts.flags = &[]cli.Flag{flag}
 
-	cfg := &config.Config{DisableTLS: &trueValue}
+	cfg := &config.Config{Server: config.Server{DisableTLS: &trueValue}}
 	if err := mergeConfig(opts.cfg, cfg); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.DisableTLS == nil || *cfg.DisableTLS {
+	if cfg.Server.DisableTLS == nil || *cfg.Server.DisableTLS {
 		t.Fatal("disableTLS = true, want explicit false override")
 	}
 }
