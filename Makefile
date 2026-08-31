@@ -3,13 +3,14 @@ GO  ?= go
 GOLANGLINT ?= golangci-lint
 TILT ?= tilt
 KUBECTL ?= kubectl
+MINI ?= minikube
 
 IMAGE ?= ghcr.io/sysson/dink
 TAG ?= dev
 MINIKUBE_PROFILE ?= dink-dev
 NAMESPACE ?= dink-system
 
-.PHONY: all build test generate lint clean fix dev image load certs deploy undeploy logs docker-env
+.PHONY: all build test generate lint clean fix dev image load certs deploy undeploy logs docker-env start
 
 all: build
 
@@ -34,8 +35,11 @@ clean:
 fix:
 	$(GO) fix ./...
 
+start:
+	$(MINI) start -p $(MINIKUBE_PROFILE)
+
 ## dev: Run the Tilt dev loop against the local minikube cluster
-dev:
+dev: start
 	$(TILT) up
 
 ## image: Build the release container image

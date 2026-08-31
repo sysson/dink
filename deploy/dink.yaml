@@ -160,8 +160,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: dink
-          image: dink:dev
-          imagePullPolicy: Never
+          image: ghcr.io/sysson/dink:dev
+          imagePullPolicy: IfNotPresent
           args:
             - --config=/etc/dink/config/config.json
           ports:
