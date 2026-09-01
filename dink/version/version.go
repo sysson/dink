@@ -3,8 +3,11 @@ package version
 import (
 	"runtime/debug"
 	"sync"
+)
 
-	"github.com/sysson/dink/dink/types"
+const (
+	APIVersion    string = "1.55"
+	MinAPIVersion string = "1.40"
 )
 
 var (
@@ -31,8 +34,8 @@ func Get() info {
 			Version:       "Dev",
 			Commit:        "None",
 			Date:          "Unknown",
-			MinAPIVersion: types.MinAPIVersion,
-			APIVersion:    types.APIVersion,
+			MinAPIVersion: MinAPIVersion,
+			APIVersion:    APIVersion,
 		}
 		if ok {
 			if bs.Main.Version != "(devel)" {

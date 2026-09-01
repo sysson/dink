@@ -3,6 +3,9 @@ kind: Kustomization
 
 resources:
   - dink.yaml
+images:
+  - name: ghcr.io/sysson/dink
+    newTag: dev
 
 configMapGenerator:
   - name: dink-config
