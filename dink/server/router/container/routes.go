@@ -2,6 +2,11 @@ package container
 
 import (
 	"net/http"
+
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/v2/daemon/server/backend"
+	"github.com/sysson/dink/dink/pkg/httputils"
+	"github.com/sysson/dink/dink/pkg/log"
 )
 
 func (cr *containerRouter) headContainersArchive(w http.ResponseWriter, r *http.Request) error {
@@ -49,7 +54,23 @@ func (cr *containerRouter) getContainersArchive(w http.ResponseWriter, r *http.R
 }
 
 func (cr *containerRouter) postContainersCreate(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	name := r.URL.Query().Get("name")
+	var request container.CreateRequest
+	if err := httputils.ParseJSON(r, &request); err != nil {
+		return httputils.BadRequest(err)
+	}
+	ccr, err := cr.translator.ContainerCreate(r.Context(), backend.ContainerCreateConfig{
+		Name:   name,
+		Config: request.Config,
+	})
+	if err != nil {
+		return httputils.InternalServerError(err)
+	}
+	if len(ccr.Warnings) > 0 {
+		log.G(r.Context()).With("warnings", ccr.Warnings).Warn("container creation warnings")
+	}
+
+	return httputils.WriteJSON(w, http.StatusCreated, ccr)
 }
 
 func (cr *containerRouter) postContainersKill(w http.ResponseWriter, r *http.Request) error {

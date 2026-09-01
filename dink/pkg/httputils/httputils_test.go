@@ -70,7 +70,7 @@ func TestHTTPResponseWriteJSON(t *testing.T) {
 	response := NewHTTPError(http.StatusBadRequest, errors.New("invalid <input>"))
 	recorder := httptest.NewRecorder()
 
-	if err := WriteJSON(recorder, http.StatusBadRequest, response); err != nil {
+	if err := response.Write(recorder); err != nil {
 		t.Fatalf("WriteJSON() returned error: %v", err)
 	}
 	if got, want := recorder.Code, http.StatusBadRequest; got != want {
@@ -191,7 +191,7 @@ func TestHTTPErrorConstructors(t *testing.T) {
 		constructor func(error) *HTTPError
 		wantStatus  int
 	}{
-		{name: "server error", constructor: ServerError, wantStatus: http.StatusInternalServerError},
+		{name: "server error", constructor: InternalServerError, wantStatus: http.StatusInternalServerError},
 		{name: "not found", constructor: NotFound, wantStatus: http.StatusNotFound},
 		{name: "forbidden", constructor: Forbidden, wantStatus: http.StatusForbidden},
 		{name: "unauthorized", constructor: Unauthorized, wantStatus: http.StatusUnauthorized},

@@ -27,7 +27,7 @@ func (s *Server) Use(m middleware.Middleware) {
 	s.middlewares = append(s.middlewares, m)
 }
 
-func (s *Server) withMiddleware(next httputils.HTTPFunc) httputils.HTTPFunc {
+func (s *Server) withMiddleware(next http.Handler) http.Handler {
 	for _, v := range slices.Backward(s.middlewares) {
 		next = v(next)
 	}
@@ -38,7 +38,7 @@ func (s *Server) CreateMux(ctx context.Context, routers ...router.Router) *chi.M
 	r := chi.NewRouter()
 	for _, apiRouter := range routers {
 		for _, route := range apiRouter.Routes() {
-			f := httputils.HTTPHandler(s.withMiddleware(route.Handler()))
+			f := s.withMiddleware(httputils.HTTPHandler(route.Handler()))
 			r.Method(route.Method(), route.Path(), f)
 			r.Method(route.Method(), versionMatcher+route.Path(), f)
 		}

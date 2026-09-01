@@ -1,5 +1,12 @@
 package container
 
+import (
+	"context"
+
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/v2/daemon/server/backend"
+)
+
 type execTranslator interface {
 	ContainerExecCreate()
 	ContainerExecInspect()
@@ -16,7 +23,7 @@ type copyTranslator interface {
 }
 
 type stateTranslator interface {
-	ContainerCreate()
+	ContainerCreate(ctx context.Context, cfg backend.ContainerCreateConfig) (container.CreateResponse, error)
 	ContainerKill()
 	ContainerPause()
 	ContainerRename()

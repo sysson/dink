@@ -9,12 +9,12 @@ import (
 	"github.com/sysson/dink/dink/pkg/ioutils"
 )
 
-func Middleware(chain *AuthChain) func(next httputils.HTTPFunc) httputils.HTTPFunc {
-	return func(next httputils.HTTPFunc) httputils.HTTPFunc {
+func Middleware(chain *AuthChain) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
 		if chain.Len() == 0 {
 			return next
 		}
-		return func(w http.ResponseWriter, r *http.Request) error {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authMethod := "TLS"
 			id, ok := identity.FromContext(r.Context())
 			if !ok {
@@ -29,16 +29,17 @@ func Middleware(chain *AuthChain) func(next httputils.HTTPFunc) httputils.HTTPFu
 			})
 
 			if err := authCtx.AuthZRequest(w, r); err != nil {
-				return httputils.Forbidden(fmt.Errorf("AuthZRequest returned error: %w", err))
+				_ = httputils.Forbidden(fmt.Errorf("AuthZRequest returned error: %w", err)).Write(w)
+				return
 			}
 
 			rw := ioutils.NewResponseModifier(w)
-			errH := next(rw, r)
+			next.ServeHTTP(rw, r)
 
 			if err := authCtx.AuthZResponse(rw, r); err != nil {
-				return httputils.Forbidden(fmt.Errorf("AuthZResponse returned error: %w", err))
+				_ = httputils.Forbidden(fmt.Errorf("AuthZResponse returned error: %w", err)).Write(w)
+				return
 			}
-			return errH
-		}
+		})
 	}
 }

@@ -1,6 +1,10 @@
 package translator
 
-import "github.com/sysson/dink/dink/k8s"
+import (
+	"errors"
+
+	"github.com/sysson/dink/dink/k8s"
+)
 
 type Translator struct {
 	k8s     *k8s.KubeClient
@@ -47,3 +51,5 @@ func (t *Translator) Swarm() *Swarm {
 func (t *Translator) Builder() *Builder {
 	return &t.builder
 }
+
+var ErrNotImplemented = errors.New("not implemented")

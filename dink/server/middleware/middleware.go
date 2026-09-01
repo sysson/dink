@@ -11,23 +11,19 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httplog/v3"
 	"github.com/moby/moby/client/pkg/versions"
-	"github.com/sysson/dink/dink/pkg/httputils"
 	"github.com/sysson/dink/dink/pkg/log"
 )
 
-type Middleware func(next httputils.HTTPFunc) httputils.HTTPFunc
+type Middleware func(next http.Handler) http.Handler
 type APIVersion struct{}
 
 func RequestID() Middleware {
-	return func(next httputils.HTTPFunc) httputils.HTTPFunc {
-		return func(w http.ResponseWriter, r *http.Request) error {
-			var err error
-			handler := middleware.RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				err = next(w, r)
-			}))
-			handler.ServeHTTP(w, r)
-			return err
-		}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			middleware.RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				next.ServeHTTP(w, r)
+			})).ServeHTTP(w, r)
+		})
 	}
 }
 
@@ -61,20 +57,17 @@ func Logging(ctx context.Context, out io.Writer, level string) Middleware {
 			}
 		},
 	})
-	return func(next httputils.HTTPFunc) httputils.HTTPFunc {
-		return func(w http.ResponseWriter, r *http.Request) error {
-			var err error
-			handler := requestLogger(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				err = next(w, r.WithContext(log.WithLogger(r.Context(), log.G(ctx).With("request.id", middleware.GetReqID(r.Context())))))
-			}))
-			handler.ServeHTTP(w, r)
-			return err
-		}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestLogger(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				next.ServeHTTP(w, r.WithContext(log.WithLogger(r.Context(), log.G(ctx).With("request.id", middleware.GetReqID(r.Context())))))
+			})).ServeHTTP(w, r)
+		})
 	}
 }
 func Version(serverVersion, defaultAPIVersion, minAPIVersion string) Middleware {
-	return func(next httputils.HTTPFunc) httputils.HTTPFunc {
-		return func(w http.ResponseWriter, r *http.Request) error {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Server", fmt.Sprintf("Docker/%s (%s)", serverVersion, runtime.GOOS))
 			w.Header().Set("Api-Version", defaultAPIVersion)
 			w.Header().Set("Ostype", runtime.GOOS)
@@ -83,13 +76,15 @@ func Version(serverVersion, defaultAPIVersion, minAPIVersion string) Middleware 
 				apiVersion = defaultAPIVersion
 			}
 			if versions.LessThan(apiVersion, minAPIVersion) {
-				return httputils.BadRequest(fmt.Errorf("API version %s is not supported. Minimum supported version is %s", apiVersion, minAPIVersion))
+				http.Error(w, fmt.Sprintf("API version %s is not supported. Minimum supported version is %s", apiVersion, minAPIVersion), http.StatusBadRequest)
+				return
 			}
 			if versions.GreaterThan(apiVersion, defaultAPIVersion) {
-				return httputils.BadRequest(fmt.Errorf("API version %s is not supported. Maximum supported version is %s", apiVersion, defaultAPIVersion))
+				http.Error(w, fmt.Sprintf("API version %s is not supported. Maximum supported version is %s", apiVersion, defaultAPIVersion), http.StatusBadRequest)
+				return
 			}
 			r = r.WithContext(context.WithValue(r.Context(), APIVersion{}, apiVersion))
-			return next(w, r)
-		}
+			next.ServeHTTP(w, r)
+		})
 	}
 }

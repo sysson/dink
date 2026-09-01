@@ -86,22 +86,24 @@ type MiddlewareConfig struct {
 	Ensurer                  NamespaceEnsurer
 }
 
-func Middleware(cfg MiddlewareConfig) func(next httputils.HTTPFunc) httputils.HTTPFunc {
-	return func(next httputils.HTTPFunc) httputils.HTTPFunc {
-		return func(w http.ResponseWriter, r *http.Request) error {
+func Middleware(cfg MiddlewareConfig) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			id, err := Resolve(cfg.BaseNamespace, PeerCertificate(r))
 			if err != nil {
-				return httputils.Forbidden(fmt.Errorf("resolving identity: %w", err))
+				_ = httputils.Forbidden(fmt.Errorf("resolving identity: %w", err)).Write(w)
+				return
 			}
 
 			if !id.Anonymous && !cfg.DisableNamespaceCreation && cfg.Ensurer != nil {
 				if err := cfg.Ensurer.EnsureNamespace(r.Context(), id.Namespace, id.Organization); err != nil {
 					log.G(r.Context()).WithError(err).Error("provisioning tenant namespace", "namespace", id.Namespace)
-					return httputils.ServerError(fmt.Errorf("provisioning tenant namespace: %w", err))
+					_ = httputils.InternalServerError(fmt.Errorf("provisioning tenant namespace: %w", err)).Write(w)
+					return
 				}
 			}
 
-			return next(w, r.WithContext(context.WithValue(r.Context(), contextKey{}, id)))
-		}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), contextKey{}, id)))
+		})
 	}
 }
