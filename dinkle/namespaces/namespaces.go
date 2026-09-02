@@ -33,9 +33,8 @@ func New(client kubernetes.Interface) *Manager {
 	return &Manager{client: client}
 }
 
-// Ensure creates namespace if it does not already exist. It is not an error
-// for the namespace to already exist.
-func (m *Manager) Ensure(ctx context.Context, name string, tenant bool) error {
+// Create creates namespace if it does not already exist.
+func (m *Manager) Create(ctx context.Context, name string, tenant bool) error {
 	labels := map[string]string{LabelManagedBy: ManagedByValue}
 	if tenant {
 		labels[LabelTenant] = name
@@ -46,19 +45,12 @@ func (m *Manager) Ensure(ctx context.Context, name string, tenant bool) error {
 		Labels: labels,
 	}
 	_, err := m.client.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
-	if err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("creating namespace %q: %w", name, err)
-	}
-	return nil
+	return err
 }
 
 // Get returns the tenant namespace, or an error if it does not exist.
 func (m *Manager) Get(ctx context.Context, name string) (*corev1.Namespace, error) {
-	ns, err := m.client.CoreV1().Namespaces().Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("getting namespace %q: %w", name, err)
-	}
-	return ns, nil
+	return m.client.CoreV1().Namespaces().Get(ctx, name, metav1.GetOptions{})
 }
 
 // ListTenants returns the names of every tenant namespace dinkle provisioned,
@@ -81,10 +73,7 @@ func (m *Manager) ListTenants(ctx context.Context) ([]string, error) {
 
 // Delete removes a tenant namespace and everything in it.
 func (m *Manager) Delete(ctx context.Context, name string) error {
-	if err := m.client.CoreV1().Namespaces().Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("deleting namespace %q: %w", name, err)
-	}
-	return nil
+	return m.client.CoreV1().Namespaces().Delete(ctx, name, metav1.DeleteOptions{})
 }
 
 // HasDeployments reports whether the namespace contains any Deployments.
@@ -99,14 +88,21 @@ func (m *Manager) HasDeployments(ctx context.Context, name string) (bool, error)
 	return len(list.Items) > 0, nil
 }
 
+func (m *Manager) DeleteSecret(ctx context.Context, namespace, secretName string) error {
+	if err := m.client.CoreV1().Secrets(namespace).Delete(ctx, secretName, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("deleting secret %s/%s: %w", namespace, secretName, err)
+	}
+	return nil
+}
+
 func (m *Manager) StoreServerSecret(ctx context.Context, namespace, secretName string, data map[string][]byte) error {
 	secret := &corev1.Secret{
-			Name:      secretName,
-			Namespace: namespace,
-			Labels: map[string]string{
-				LabelManagedBy: ManagedByValue,
-				"app.kubernetes.io/name":  "dink",
-			},
+		Name:      secretName,
+		Namespace: namespace,
+		Labels: map[string]string{
+			LabelManagedBy:           ManagedByValue,
+			"app.kubernetes.io/name": "dink",
+		},
 		Type: corev1.SecretTypeOpaque,
 		Data: data,
 	}

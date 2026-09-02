@@ -35,6 +35,9 @@ func New(ctx context.Context, kubePath string) (*KubeClient, error) {
 		restConfig, err = clientcmd.BuildConfigFromFlags("", kubePath)
 	} else {
 		restConfig, err = rest.InClusterConfig()
+		if err != nil {
+			restConfig, err = clientcmd.BuildConfigFromFlags("", DefaultPath())
+		}
 	}
 
 	if err != nil {

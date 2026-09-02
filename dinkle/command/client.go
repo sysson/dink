@@ -7,11 +7,8 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/sysson/dink/dinkle/namespaces"
 	"github.com/sysson/dink/dinkle/store"
 	"github.com/urfave/cli/v3"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func clientCmd(o *Options) *cli.Command {
@@ -37,39 +34,33 @@ func clientCreateCmd(o *Options) *cli.Command {
 				return err
 			}
 
-			ca, err := loadAuthority(o.certsDir)
-			if err != nil {
-				return err
-			}
-
-			kc, err := o.kubeClient(ctx)
-			if err != nil {
-				return err
-			}
-			if _, err := namespaces.New(kc).Get(ctx, namespace); err != nil {
-				return fmt.Errorf("tenant namespace %q does not exist; create it with `dinkle tenant create %s` first: %w", namespace, namespace, err)
-			}
-
-			return issueClientCert(ctx, namespaces.New(kc), ca, namespace, clientName, o.certsDir)
+			return newService(o).CreateClient(ctx, namespace, clientName, cmd.Writer)
 		},
 	}
 }
 
 func clientListCmd(o *Options) *cli.Command {
+	var namespace string
 	return &cli.Command{
 		Name:      "list",
 		Usage:     "List the client certificates cached for a tenant namespace",
 		ArgsUsage: "<namespace>",
+		Arguments: []cli.Argument{
+			&cli.StringArg{
+				Name:        "namespace",
+				Destination: &namespace,
+			},
+		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			namespace := cmd.Args().First()
-			if namespace == "" {
-				return fmt.Errorf("namespace is required")
+
+			if err := requireString(namespace, ErrNamespaceRequired); err != nil {
+				return err
 			}
 
 			entries, err := os.ReadDir(store.TenantDir(o.certsDir, namespace))
 			if err != nil {
 				if errors.Is(err, fs.ErrNotExist) {
-					return nil
+					return fmt.Errorf("tenant %q not found", namespace)
 				}
 				return fmt.Errorf("listing clients for %q: %w", namespace, err)
 			}
@@ -94,19 +85,7 @@ func clientDeleteCmd(o *Options) *cli.Command {
 				return err
 			}
 
-			kc, err := o.kubeClient(ctx)
-			if err != nil {
-				return err
-			}
-			secretName := clientSecretName(clientName)
-			if err := kc.CoreV1().Secrets(namespace).Delete(ctx, secretName, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
-				return fmt.Errorf("deleting secret %s/%s: %w", namespace, secretName, err)
-			}
-			if err := os.RemoveAll(store.ClientDir(o.certsDir, namespace, clientName)); err != nil {
-				return fmt.Errorf("removing cached certificate for %s/%s: %w", namespace, clientName, err)
-			}
-			_, _ = fmt.Fprintf(cmd.Writer, "deleted client %s/%s\n", namespace, clientName)
-			return nil
+			return newService(o).DeleteClient(ctx, namespace, clientName, cmd.Writer)
 		},
 	}
 }
@@ -115,8 +94,11 @@ func namespaceAndClientArgs(cmd *cli.Command) (namespace, clientName string, err
 	args := cmd.Args()
 	namespace = args.Get(0)
 	clientName = args.Get(1)
-	if namespace == "" || clientName == "" {
-		return "", "", fmt.Errorf("namespace and client name are required")
+	if err := requireString(namespace, ErrNamespaceRequired); err != nil {
+		return "", "", err
+	}
+	if err := requireString(clientName, ErrClientNameRequired); err != nil {
+		return "", "", err
 	}
 	return namespace, clientName, nil
 }

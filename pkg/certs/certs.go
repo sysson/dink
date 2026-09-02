@@ -34,6 +34,8 @@ const (
 	DefaultOrganization = "dink"
 	DefaultCACommonName = "dink-ca"
 	DefaultClientCN     = "dink-client"
+	DefaultServiceName  = "dink"
+	DefaultNamespace    = "dink-system"
 	DefaultKeyType      = KeyTypeECDSA
 	DefaultRSABits      = 3072
 	DefaultCADuration   = 3650 * 24 * time.Hour
@@ -122,10 +124,10 @@ func (o *Options) applyDefaults() error {
 		o.ClientCN = DefaultClientCN
 	}
 	if o.ServiceName == "" {
-		return fmt.Errorf("service name is required")
+		o.ServiceName = DefaultServiceName
 	}
 	if o.Namespace == "" {
-		return fmt.Errorf("namespace is required")
+		o.Namespace = DefaultNamespace
 	}
 	if o.ClusterDomain == "" {
 		o.ClusterDomain = "cluster.local"

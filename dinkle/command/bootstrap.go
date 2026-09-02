@@ -8,7 +8,6 @@ import (
 	"net"
 	"time"
 
-	"github.com/sysson/dink/dinkle/namespaces"
 	"github.com/sysson/dink/pkg/certs"
 	"github.com/sysson/dink/pkg/types"
 	"github.com/urfave/cli/v3"
@@ -128,62 +127,9 @@ func bootstrapCmd(o *Options) *cli.Command {
 			},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			return bootstrap(ctx, b, cmd.Writer)
+			return newService(o).Bootstrap(ctx, b, cmd.Writer)
 		},
 	}
-}
-
-func bootstrap(ctx context.Context, b *bootstrapOptions, out io.Writer) error {
-	opts, err := b.certOptions()
-	if err != nil {
-		return err
-	}
-
-	ca, err := b.authority(opts, out)
-	if err != nil {
-		return err
-	}
-	if err := certs.SaveCA(b.o.certsDir, ca.KeyPair()); err != nil {
-		return err
-	}
-
-	server, err := ca.IssueServer()
-	if err != nil {
-		return fmt.Errorf("issuing server certificate: %w", err)
-	}
-	if err := certs.SaveServer(b.o.certsDir, server); err != nil {
-		return err
-	}
-	_, _ = fmt.Fprintf(out, "wrote certificates to %s\n", b.o.certsDir)
-
-	if !b.apply {
-		return nil
-	}
-
-	client, err := b.o.kubeClient(ctx)
-	if err != nil {
-		return err
-	}
-
-	nsManager := namespaces.New(client)
-	if err := nsManager.Ensure(ctx, b.systemNamespace, false); err != nil {
-		return err
-	}
-	if err := nsManager.Ensure(ctx, b.defaultNamespace, false); err != nil {
-		return err
-	}
-	_, _ = fmt.Fprintf(out, "ensured namespaces %s, %s\n", b.systemNamespace, b.defaultNamespace)
-
-	if err := nsManager.StoreServerSecret(ctx, b.systemNamespace, b.secretName, map[string][]byte{
-		"tls.crt": server.Cert,
-		"tls.key": server.Key,
-		"ca.crt":  ca.KeyPair().Cert,
-	}); err != nil {
-		return err
-	}
-
-	_, _ = fmt.Fprintf(out, "applied secret %s/%s\n", b.systemNamespace, b.secretName)
-	return nil
 }
 
 func (b *bootstrapOptions) certOptions() (certs.Options, error) {

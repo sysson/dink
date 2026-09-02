@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"fmt"
+	"io"
 
 	"github.com/sysson/dink/dinkle/namespaces"
 	"github.com/sysson/dink/dinkle/store"
@@ -12,7 +13,7 @@ import (
 // issueClientCert issues a client certificate scoped to namespace, caches it
 // under g.certsDir/namespace/clientName laid out for DOCKER_CERT_PATH, and
 // applies it to the cluster as a Secret so workloads in namespace can use it.
-func issueClientCert(ctx context.Context, ns *namespaces.Manager, ca *certs.Authority, namespace, clientName, certDir string) error {
+func issueClientCert(ctx context.Context, ns *namespaces.Manager, ca *certs.Authority, namespace, clientName, certDir string, out io.Writer) error {
 	leaf, err := ca.IssueTenantClient(namespace, clientName)
 	if err != nil {
 		return fmt.Errorf("issuing client certificate for %s/%s: %w", namespace, clientName, err)
@@ -31,6 +32,6 @@ func issueClientCert(ctx context.Context, ns *namespaces.Manager, ca *certs.Auth
 	if err != nil {
 		return fmt.Errorf("storing client secret for %s/%s: %w", namespace, clientName, err)
 	}
-
+	_, _ = fmt.Fprintf(out, "issued client certificate for %s/%s\nAt %s\n", namespace, clientName, dir)
 	return nil
 }

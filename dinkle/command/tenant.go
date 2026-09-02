@@ -2,12 +2,7 @@ package command
 
 import (
 	"context"
-	"fmt"
-	"io"
-	"os"
 
-	"github.com/sysson/dink/dinkle/namespaces"
-	"github.com/sysson/dink/dinkle/store"
 	"github.com/urfave/cli/v3"
 )
 
@@ -34,33 +29,12 @@ func tenantCreateCmd(o *Options) *cli.Command {
 		ArgsUsage: "<name>",
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			name := cmd.Args().First()
-			if name == "" {
-				return fmt.Errorf("tenant name is required")
+			if err := requireString(name, ErrTenantNameRequired); err != nil {
+				return err
 			}
-			return tenantCreate(ctx, o, name, cmd.Writer)
+			return newService(o).CreateTenant(ctx, name, cmd.Writer)
 		},
 	}
-}
-
-func tenantCreate(ctx context.Context, o *Options, name string, out io.Writer) error {
-	ca, err := loadAuthority(o.certsDir)
-	if err != nil {
-		return err
-	}
-
-	kc, err := o.kubeClient(ctx)
-	if err != nil {
-		return err
-	}
-
-	nsManager := namespaces.New(kc)
-
-	if err := nsManager.Ensure(ctx, name, true); err != nil {
-		return err
-	}
-	_, _ = fmt.Fprintf(out, "ensured tenant namespace %s\n", name)
-
-	return issueClientCert(ctx, nsManager, ca, name, defaultTenantClient, o.certsDir)
 }
 
 func tenantListCmd(o *Options) *cli.Command {
@@ -68,18 +42,7 @@ func tenantListCmd(o *Options) *cli.Command {
 		Name:  "list",
 		Usage: "List tenants",
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			kc, err := o.kubeClient(ctx)
-			if err != nil {
-				return err
-			}
-			names, err := namespaces.New(kc).ListTenants(ctx)
-			if err != nil {
-				return err
-			}
-			for _, n := range names {
-				_, _ = fmt.Fprintln(cmd.Writer, n)
-			}
-			return nil
+			return newService(o).ListTenants(ctx, cmd.Writer)
 		},
 	}
 }
@@ -99,34 +62,10 @@ func tenantDeleteCmd(o *Options) *cli.Command {
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			name := cmd.Args().First()
-			if name == "" {
-				return fmt.Errorf("tenant name is required")
-			}
-
-			kc, err := o.kubeClient(ctx)
-			if err != nil {
+			if err := requireString(name, ErrTenantNameRequired); err != nil {
 				return err
 			}
-
-			nsManager := namespaces.New(kc)
-			if !force {
-				has, err := nsManager.HasDeployments(ctx, name)
-				if err != nil {
-					return err
-				}
-				if has {
-					return fmt.Errorf("tenant %q has running deployments; use --force to delete anyway", name)
-				}
-			}
-
-			if err := nsManager.Delete(ctx, name); err != nil {
-				return err
-			}
-			if err := os.RemoveAll(store.TenantDir(o.certsDir, name)); err != nil {
-				return fmt.Errorf("removing cached certificates for %q: %w", name, err)
-			}
-			_, _ = fmt.Fprintf(cmd.Writer, "deleted tenant %s\n", name)
-			return nil
+			return newService(o).DeleteTenant(ctx, name, force, cmd.Writer)
 		},
 	}
 }

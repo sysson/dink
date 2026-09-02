@@ -6,51 +6,54 @@ import (
 	"fmt"
 	"sync"
 
-	pkgcerts "github.com/sysson/dink/pkg/certs"
 	"github.com/sysson/dink/pkg/k8s"
-	"github.com/sysson/dink/pkg/types"
 	"k8s.io/client-go/kubernetes"
+)
+
+var (
+	ErrNamespaceRequired      = errors.New("namespace is required")
+	ErrClientNameRequired     = errors.New("client name is required")
+	ErrTenantNameRequired     = errors.New("tenant name is required")
+	ErrNamespaceClientMissing = errors.New("namespace and client name are required")
 )
 
 // Options holds the flags shared by every dinkle subcommand.
 type Options struct {
 	kubeConfig string
 	certsDir   string
-	once       sync.Once
-	kubernetes.Interface
+
+	once          sync.Once
+	client        kubernetes.Interface
+	clientErr     error
+	newKubeClient func(context.Context, string) (kubernetes.Interface, error)
 }
 
 func (o *Options) kubeClient(ctx context.Context) (kubernetes.Interface, error) {
-	o.once.Do(func() {
-		var err error
-		o.Interface, err = k8s.New(ctx, o.kubeConfig)
-		if err != nil {
-			return
+	if o.newKubeClient == nil {
+		o.newKubeClient = func(ctx context.Context, kubeconfig string) (kubernetes.Interface, error) {
+			return k8s.New(ctx, kubeconfig)
 		}
-	})
-	if o.Interface == nil {
-		return nil, fmt.Errorf("failed to create kube client")
 	}
-	return o.Interface, nil
-}
 
-// loadAuthority reloads the CA cached by a previous `dinkle bootstrap` run.
-// The ServiceName/Namespace only matter for IssueServer, so placeholders are
-// fine here: tenant and client certificates never consult them.
-func loadAuthority(dir string) (*pkgcerts.Authority, error) {
-	ca, err := pkgcerts.LoadAuthorityDir(dir, pkgcerts.Options{
-		ServiceName: defaultService,
-		Namespace:   types.DefaultSystemNamespace,
+	o.once.Do(func() {
+		o.client, o.clientErr = o.newKubeClient(ctx, o.kubeConfig)
 	})
-	if err != nil {
-		if errors.Is(err, pkgcerts.ErrNoAuthority) {
-			return nil, fmt.Errorf("no CA cached in %s; run `dinkle bootstrap` first: %w", dir, err)
-		}
-		return nil, err
+	if o.clientErr != nil {
+		return nil, o.clientErr
 	}
-	return ca, nil
+	if o.client == nil {
+		return nil, fmt.Errorf("kube client factory returned nil client without error")
+	}
+	return o.client, nil
 }
 
 func clientSecretName(clientName string) string {
 	return "dink-client-" + clientName
+}
+
+func requireString(value string, missingErr error) error {
+	if value == "" {
+		return missingErr
+	}
+	return nil
 }
