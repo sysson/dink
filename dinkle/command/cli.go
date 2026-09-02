@@ -5,18 +5,18 @@ package command
 import (
 	"io"
 
-	"github.com/sysson/dink/dinkle/certs"
+	"github.com/sysson/dink/dinkle/store"
 	"github.com/sysson/dink/pkg/types"
 	"github.com/urfave/cli/v3"
 )
 
 func New(stdout, stderr io.Writer) (*cli.Command, error) {
-	defaultCertsDir, err := certs.DefaultDir()
+	defaultCertsDir, err := store.DefaultDir()
 	if err != nil {
 		return nil, err
 	}
 
-	g := &globalOptions{certsDir: defaultCertsDir}
+	o := &Options{certsDir: defaultCertsDir}
 
 	return &cli.Command{
 		Name:  "dinkle",
@@ -31,20 +31,20 @@ func New(stdout, stderr io.Writer) (*cli.Command, error) {
 				Name:        "kubeconfig",
 				Usage:       "Path to a kubeconfig; defaults to the ambient cluster configuration",
 				Sources:     cli.EnvVars("KUBECONFIG"),
-				Destination: &g.kubeConfig,
+				Destination: &o.kubeConfig,
 			},
 			&cli.StringFlag{
 				Name:        "certsDir",
 				Usage:       "Directory used to cache the CA and issued certificates",
 				Value:       defaultCertsDir,
 				Sources:     cli.EnvVars(types.DefaultEnvPrefix + "_CERTS_DIR"),
-				Destination: &g.certsDir,
+				Destination: &o.certsDir,
 			},
 		},
 		Commands: []*cli.Command{
-			bootstrapCmd(g),
-			tenantCmd(g),
-			clientCmd(g),
+			bootstrapCmd(o),
+			tenantCmd(o),
+			clientCmd(o),
 		},
 	}, nil
 }

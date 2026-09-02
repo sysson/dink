@@ -54,7 +54,7 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 	if !ok {
 		return container.CreateResponse{}, httputils.Unauthorized(fmt.Errorf("missing identity in context"))
 	}
-	deployment, err := d.k8s.client.AppsV1().Deployments(id.Namespace).Create(ctx,
+	deployment, err := d.k8s.AppsV1().Deployments(id.Namespace).Create(ctx,
 		&appsv1.Deployment{
 			Name: cfg.Name,
 			Labels: map[string]string{

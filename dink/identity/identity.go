@@ -98,6 +98,11 @@ func Middleware(cfg MiddlewareConfig) func(next http.Handler) http.Handler {
 			}
 			if id.Anonymous {
 				id.Namespace = cfg.DefaultNamespace
+				if err := cfg.Ensurer.EnsureNamespace(r.Context(), id.Namespace); err != nil {
+					log.G(r.Context()).WithError(err).Error("error accessing default namespace", "namespace", id.Namespace)
+					_ = httputils.InternalServerError(fmt.Errorf("accessing default namespace: %w", err)).Write(w)
+					return
+				}
 			} else {
 				if err := cfg.Ensurer.EnsureNamespace(r.Context(), id.Namespace); err != nil {
 					log.G(r.Context()).WithError(err).Error("error accessing tenant namespace", "namespace", id.Namespace)

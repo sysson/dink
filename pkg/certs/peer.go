@@ -1,4 +1,4 @@
-package tlsutils
+package certs
 
 import (
 	"crypto/x509"

@@ -11,9 +11,9 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/sysson/dink/pkg/certs"
 	"github.com/sysson/dink/pkg/httputils"
 	"github.com/sysson/dink/pkg/ioutils"
-	"github.com/sysson/dink/pkg/tlsutils"
 	authv1 "github.com/sysson/dink/sdk/auth/v1"
 )
 
@@ -74,7 +74,7 @@ func (ctx *Ctx) AuthZRequest(w http.ResponseWriter, r *http.Request) error {
 
 	if r.TLS != nil {
 		for _, c := range r.TLS.PeerCertificates {
-			pc := tlsutils.PeerCertificate(*c)
+			pc := certs.PeerCertificate(*c)
 			b, err := pc.MarshalJSON()
 			if err != nil {
 				return err

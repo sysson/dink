@@ -20,6 +20,8 @@ const (
 	LabelTenant = "dink.io/tenant"
 
 	ManagedByValue = "dinkle"
+
+	CertFieldManager = "dinkle"
 )
 
 // Manager creates, lists and deletes the namespaces dinkle owns.
@@ -40,8 +42,8 @@ func (m *Manager) Ensure(ctx context.Context, name string, tenant bool) error {
 	}
 
 	ns := &corev1.Namespace{
-			Name:   name,
-			Labels: labels,
+		Name:   name,
+		Labels: labels,
 	}
 	_, err := m.client.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
@@ -83,4 +85,63 @@ func (m *Manager) Delete(ctx context.Context, name string) error {
 		return fmt.Errorf("deleting namespace %q: %w", name, err)
 	}
 	return nil
+}
+
+// HasDeployments reports whether the namespace contains any Deployments.
+func (m *Manager) HasDeployments(ctx context.Context, name string) (bool, error) {
+	list, err := m.client.AppsV1().Deployments(name).List(ctx, metav1.ListOptions{Limit: 1})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("listing deployments in namespace %q: %w", name, err)
+	}
+	return len(list.Items) > 0, nil
+}
+
+func (m *Manager) StoreServerSecret(ctx context.Context, namespace, secretName string, data map[string][]byte) error {
+	secret := &corev1.Secret{
+			Name:      secretName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				LabelManagedBy: ManagedByValue,
+				"app.kubernetes.io/name":  "dink",
+			},
+		Type: corev1.SecretTypeOpaque,
+		Data: data,
+	}
+	return m.storeSecret(ctx, namespace, secret)
+}
+
+func (m *Manager) StoreClientSecret(ctx context.Context, namespace, clientName string, data map[string][]byte) error {
+	secretName := clientSecretName(clientName)
+
+	secret := &corev1.Secret{
+		Name:      secretName,
+		Namespace: namespace,
+		Labels: map[string]string{
+			LabelManagedBy:   ManagedByValue,
+			"dink.io/client": secretName,
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: data,
+	}
+	return m.storeSecret(ctx, namespace, secret)
+}
+
+func (m *Manager) storeSecret(ctx context.Context, namespace string, secret *corev1.Secret) error {
+	secrets := m.client.CoreV1().Secrets(namespace)
+
+	_, err := secrets.Update(ctx, secret, metav1.UpdateOptions{FieldManager: CertFieldManager})
+	if apierrors.IsNotFound(err) {
+		_, err = secrets.Create(ctx, secret, metav1.CreateOptions{FieldManager: CertFieldManager})
+	}
+	if err != nil {
+		return fmt.Errorf("applying secret %s/%s: %w", namespace, secret.Name, err)
+	}
+	return nil
+}
+
+func clientSecretName(clientName string) string {
+	return "dink-client-" + clientName
 }

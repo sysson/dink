@@ -1,7 +1,7 @@
-// Package certs resolves the on-disk locations dinkle uses to cache the CA
+// Package store resolves the on-disk locations dinkle uses to cache the CA
 // and issued client certificates, on top of the certificate primitives in
 // pkg/certs.
-package certs
+package store
 
 import (
 	"fmt"

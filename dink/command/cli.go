@@ -20,7 +20,7 @@ import (
 	"github.com/sysson/dink/dink/translator"
 	"github.com/sysson/dink/dink/version"
 	"github.com/sysson/dink/pkg/log"
-	"github.com/sysson/dink/pkg/tlsutils"
+	"github.com/sysson/dink/pkg/tlsconfig"
 	"github.com/urfave/cli/v3"
 	"google.golang.org/grpc"
 )
@@ -82,7 +82,7 @@ func newTLSConfig(cfg *config.Config) (*tls.Config, error) {
 	if cfg.Server.DisableTLS != nil && *cfg.Server.DisableTLS {
 		return nil, nil
 	}
-	return tlsutils.Config(&tlsutils.TLSConfigOptions{
+	return tlsconfig.Config(&tlsconfig.TLSConfigOptions{
 		DisableTLS:    false,
 		TLSCertFile:   cfg.TLS.CertFile,
 		TLSKeyFile:    cfg.TLS.KeyFile,
