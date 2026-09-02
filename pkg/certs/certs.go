@@ -240,10 +240,13 @@ func LoadAuthority(pair KeyPair, opts Options) (*Authority, error) {
 
 // LeafRequest describes a certificate to be issued by an Authority.
 type LeafRequest struct {
-	CommonName  string
-	ExtKeyUsage []x509.ExtKeyUsage
-	DNSNames    []string
-	IPAddresses []net.IP
+	CommonName string
+	// Organization overrides the Authority's default organization, used to
+	// scope tenant client certificates to their namespace.
+	Organization string
+	ExtKeyUsage  []x509.ExtKeyUsage
+	DNSNames     []string
+	IPAddresses  []net.IP
 }
 
 // Issue signs a new leaf certificate with a freshly generated key.
@@ -278,10 +281,15 @@ func (a *Authority) Issue(req LeafRequest) (KeyPair, error) {
 		notAfter = a.cert.NotAfter
 	}
 
+	organization := a.opts.Organization
+	if req.Organization != "" {
+		organization = req.Organization
+	}
+
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
-			Organization: []string{a.opts.Organization},
+			Organization: []string{organization},
 			CommonName:   req.CommonName,
 		},
 		NotBefore:             now.Add(-backdate),
@@ -337,6 +345,23 @@ func (a *Authority) IssueClient() (KeyPair, error) {
 		CommonName:  a.opts.ClientCN,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 		DNSNames:    []string{a.opts.ClientCN},
+	})
+}
+
+// IssueTenantClient signs a client certificate scoped to a tenant: the
+// certificate organization is the tenant namespace, identifying the caller to
+// dink's identity middleware, and the common name is the client's own name.
+func (a *Authority) IssueTenantClient(namespace, clientName string) (KeyPair, error) {
+	if namespace == "" {
+		return KeyPair{}, fmt.Errorf("tenant namespace is required")
+	}
+	if clientName == "" {
+		return KeyPair{}, fmt.Errorf("client name is required")
+	}
+	return a.Issue(LeafRequest{
+		CommonName:   clientName,
+		Organization: namespace,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	})
 }
 

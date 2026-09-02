@@ -161,16 +161,21 @@ func TestKubernetesValidate(t *testing.T) {
 	}{
 		{
 			name:       "namespace and health port",
-			kubernetes: Kubernetes{Namespace: "dink", HealthPort: "8080"},
+			kubernetes: Kubernetes{SystemNamespace: "dink", DefaultNamespace: "default", HealthPort: "8080"},
 		},
 		{
-			name:       "missing namespace",
-			kubernetes: Kubernetes{HealthPort: "8080"},
-			wantErr:    "namespace must not be empty",
+			name:       "missing default namespace",
+			kubernetes: Kubernetes{SystemNamespace: "dink", DefaultNamespace: "", HealthPort: "8080"},
+			wantErr:    "defaultNamespace must not be empty",
+		},
+		{
+			name:       "missing system namespace",
+			kubernetes: Kubernetes{SystemNamespace: "", DefaultNamespace: "default", HealthPort: "8080"},
+			wantErr:    "systemNamespace must not be empty",
 		},
 		{
 			name:       "privileged health port",
-			kubernetes: Kubernetes{Namespace: "dink", HealthPort: "80"},
+			kubernetes: Kubernetes{SystemNamespace: "dink", DefaultNamespace: "default", HealthPort: "80"},
 			wantErr:    "healthPort=\"80\" is invalid",
 		},
 	}
@@ -304,7 +309,7 @@ func TestConfigValidateAggregatesErrors(t *testing.T) {
 	cfg := &Config{
 		Log:        Log{Level: "trace"},
 		AccessLog:  AccessLog{Level: "verbose"},
-		Kubernetes: Kubernetes{HealthPort: "8080"},
+		Kubernetes: Kubernetes{HealthPort: "8080", DefaultNamespace: "dink-default"},
 		Server:     Server{Port: "2375", TLSPort: "2375", AllowPlaintextWithTLS: new(true)},
 		TLS:        TLS{CertFile: "/certs/tls.crt", KeyFile: "/certs/tls.key"},
 		BuildKit:   BuildKit{URL: "http://buildkitd:1234"},
@@ -318,7 +323,7 @@ func TestConfigValidateAggregatesErrors(t *testing.T) {
 	for _, want := range []string{
 		"logLevel=\"trace\"",
 		"accessLogLevel=\"verbose\"",
-		"namespace must not be empty",
+		"systemNamespace must not be empty",
 		"tlsPort must differ from port",
 		"authPlugins[0].name must not be empty",
 		"expected a tcp:// or unix:// address",

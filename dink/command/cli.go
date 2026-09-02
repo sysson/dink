@@ -15,13 +15,12 @@ import (
 	"github.com/sysson/dink/dink/auth"
 	"github.com/sysson/dink/dink/config"
 	"github.com/sysson/dink/dink/identity"
-	"github.com/sysson/dink/dink/k8s"
-	"github.com/sysson/dink/dink/pkg/log"
-	"github.com/sysson/dink/dink/pkg/tlsutils"
 	"github.com/sysson/dink/dink/server"
 	"github.com/sysson/dink/dink/server/middleware"
 	"github.com/sysson/dink/dink/translator"
 	"github.com/sysson/dink/dink/version"
+	"github.com/sysson/dink/pkg/log"
+	"github.com/sysson/dink/pkg/tlsutils"
 	"github.com/urfave/cli/v3"
 	"google.golang.org/grpc"
 )
@@ -110,11 +109,7 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 	if err != nil {
 		return fmt.Errorf("unable to load listeners: %w", err)
 	}
-
-	client, err := k8s.New(ctx, &k8s.Options{
-		Namespace:      c.cfg.Kubernetes.Namespace,
-		KubeConfigPath: c.cfg.Kubernetes.KubeConfigPath,
-	})
+	translator, err := translator.New(ctx, c.cfg.Kubernetes.SystemNamespace)
 	if err != nil {
 		return fmt.Errorf("unable to create Kubernetes client: %w", err)
 	}
@@ -183,13 +178,12 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 	server.Use(middleware.Logging(ctx, c.stdOut, c.cfg.AccessLog.Level))
 	server.Use(middleware.Version(v.Version, v.APIVersion, v.MinAPIVersion))
 	server.Use(identity.Middleware(identity.MiddlewareConfig{
-		BaseNamespace:            c.cfg.Kubernetes.Namespace,
-		DisableNamespaceCreation: isBool(c.cfg.Kubernetes.NamespaceCreationEnabled),
-		Ensurer:                  client,
+		DefaultNamespace: c.cfg.Kubernetes.DefaultNamespace,
+		SystemNamespace:  c.cfg.Kubernetes.SystemNamespace,
+		Ensurer:          translator,
 	}))
 	server.Use(auth.Middleware(authChain))
 
-	translator := translator.New(client)
 	router := buildRouters(translator)
 	gs := grpc.NewServer()
 

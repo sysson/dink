@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"github.com/sysson/dink/dink/identity"
-	"github.com/sysson/dink/dink/pkg/httputils"
-	"github.com/sysson/dink/dink/pkg/ioutils"
+	"github.com/sysson/dink/pkg/httputils"
+	"github.com/sysson/dink/pkg/ioutils"
 )
 
 func Middleware(chain *AuthChain) func(next http.Handler) http.Handler {

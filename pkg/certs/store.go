@@ -9,17 +9,14 @@ import (
 )
 
 // On-disk file names. The tls.* names match the keys of a kubernetes.io/tls
-// Secret; the docker/ subdirectory matches what docker(1) expects to find
+// Secret; the ca/cert/key.pem names match what docker(1) expects to find
 // under DOCKER_CERT_PATH.
 const (
 	CAcertFile     = "ca.crt"
 	CAKeyFile      = "ca.key"
 	ServerCertFile = "tls.crt"
 	ServerKeyFile  = "tls.key"
-	ClientCertFile = "client.crt"
-	ClientKeyFile  = "client.key"
 
-	DockerDir      = "docker"
 	DockerCAFile   = "ca.pem"
 	DockerCertFile = "cert.pem"
 	DockerKeyFile  = "key.pem"
@@ -28,34 +25,52 @@ const (
 // ErrNoAuthority is returned by LoadAuthorityDir when dir holds no CA.
 var ErrNoAuthority = errors.New("no certificate authority found")
 
-// Save writes a bundle to dir, including the docker client layout. Private
-// keys are written 0600 and the directories 0700.
-func Save(dir string, b *Bundle) error {
-	dockerDir := filepath.Join(dir, DockerDir)
-	if err := os.MkdirAll(dockerDir, 0o700); err != nil {
-		return fmt.Errorf("creating %s: %w", dockerDir, err)
+// SaveCA writes only the CA certificate and key to dir.
+func SaveCA(dir string, ca KeyPair) error {
+	return saveFiles(dir, []fileSpec{
+		{CAcertFile, ca.Cert, 0o644},
+		{CAKeyFile, ca.Key, 0o600},
+	})
+}
+
+// SaveServer writes only the server certificate and key to dir.
+func SaveServer(dir string, server KeyPair) error {
+	return saveFiles(dir, []fileSpec{
+		{ServerCertFile, server.Cert, 0o644},
+		{ServerKeyFile, server.Key, 0o600},
+	})
+}
+
+// SaveClientDir writes a client keypair and the issuing CA certificate to dir
+// using the docker(1) DOCKER_CERT_PATH layout, so dir can be pointed to
+// directly via DOCKER_CERT_PATH.
+func SaveClientDir(dir string, ca KeyPair, client KeyPair) error {
+	return saveFiles(dir, []fileSpec{
+		{DockerCAFile, ca.Cert, 0o644},
+		{DockerCertFile, client.Cert, 0o644},
+		{DockerKeyFile, client.Key, 0o600},
+	})
+}
+
+type fileSpec struct {
+	name string
+	data []byte
+	mode fs.FileMode
+}
+
+func saveFiles(dir string, files []fileSpec) error {
+	dirs := map[string]struct{}{dir: {}}
+	for _, f := range files {
+		dirs[filepath.Join(dir, filepath.Dir(f.name))] = struct{}{}
 	}
-	// MkdirAll leaves pre-existing directories alone.
-	for _, d := range []string{dir, dockerDir} {
+	for d := range dirs {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			return fmt.Errorf("creating %s: %w", d, err)
+		}
+		// MkdirAll leaves pre-existing directories alone.
 		if err := os.Chmod(d, 0o700); err != nil {
 			return fmt.Errorf("securing %s: %w", d, err)
 		}
-	}
-
-	files := []struct {
-		name string
-		data []byte
-		mode fs.FileMode
-	}{
-		{CAcertFile, b.CA.Cert, 0o644},
-		{CAKeyFile, b.CA.Key, 0o600},
-		{ServerCertFile, b.Server.Cert, 0o644},
-		{ServerKeyFile, b.Server.Key, 0o600},
-		{ClientCertFile, b.Client.Cert, 0o644},
-		{ClientKeyFile, b.Client.Key, 0o600},
-		{filepath.Join(DockerDir, DockerCAFile), b.CA.Cert, 0o644},
-		{filepath.Join(DockerDir, DockerCertFile), b.Client.Cert, 0o644},
-		{filepath.Join(DockerDir, DockerKeyFile), b.Client.Key, 0o600},
 	}
 
 	for _, f := range files {
@@ -71,7 +86,7 @@ func Save(dir string, b *Bundle) error {
 	return nil
 }
 
-// LoadAuthorityDir reloads the CA previously written to dir by Save, so that
+// LoadAuthorityDir reloads the CA previously written to dir by SaveCA, so that
 // re-running generation reissues leaves without invalidating clients that
 // already trust the CA. It returns ErrNoAuthority if dir holds no CA.
 func LoadAuthorityDir(dir string, opts Options) (*Authority, error) {

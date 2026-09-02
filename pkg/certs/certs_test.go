@@ -180,8 +180,8 @@ func TestReloadAuthorityIssuesTrustedLeaves(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	if err := Save(dir, bundle); err != nil {
-		t.Fatalf("Save: %v", err)
+	if err := SaveCA(dir, first.KeyPair()); err != nil {
+		t.Fatalf("SaveCA: %v", err)
 	}
 
 	reloaded, err := LoadAuthorityDir(dir, opts)
@@ -228,18 +228,25 @@ func TestSavePermissions(t *testing.T) {
 		t.Fatalf("Generate: %v", err)
 	}
 	dir := t.TempDir()
-	if err := Save(dir, bundle); err != nil {
-		t.Fatalf("Save: %v", err)
+	if err := SaveCA(dir, bundle.CA); err != nil {
+		t.Fatalf("SaveCA: %v", err)
+	}
+	if err := SaveServer(dir, bundle.Server); err != nil {
+		t.Fatalf("SaveServer: %v", err)
+	}
+	clientDir := filepath.Join(dir, "docker")
+	if err := SaveClientDir(clientDir, bundle.CA, bundle.Client); err != nil {
+		t.Fatalf("SaveClientDir: %v", err)
 	}
 
-	private := []string{CAKeyFile, ServerKeyFile, ClientKeyFile, filepath.Join(DockerDir, DockerKeyFile)}
-	for _, name := range private {
-		info, err := os.Stat(filepath.Join(dir, name))
+	private := []string{filepath.Join(dir, CAKeyFile), filepath.Join(dir, ServerKeyFile), filepath.Join(clientDir, DockerKeyFile)}
+	for _, path := range private {
+		info, err := os.Stat(path)
 		if err != nil {
-			t.Fatalf("stat %s: %v", name, err)
+			t.Fatalf("stat %s: %v", path, err)
 		}
 		if perm := info.Mode().Perm(); perm != 0o600 {
-			t.Errorf("%s mode = %o, want 600", name, perm)
+			t.Errorf("%s mode = %o, want 600", path, perm)
 		}
 	}
 }

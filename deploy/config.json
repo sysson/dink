@@ -6,7 +6,8 @@
         "level": "info"
     },
     "kubernetes": {
-        "namespace": "dink",
+        "systemNamespace": "dink-system",
+        "defaultNamespace": "dink-default",
         "healthPort": "8080"
     },
     "server": {

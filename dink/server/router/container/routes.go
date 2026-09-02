@@ -5,8 +5,8 @@ import (
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/v2/daemon/server/backend"
-	"github.com/sysson/dink/dink/pkg/httputils"
-	"github.com/sysson/dink/dink/pkg/log"
+	"github.com/sysson/dink/pkg/httputils"
+	"github.com/sysson/dink/pkg/log"
 )
 
 func (cr *containerRouter) headContainersArchive(w http.ResponseWriter, r *http.Request) error {

@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/sysson/dink/dink/pkg/httputils"
 	"github.com/sysson/dink/dink/server/middleware"
+	"github.com/sysson/dink/pkg/httputils"
 )
 
 func TestWithMinAPIVersion(t *testing.T) {

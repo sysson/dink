@@ -8,12 +8,8 @@ import (
 	"strconv"
 
 	"github.com/sysson/dink/dink/config"
+	"github.com/sysson/dink/pkg/types"
 	"github.com/urfave/cli/v3"
-)
-
-const (
-	defaultConfigFile string = "/etc/dink/config.json"
-	defaultEnvPrefix  string = "DINK"
 )
 
 type options struct {
@@ -27,7 +23,7 @@ func newOptions(defaults, cfg *config.Config) *options {
 	return &options{
 		defaults:   defaults,
 		cfg:        cfg,
-		configFile: defaultConfigFile,
+		configFile: types.DefaultConfigFile,
 	}
 }
 
@@ -36,121 +32,121 @@ func (o *options) addFlags(flags *[]cli.Flag) {
 		&cli.StringFlag{
 			Name:        "config",
 			Usage:       "Path to the configuration file",
-			Value:       defaultConfigFile,
-			Sources:     cli.EnvVars(defaultEnvPrefix + "_CONFIG"),
+			Value:       types.DefaultConfigFile,
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix + "_CONFIG"),
 			Destination: &o.configFile,
 		},
 		&cli.StringFlag{
 			Name:        "logLevel",
 			Usage:       "Log level: debug|info|warn|error",
 			DefaultText: o.defaults.Log.Level,
-			Sources:     cli.EnvVars(defaultEnvPrefix + "_LOG_LEVEL"),
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix + "_LOG_LEVEL"),
 			Destination: &o.cfg.Log.Level,
 		},
 		&cli.StringFlag{
 			Name:        "accessLogLevel",
 			Usage:       "Access log level: debug|info|warn|error",
 			DefaultText: o.defaults.AccessLog.Level,
-			Sources:     cli.EnvVars(defaultEnvPrefix + "_ACCESS_LOG_LEVEL"),
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix + "_ACCESS_LOG_LEVEL"),
 			Destination: &o.cfg.AccessLog.Level,
 		},
 		&cli.StringFlag{
-			Name:        "namespace",
-			Usage:       "Base namespace used by dink",
-			DefaultText: o.defaults.Kubernetes.Namespace,
-			Sources:     cli.EnvVars(defaultEnvPrefix + "_K8S_NAMESPACE"),
-			Destination: &o.cfg.Kubernetes.Namespace,
+			Name:        "systemNamespace",
+			Usage:       "System namespace used by dink",
+			DefaultText: o.defaults.Kubernetes.SystemNamespace,
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix + "_K8S_SYSTEM_NAMESPACE"),
+			Destination: &o.cfg.Kubernetes.SystemNamespace,
+		},
+		&cli.StringFlag{
+			Name:        "defaultNamespace",
+			Usage:       "Default namespace used by dink",
+			DefaultText: o.defaults.Kubernetes.DefaultNamespace,
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix + "_K8S_DEFAULT_NAMESPACE"),
+			Destination: &o.cfg.Kubernetes.DefaultNamespace,
 		},
 		&cli.StringFlag{
 			Name:        "host",
 			Usage:       "Address to bind listeners to; empty means all interfaces",
 			DefaultText: o.defaults.Server.Host,
-			Sources:     cli.EnvVars(defaultEnvPrefix + "_SERVER_HOST"),
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix + "_SERVER_HOST"),
 			Destination: &o.cfg.Server.Host,
 		},
 		&cli.StringFlag{
 			Name:        "port",
 			Usage:       "Plaintext HTTP listen port",
 			DefaultText: o.defaults.Server.Port,
-			Sources:     cli.EnvVars(defaultEnvPrefix + "_SERVER_PORT"),
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix + "_SERVER_PORT"),
 			Destination: &o.cfg.Server.Port,
 		},
 		&cli.StringFlag{
 			Name:        "tlsPort",
 			Usage:       "TLS HTTPS listen port",
 			DefaultText: o.defaults.Server.TLSPort,
-			Sources:     cli.EnvVars(defaultEnvPrefix+"_SERVER_TLSPORT", defaultEnvPrefix+"_SERVER_TLS_PORT"),
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix+"_SERVER_TLSPORT", types.DefaultEnvPrefix+"_SERVER_TLS_PORT"),
 			Destination: &o.cfg.Server.TLSPort,
 		},
 		&cli.StringFlag{
 			Name:        "healthPort",
 			Usage:       "Plain HTTP health listen port",
 			DefaultText: o.defaults.Kubernetes.HealthPort,
-			Sources:     cli.EnvVars(defaultEnvPrefix + "_K8S_HEALTHPORT"),
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix + "_K8S_HEALTHPORT"),
 			Destination: &o.cfg.Kubernetes.HealthPort,
 		},
 		&cli.StringFlag{
 			Name:        "buildKitURL",
 			Usage:       "BuildKit endpoint address",
 			DefaultText: o.defaults.BuildKit.URL,
-			Sources:     cli.EnvVars(defaultEnvPrefix + "_BUILDKIT_URL"),
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix + "_BUILDKIT_URL"),
 			Destination: &o.cfg.BuildKit.URL,
 		},
 		&cli.StringFlag{
 			Name:        "pluginDir",
 			Usage:       "Plugin directory path",
 			DefaultText: o.defaults.Auth.PluginDir,
-			Sources:     cli.EnvVars(defaultEnvPrefix + "_AUTH_PLUGINDIR"),
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix + "_AUTH_PLUGINDIR"),
 			Destination: &o.cfg.Auth.PluginDir,
 		},
 		&cli.BoolFlag{
 			Name:        "disableTLS",
 			Usage:       "Disable TLS and serve plaintext only",
 			DefaultText: strconv.FormatBool(isBool(o.defaults.Server.DisableTLS)),
-			Sources:     cli.EnvVars(defaultEnvPrefix+"_SERVER_DISABLETLS", defaultEnvPrefix+"_SERVER_DISABLE_TLS"),
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix+"_SERVER_DISABLETLS", types.DefaultEnvPrefix+"_SERVER_DISABLE_TLS"),
 			Action:      setPtr(&o.cfg.Server.DisableTLS),
 		},
 		&cli.BoolFlag{
 			Name:        "allowPlaintextWithTLS",
 			Usage:       "Allow plaintext HTTP listener even when TLS is enabled",
 			DefaultText: strconv.FormatBool(isBool(o.defaults.Server.AllowPlaintextWithTLS)),
-			Sources:     cli.EnvVars(defaultEnvPrefix+"_SERVER_ALLOWPLAINTEXTWITHTLS", defaultEnvPrefix+"_SERVER_ALLOW_PLAINTEXT_WITH_TLS"),
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix+"_SERVER_ALLOWPLAINTEXTWITHTLS", types.DefaultEnvPrefix+"_SERVER_ALLOW_PLAINTEXT_WITH_TLS"),
 			Action:      setPtr(&o.cfg.Server.AllowPlaintextWithTLS),
 		},
 		&cli.StringFlag{
 			Name:        "tlsCertFile",
 			Usage:       "Path to TLS server certificate PEM",
 			DefaultText: o.defaults.TLS.CertFile,
-			Sources:     cli.EnvVars(defaultEnvPrefix+"_TLS_CERTFILE", defaultEnvPrefix+"_TLS_CERT_FILE"),
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix+"_TLS_CERTFILE", types.DefaultEnvPrefix+"_TLS_CERT_FILE"),
 			Destination: &o.cfg.TLS.CertFile,
 		},
 		&cli.StringFlag{
 			Name:        "tlsKeyFile",
 			Usage:       "Path to TLS server private key PEM",
 			DefaultText: o.defaults.TLS.KeyFile,
-			Sources:     cli.EnvVars(defaultEnvPrefix+"_TLS_KEYFILE", defaultEnvPrefix+"_TLS_KEY_FILE"),
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix+"_TLS_KEYFILE", types.DefaultEnvPrefix+"_TLS_KEY_FILE"),
 			Destination: &o.cfg.TLS.KeyFile,
 		},
 		&cli.StringFlag{
 			Name:        "clientCAFile",
 			Usage:       "Path to client CA bundle PEM for mTLS",
 			DefaultText: o.defaults.TLS.ClientCAFile,
-			Sources:     cli.EnvVars(defaultEnvPrefix+"_TLS_CLIENTCAFILE", defaultEnvPrefix+"_TLS_CLIENT_CA_FILE"),
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix+"_TLS_CLIENTCAFILE", types.DefaultEnvPrefix+"_TLS_CLIENT_CA_FILE"),
 			Destination: &o.cfg.TLS.ClientCAFile,
 		},
 		&cli.StringFlag{
 			Name:        "minTLSVersion",
 			Usage:       "Minimum TLS version: 1.2|1.3",
 			DefaultText: o.defaults.TLS.MinTLSVersion,
-			Sources:     cli.EnvVars(defaultEnvPrefix+"_TLS_MINTLSVERSION", defaultEnvPrefix+"_TLS_MIN_TLS_VERSION"),
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix+"_TLS_MINTLSVERSION", types.DefaultEnvPrefix+"_TLS_MIN_TLS_VERSION"),
 			Destination: &o.cfg.TLS.MinTLSVersion,
-		},
-		&cli.BoolFlag{
-			Name:        "disableNamespaceCreation",
-			Usage:       "Disable automatic namespace creation",
-			DefaultText: strconv.FormatBool(isBool(o.defaults.Kubernetes.NamespaceCreationEnabled)),
-			Sources:     cli.EnvVars(defaultEnvPrefix+"_K8S_DISABLENAMESPACECREATION", defaultEnvPrefix+"_K8S_DISABLE_NAMESPACE_CREATION"),
-			Action:      setPtr(&o.cfg.Kubernetes.NamespaceCreationEnabled),
 		},
 	}...)
 }

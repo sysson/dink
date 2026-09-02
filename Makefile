@@ -10,7 +10,11 @@ IMAGE ?= ghcr.io/sysson/dink
 TAG ?= dev
 MINIKUBE_PROFILE ?= dink-dev
 NAMESPACE ?= dink-system
-CERT_DIR ?= $(CURDIR)/.certs
+DINK_CONFIG ?= $(HOME)/.config/dink
+CERT_DIR ?= $(DINK_CONFIG)/.certs
+DINKLE ?= ./cmd/dinkle
+TENANT ?= dev
+CLIENT ?= default
 DOCKER_CTX ?= dink
 DINK_HOST ?= tcp://localhost:2376
 DINK_PORT ?= 2376
@@ -18,15 +22,14 @@ DINK_PORT ?= 2376
 # Image reference to build; tilt overrides this with the tag it expects.
 REF ?= $(IMAGE):$(TAG)
 
-DOCKER_CERT_DIR := $(CERT_DIR)/docker
+DOCKER_CERT_DIR := $(CERT_DIR)/$(TENANT)/$(CLIENT)
 CTX_ENDPOINT := host=$(DINK_HOST),ca=$(DOCKER_CERT_DIR)/ca.pem,cert=$(DOCKER_CERT_DIR)/cert.pem,key=$(DOCKER_CERT_DIR)/key.pem
 
 # minikube's docker driver runs the cluster node as a container on the host
-# daemon, so anything touching minikube must bypass the dink context. DOCKER_HOST
-# outranks DOCKER_CONTEXT, so it has to be unset rather than overridden.
-HOST_DOCKER := env -u DOCKER_HOST -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH DOCKER_CONTEXT=default
+# daemon, so anything touching minikube must bypass the dink context. 
+HOST_DOCKER := env -u DOCKER_HOST -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH DOCKER_CONTEXT=minikube
 
-.PHONY: all build test generate lint clean fix dev image image-minikube load certs certs-local certs-rotate \
+.PHONY: all build test generate lint clean fix dev image image-minikube load bootstrap bootstrap-local bootstrap-rotate tenant \
 	context context-sync context-use context-default context-rm port-forward restart release show-image \
 	deploy undeploy logs docker-env start
 
@@ -54,7 +57,7 @@ fix:
 	$(GO) fix ./...
 
 start:
-	$(HOST_DOCKER) $(MINI) start -p $(MINIKUBE_PROFILE)
+	@$(HOST_DOCKER) $(MINI) status -p $(MINIKUBE_PROFILE) >/dev/null 2>&1 && echo "minikube profile '$(MINIKUBE_PROFILE)' already running" || $(HOST_DOCKER) $(MINI) start -p $(MINIKUBE_PROFILE)
 
 ## dev: Run the Tilt dev loop against the local minikube cluster
 dev: start context-use
@@ -72,28 +75,32 @@ load: image
 image-minikube:
 	$(HOST_DOCKER) $(MINI) -p $(MINIKUBE_PROFILE) image build -t $(REF) .
 
-## certs: Generate the CA/server/client certs and apply the dink-tls Secret
-certs:
-	$(GO) run ./cmd/dink certs --out $(CERT_DIR) --namespace $(NAMESPACE)
-	@$(MAKE) --no-print-directory context-sync
+## bootstrap: Create the CA/namespaces/server cert if they don't exist yet, and apply the dink-tls Secret
+# Idempotent: reuses the cached CA and only (re)issues the server cert, so it's
+# safe to call on every devcontainer start or CI run.
+bootstrap:
+	$(GO) run $(DINKLE) --certsDir $(CERT_DIR) bootstrap --systemNamespace $(NAMESPACE)
 
-## certs-local: Generate the certs without touching the cluster
-certs-local:
-	$(GO) run ./cmd/dink certs --out $(CERT_DIR) --namespace $(NAMESPACE) --apply=false
-	@$(MAKE) --no-print-directory context-sync
+## bootstrap-local: Same as bootstrap but without touching the cluster
+bootstrap-local:
+	$(GO) run $(DINKLE) --certsDir $(CERT_DIR) bootstrap --systemNamespace $(NAMESPACE) --apply=false
 
-## certs-rotate: Rotate the CA and reissue everything, invalidating existing clients
-certs-rotate:
-	$(GO) run ./cmd/dink certs --out $(CERT_DIR) --namespace $(NAMESPACE) --force
-	@$(MAKE) --no-print-directory context-sync
+## bootstrap-rotate: Rotate the CA and reissue the server cert, invalidating existing clients
+bootstrap-rotate:
+	$(GO) run $(DINKLE) --certsDir $(CERT_DIR) bootstrap --systemNamespace $(NAMESPACE) --force
 	@echo "the pod still serves the previous certificate; run 'make restart'" >&2
+
+## tenant: Create (or reuse) the '$(TENANT)' tenant and refresh the local docker context for it
+tenant:
+	$(GO) run $(DINKLE) --certsDir $(CERT_DIR) tenant create $(TENANT)
+	@$(MAKE) --no-print-directory context-sync
 
 ## restart: Roll the dink deployment so it picks up a new TLS Secret
 restart:
 	$(KUBECTL) -n $(NAMESPACE) rollout restart deployment/dink
 	$(KUBECTL) -n $(NAMESPACE) rollout status deployment/dink --timeout=120s
 
-## deploy: Apply the manifests (expects `make load certs` first)
+## deploy: Apply the manifests (expects `make load bootstrap` first)
 deploy:
 	$(KUBECTL) apply -k deploy
 	$(KUBECTL) -n $(NAMESPACE) rollout status deployment/dink --timeout=120s
@@ -109,7 +116,7 @@ logs:
 ## context: Create or update the '$(DOCKER_CTX)' docker context pointing at dink
 context:
 	@test -f $(DOCKER_CERT_DIR)/cert.pem || { \
-		echo "no client certificate in $(DOCKER_CERT_DIR); run 'make certs' first" >&2; exit 1; }
+		echo "no client certificate in $(DOCKER_CERT_DIR); run 'make tenant' first" >&2; exit 1; }
 	@if $(HOST_DOCKER) $(DOCKER) context inspect $(DOCKER_CTX) >/dev/null 2>&1; then \
 		$(HOST_DOCKER) $(DOCKER) context update $(DOCKER_CTX) --docker "$(CTX_ENDPOINT)" >/dev/null; \
 		echo "updated docker context $(DOCKER_CTX)"; \

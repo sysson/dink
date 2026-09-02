@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+
+	"github.com/sysson/dink/pkg/types"
 )
 
 type Log struct {
@@ -19,10 +21,9 @@ type AccessLog struct {
 }
 
 type Kubernetes struct {
-	KubeConfigPath           string `json:"kubeConfigPath,omitempty"`
-	Namespace                string `json:"namespace,omitempty"`
-	NamespaceCreationEnabled *bool  `json:"namespaceCreationEnabled,omitempty"`
-	HealthPort               string `json:"healthPort,omitempty"`
+	SystemNamespace  string `json:"systemNamespace,omitempty"`
+	DefaultNamespace string `json:"defaultNamespace,omitempty"`
+	HealthPort string `json:"healthPort,omitempty"`
 }
 
 type TLS struct {
@@ -74,9 +75,9 @@ func Default() *Config {
 			Enabled: new(true),
 		},
 		Kubernetes: Kubernetes{
-			Namespace:                "dink",
-			NamespaceCreationEnabled: new(true),
-			HealthPort:               "8080",
+			SystemNamespace:  types.DefaultSystemNamespace,
+			DefaultNamespace: types.DefaultNamespace,
+			HealthPort: "8080",
 		},
 		TLS: TLS{
 			CertFile:      "/etc/dink/certs/server.crt",
@@ -108,8 +109,11 @@ func (a *AccessLog) Validate() error {
 
 func (k *Kubernetes) Validate() error {
 	var errs []error
-	if k.Namespace == "" {
-		errs = append(errs, errors.New("namespace must not be empty"))
+	if k.SystemNamespace == "" {
+		errs = append(errs, errors.New("systemNamespace must not be empty"))
+	}
+	if k.DefaultNamespace == "" {
+		errs = append(errs, errors.New("defaultNamespace must not be empty"))
 	}
 	if err := validatePort("healthPort", k.HealthPort); err != nil {
 		errs = append(errs, err)

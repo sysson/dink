@@ -6,7 +6,7 @@ import (
 	"slices"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/sysson/dink/dink/pkg/httputils"
+	"github.com/sysson/dink/pkg/httputils"
 	"github.com/sysson/dink/dink/server/middleware"
 	"github.com/sysson/dink/dink/server/router"
 )

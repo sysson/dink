@@ -10,16 +10,16 @@ IMAGE='ghcr.io/sysson/dink'
 
 # The Secret is a prerequisite for the Deployment: the pod blocks on mounting it.
 local_resource(
-    'certs',
-    cmd='make certs',
-    deps=['dink/pkg/certs'],
+    'bootstrap',
+    cmd='make bootstrap',
+    deps=['pkg/certs', 'dinkle'],
     labels=['setup'],
 )
 
 custom_build(
     IMAGE,
     'make image-minikube REF=$EXPECTED_REF',
-    deps=['Dockerfile', 'cmd', 'dink', 'sdk', 'go.mod', 'go.sum'],
+    deps=['Dockerfile', 'cmd', 'dink', 'pkg', 'sdk', 'go.mod', 'go.sum'],
     skips_local_docker=True,
 )
 
@@ -31,6 +31,6 @@ k8s_yaml(kustomize('deploy'))
 k8s_resource(
     'dink',
     port_forwards='2376:2376',
-    resource_deps=['certs'],
+    resource_deps=['bootstrap'],
     labels=['app'],
 )

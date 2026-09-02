@@ -7,7 +7,7 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/v2/daemon/server/backend"
 	"github.com/sysson/dink/dink/identity"
-	"github.com/sysson/dink/dink/pkg/httputils"
+	"github.com/sysson/dink/pkg/httputils"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -54,7 +54,7 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 	if !ok {
 		return container.CreateResponse{}, httputils.Unauthorized(fmt.Errorf("missing identity in context"))
 	}
-	deployment, err := d.k8s.Client().AppsV1().Deployments(id.Namespace).Create(ctx,
+	deployment, err := d.k8s.client.AppsV1().Deployments(id.Namespace).Create(ctx,
 		&appsv1.Deployment{
 			Name: cfg.Name,
 			Labels: map[string]string{

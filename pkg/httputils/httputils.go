@@ -7,7 +7,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/sysson/dink/dink/pkg/log"
+	"github.com/sysson/dink/pkg/log"
 )
 
 const statusClientClosedRequest = 499

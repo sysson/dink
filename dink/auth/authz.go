@@ -11,9 +11,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/sysson/dink/dink/pkg/httputils"
-	"github.com/sysson/dink/dink/pkg/ioutils"
-	"github.com/sysson/dink/dink/pkg/tlsutils"
+	"github.com/sysson/dink/pkg/httputils"
+	"github.com/sysson/dink/pkg/ioutils"
+	"github.com/sysson/dink/pkg/tlsutils"
 	authv1 "github.com/sysson/dink/sdk/auth/v1"
 )
 

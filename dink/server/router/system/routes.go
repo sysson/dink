@@ -3,7 +3,7 @@ package system
 import (
 	"net/http"
 
-	"github.com/sysson/dink/dink/pkg/httputils"
+	"github.com/sysson/dink/pkg/httputils"
 )
 
 func optionsHandler(w http.ResponseWriter, r *http.Request) error {

@@ -14,7 +14,7 @@ import (
 func TestLoadCLIConfigPrecedence(t *testing.T) {
 	configFile := filepath.Join(t.TempDir(), "config.json")
 	fileConfig := map[string]any{
-		"kubernetes": map[string]any{"namespace": "from-file"},
+		"kubernetes": map[string]any{"systemNamespace": "from-file"},
 		"server":     map[string]any{"port": "2375", "disableTLS": true},
 		"log":        map[string]any{"level": "warn"},
 		"accessLog":  map[string]any{"level": "error"},
@@ -26,7 +26,7 @@ func TestLoadCLIConfigPrecedence(t *testing.T) {
 	if err := os.WriteFile(configFile, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("DINK_K8S_NAMESPACE", "from-environment")
+	t.Setenv("DINK_K8S_SYSTEM_NAMESPACE", "from-environment")
 	t.Setenv("DINK_SERVER_PORT", "2380")
 	t.Setenv("DINK_TLS_CLIENTCAFILE", "")
 
@@ -59,8 +59,8 @@ func TestLoadCLIConfigPrecedence(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got, want := opts.cfg.Kubernetes.Namespace, "from-environment"; got != want {
-		t.Fatalf("namespace = %q, want %q", got, want)
+	if got, want := opts.cfg.Kubernetes.SystemNamespace, "from-environment"; got != want {
+		t.Fatalf("systemNamespace = %q, want %q", got, want)
 	}
 	if got, want := opts.cfg.Server.Port, "2390"; got != want {
 		t.Fatalf("port = %q, want %q", got, want)

@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"github.com/moby/moby/client/pkg/versions"
-	"github.com/sysson/dink/dink/pkg/httputils"
 	"github.com/sysson/dink/dink/server/middleware"
+	"github.com/sysson/dink/pkg/httputils"
 )
 
 type Router interface {

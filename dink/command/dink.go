@@ -59,9 +59,6 @@ func runnerCmd(stdout, stderr io.Writer, leveler *slog.LevelVar) *cli.Command {
 			leveler.Set(slog.LevelInfo)
 			return err
 		},
-		Commands: []*cli.Command{
-			certsCmd(stdout, stderr),
-		},
 	}
 	opts.addFlags(&cmd.Flags)
 	return &cmd

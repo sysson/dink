@@ -1,8 +1,5 @@
 ---
 # dink control plane.
-#
-# The dink-system namespace and ServiceAccount are also reconciled by dink at
-# startup, but must exist beforehand because dink authenticates as this account.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -11,6 +8,19 @@ metadata:
     app.kubernetes.io/name: dink
     app.kubernetes.io/managed-by: dink
     dink.io/owner: dink-system
+  annotations:
+    dink.io/created-by: dink
+---
+# dink-default is where anonymous (no client certificate) docker clients land.
+# If missing, dink starts up fine but disables anonymous access.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dink-default
+  labels:
+    app.kubernetes.io/name: dink
+    app.kubernetes.io/managed-by: dink
+    dink.io/owner: dink-default
   annotations:
     dink.io/created-by: dink
 ---
@@ -24,9 +34,7 @@ metadata:
     app.kubernetes.io/managed-by: dink
 automountServiceAccountToken: true
 ---
-# Cluster-scoped permissions. dink creates per-user namespaces and bootstraps a
-# Role/RoleBinding in each of them, so it must hold every permission it grants;
-# without that the API server rejects the writes as privilege escalation.
+# Cluster-scoped permissions. 
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -37,24 +45,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["namespaces"]
-    verbs: ["get", "list", "watch", "create", "delete", "patch"]
-  - apiGroups: [""]
-    resources: ["serviceaccounts"]
-    verbs: ["get", "list", "watch", "create", "delete", "patch"]
-  - apiGroups: ["rbac.authorization.k8s.io"]
-    resources: ["roles", "rolebindings"]
-    verbs:
-      [
-        "get",
-        "list",
-        "watch",
-        "create",
-        "update",
-        "patch",
-        "delete",
-        "bind",
-        "escalate",
-      ]
+    verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources:
       [

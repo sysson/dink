@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/sysson/dink/dink/pkg/log"
+	"github.com/sysson/dink/pkg/log"
 )
 
 const forceQuitCount = 3

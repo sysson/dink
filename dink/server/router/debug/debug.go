@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"net/http/pprof"
 
-	"github.com/sysson/dink/dink/pkg/httputils"
 	"github.com/sysson/dink/dink/server/router"
+	"github.com/sysson/dink/pkg/httputils"
 )
 
 func New() router.Router {

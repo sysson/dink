@@ -21,6 +21,26 @@
         }
     },
     "remoteUser": "vscode",
+    "mounts": [
+        {
+            "source": "dink-config",
+            "target": "/home/vscode/.config/dink",
+            "type": "volume"
+        },
+        {
+            "source": "dink-go-mod",
+            "target": "/home/vscode/go/pkg/mod",
+            "type": "volume"
+        },
+        {
+            "source": "dink-go-build-cache",
+            "target": "/home/vscode/.cache/go-build",
+            "type": "volume"
+        }
+    ],
+    "containerEnv": {
+        "DINK_CONFIG": "/home/vscode/.config/dink"
+    },
     "postCreateCommand": "bash .devcontainer/post-create.sh",
     "customizations": {
         "vscode": {

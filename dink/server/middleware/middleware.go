@@ -11,7 +11,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httplog/v3"
 	"github.com/moby/moby/client/pkg/versions"
-	"github.com/sysson/dink/dink/pkg/log"
+	"github.com/sysson/dink/pkg/log"
 )
 
 type Middleware func(next http.Handler) http.Handler
