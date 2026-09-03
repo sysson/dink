@@ -7,7 +7,7 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/v2/daemon/server/backend"
 	"github.com/sysson/dink/dink/identity"
-	"github.com/sysson/dink/pkg/httputils"
+	"github.com/sysson/syskit/httpx"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -52,7 +52,7 @@ func (d *Docker) ContainerStatPath() {
 func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreateConfig) (container.CreateResponse, error) {
 	id, ok := identity.FromContext(ctx)
 	if !ok {
-		return container.CreateResponse{}, httputils.Unauthorized(fmt.Errorf("missing identity in context"))
+		return container.CreateResponse{}, httpx.Unauthorized(fmt.Errorf("missing identity in context"))
 	}
 	deployment, err := d.k8s.AppsV1().Deployments(id.Namespace).Create(ctx,
 		&appsv1.Deployment{

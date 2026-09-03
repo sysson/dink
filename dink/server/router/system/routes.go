@@ -3,7 +3,7 @@ package system
 import (
 	"net/http"
 
-	"github.com/sysson/dink/pkg/httputils"
+	"github.com/sysson/syskit/httpx"
 )
 
 func optionsHandler(w http.ResponseWriter, r *http.Request) error {
@@ -37,7 +37,7 @@ func (s *systemRouter) getVersion(w http.ResponseWriter, r *http.Request) error 
 	if err != nil {
 		return err
 	}
-	return httputils.WriteJSON(w, http.StatusOK, version)
+	return httpx.WriteJSON(w, http.StatusOK, version)
 }
 
 func (s *systemRouter) getDiskUsage(w http.ResponseWriter, r *http.Request) error {

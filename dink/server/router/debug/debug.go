@@ -6,7 +6,7 @@ import (
 	"net/http/pprof"
 
 	"github.com/sysson/dink/dink/server/router"
-	"github.com/sysson/dink/pkg/httputils"
+	"github.com/sysson/syskit/httpx"
 )
 
 func New() router.Router {
@@ -35,14 +35,14 @@ func (r *debugRouter) Routes() []router.Route {
 	return r.routes
 }
 
-func frameworkAdaptHandler(handler http.Handler) httputils.HTTPFunc {
+func frameworkAdaptHandler(handler http.Handler) httpx.HTTPErrorFunc {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		handler.ServeHTTP(w, r)
 		return nil
 	}
 }
 
-func frameworkAdaptHandlerFunc(handler http.HandlerFunc) httputils.HTTPFunc {
+func frameworkAdaptHandlerFunc(handler http.HandlerFunc) httpx.HTTPErrorFunc {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		handler(w, r)
 		return nil

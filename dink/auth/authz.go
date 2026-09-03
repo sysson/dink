@@ -12,9 +12,9 @@ import (
 	"strings"
 
 	"github.com/sysson/dink/pkg/certs"
-	"github.com/sysson/dink/pkg/httputils"
-	"github.com/sysson/dink/pkg/ioutils"
+	"github.com/sysson/syskit/iox"
 	authv1 "github.com/sysson/dink/sdk/auth/v1"
+	"github.com/sysson/syskit/httpx"
 )
 
 const maxBodySize = 4 * 1024 * 1024
@@ -45,7 +45,7 @@ func (ctx *Ctx) AuthZRequest(w http.ResponseWriter, r *http.Request) error {
 	var body []byte
 	if sendBody(ctx.RequestURI, r.Header) {
 		bufBody := bufio.NewReaderSize(r.Body, maxBodySize+1)
-		r.Body = ioutils.NewReadCloserWrapper(bufBody, r.Body.Close)
+		r.Body = iox.NewReadCloserWrapper(bufBody, r.Body.Close)
 
 		peeked, err := bufBody.Peek(maxBodySize + 1)
 		if err == nil {
@@ -91,14 +91,14 @@ func (ctx *Ctx) AuthZRequest(w http.ResponseWriter, r *http.Request) error {
 		}
 
 		if !authRes.Allow {
-			return httputils.Forbidden(fmt.Errorf("authorization denied by plugin %s: %s", plugin.name, authRes.Msg))
+			return httpx.Forbidden(fmt.Errorf("authorization denied by plugin %s: %s", plugin.name, authRes.Msg))
 		}
 	}
 
 	return nil
 }
 
-func (ctx *Ctx) AuthZResponse(rm ioutils.ResponseModifier, r *http.Request) error {
+func (ctx *Ctx) AuthZResponse(rm iox.ResponseModifier, r *http.Request) error {
 	ctx.authRes = &authv1.AuthZResRequest{
 		Namespace:               ctx.authReq.Namespace,
 		User:                    ctx.authReq.User,
@@ -124,7 +124,7 @@ func (ctx *Ctx) AuthZResponse(rm ioutils.ResponseModifier, r *http.Request) erro
 		}
 
 		if !authRes.Allow {
-			return httputils.Forbidden(fmt.Errorf("authorization denied by plugin %s: %s", plugin.name, authRes.Msg))
+			return httpx.Forbidden(fmt.Errorf("authorization denied by plugin %s: %s", plugin.name, authRes.Msg))
 		}
 	}
 

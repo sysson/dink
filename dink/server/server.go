@@ -2,13 +2,14 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"slices"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/sysson/dink/pkg/httputils"
 	"github.com/sysson/dink/dink/server/middleware"
 	"github.com/sysson/dink/dink/server/router"
+	"github.com/sysson/syskit/httpx"
 )
 
 const (
@@ -38,14 +39,14 @@ func (s *Server) CreateMux(ctx context.Context, routers ...router.Router) *chi.M
 	r := chi.NewRouter()
 	for _, apiRouter := range routers {
 		for _, route := range apiRouter.Routes() {
-			f := s.withMiddleware(httputils.HTTPHandler(route.Handler()))
+			f := s.withMiddleware(httpx.ErrorLogger(route.Handler()))
 			r.Method(route.Method(), route.Path(), f)
 			r.Method(route.Method(), versionMatcher+route.Path(), f)
 		}
 	}
 
 	notFoundHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = httputils.WriteJSON(w, http.StatusNotFound, httputils.NewHTTPError(http.StatusNotFound, httputils.ErrHTTPNotFound))
+		_ = httpx.NotFound(fmt.Errorf("%s not found", r.URL.Path)).Write(w)
 	})
 	r.HandleFunc(versionMatcher+"/*", notFoundHandler)
 	r.NotFound(notFoundHandler)

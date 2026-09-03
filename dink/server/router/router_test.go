@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/sysson/dink/dink/server/middleware"
-	"github.com/sysson/dink/pkg/httputils"
+	"github.com/sysson/syskit/httpx"
 )
 
 func TestWithMinAPIVersion(t *testing.T) {
@@ -68,9 +68,9 @@ func TestWithMinAPIVersion(t *testing.T) {
 				return
 			}
 
-			httpErr, ok := err.(*httputils.HTTPError)
+			httpErr, ok := err.(*httpx.HTTPError)
 			if !ok {
-				t.Fatalf("Handler() error = %T, want *httputils.HTTPError", err)
+				t.Fatalf("Handler() error = %T, want *httpx.HTTPError", err)
 			}
 			if httpErr.StatusCode != tt.wantStatus {
 				t.Fatalf("status code = %d, want %d", httpErr.StatusCode, tt.wantStatus)

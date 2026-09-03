@@ -5,8 +5,8 @@ import (
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/v2/daemon/server/backend"
-	"github.com/sysson/dink/pkg/httputils"
-	"github.com/sysson/dink/pkg/log"
+	"github.com/sysson/syskit/httpx"
+	"github.com/sysson/syskit/logx"
 )
 
 func (cr *containerRouter) headContainersArchive(w http.ResponseWriter, r *http.Request) error {
@@ -56,21 +56,21 @@ func (cr *containerRouter) getContainersArchive(w http.ResponseWriter, r *http.R
 func (cr *containerRouter) postContainersCreate(w http.ResponseWriter, r *http.Request) error {
 	name := r.URL.Query().Get("name")
 	var request container.CreateRequest
-	if err := httputils.ParseJSON(r, &request); err != nil {
-		return httputils.BadRequest(err)
+	if err := httpx.ParseJSON(r, &request); err != nil {
+		return httpx.BadRequest(err)
 	}
 	ccr, err := cr.translator.ContainerCreate(r.Context(), backend.ContainerCreateConfig{
 		Name:   name,
 		Config: request.Config,
 	})
 	if err != nil {
-		return httputils.InternalServerError(err)
+		return httpx.InternalServerError(err)
 	}
 	if len(ccr.Warnings) > 0 {
-		log.G(r.Context()).With("warnings", ccr.Warnings).Warn("container creation warnings")
+		logx.G(r.Context()).With("warnings", ccr.Warnings).Warn("container creation warnings")
 	}
 
-	return httputils.WriteJSON(w, http.StatusCreated, ccr)
+	return httpx.WriteJSON(w, http.StatusCreated, ccr)
 }
 
 func (cr *containerRouter) postContainersKill(w http.ResponseWriter, r *http.Request) error {

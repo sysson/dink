@@ -19,7 +19,7 @@ import (
 	"github.com/sysson/dink/dink/server/middleware"
 	"github.com/sysson/dink/dink/translator"
 	"github.com/sysson/dink/dink/version"
-	"github.com/sysson/dink/pkg/log"
+	"github.com/sysson/syskit/logx"
 	"github.com/sysson/dink/pkg/tlsconfig"
 	"github.com/urfave/cli/v3"
 	"google.golang.org/grpc"
@@ -92,9 +92,9 @@ func newTLSConfig(cfg *config.Config) (*tls.Config, error) {
 }
 
 func (c *dinkCLI) start(ctx context.Context) (retErr error) {
-	log.G(ctx).Info("starting up")
+	logx.G(ctx).Info("starting up")
 	defer func() {
-		l := log.G(ctx)
+		l := logx.G(ctx)
 		if retErr != nil && !errors.Is(retErr, context.Canceled) {
 			l = l.WithError(retErr)
 		}
@@ -102,7 +102,7 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 	}()
 
 	if c.tlsConfig == nil {
-		log.G(ctx).Warn("TLS is disabled; serving plaintext only")
+		logx.G(ctx).Warn("TLS is disabled; serving plaintext only")
 	}
 
 	lss, err := loadListeners(c.cfg, c.tlsConfig)
@@ -148,10 +148,10 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 	go func() {
 		<-c.apiShutdown
 		if err := httpServer.Shutdown(apiShutdownCtx); err != nil {
-			log.G(ctx).WithError(err).Error("Error shutting down http server")
+			logx.G(ctx).WithError(err).Error("Error shutting down http server")
 		}
 		if err := healthServer.Shutdown(apiShutdownCtx); err != nil {
-			log.G(ctx).WithError(err).Error("Error shutting down health server")
+			logx.G(ctx).WithError(err).Error("Error shutting down health server")
 		}
 		close(apiShutdownDone)
 	}()
@@ -163,10 +163,10 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 			<-apiShutdownDone
 		default:
 			if err := httpServer.Close(); err != nil {
-				log.G(ctx).WithError(err).Error("Error closing http server")
+				logx.G(ctx).WithError(err).Error("Error closing http server")
 			}
 			if err := healthServer.Close(); err != nil {
-				log.G(ctx).WithError(err).Error("Error closing health server")
+				logx.G(ctx).WithError(err).Error("Error closing health server")
 			}
 		}
 	}()
@@ -193,7 +193,7 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 	proto.SetUnencryptedHTTP2(true)
 	httpServer.Protocols = proto
 	httpServer.Handler = newHTTPHandler(ctx, server.CreateMux(ctx, router...), gs)
-	log.G(ctx).Info("completed initialization;")
+	logx.G(ctx).Info("completed initialization;")
 
 	var (
 		apiWG      sync.WaitGroup
@@ -204,10 +204,10 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 	apiStartWG.Add(len(lss) + 1)
 	for _, ls := range lss {
 		apiWG.Go(func() {
-			log.G(ctx).Info("API listen on", "addr", ls.Addr())
+			logx.G(ctx).Info("API listen on", "addr", ls.Addr())
 			apiStartWG.Done()
 			if err := httpServer.Serve(ls); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.G(ctx).With("error", err,
+				logx.G(ctx).With("error", err,
 					"listener", ls.Addr(),
 				).Error("ServeAPI error")
 
@@ -219,10 +219,10 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 		})
 	}
 	apiWG.Go(func() {
-		log.G(ctx).Info("health listen on", "addr", healthServer.Addr)
+		logx.G(ctx).Info("health listen on", "addr", healthServer.Addr)
 		apiStartWG.Done()
 		if err := healthServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.G(ctx).With("error", err, "listener", healthServer.Addr).Error("ServeHealth error")
+			logx.G(ctx).With("error", err, "listener", healthServer.Addr).Error("ServeHealth error")
 			select {
 			case errAPI <- err:
 			default:

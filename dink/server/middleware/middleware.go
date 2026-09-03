@@ -11,7 +11,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httplog/v3"
 	"github.com/moby/moby/client/pkg/versions"
-	"github.com/sysson/dink/pkg/log"
+	"github.com/sysson/syskit/logx"
 )
 
 type Middleware func(next http.Handler) http.Handler
@@ -60,7 +60,7 @@ func Logging(ctx context.Context, out io.Writer, level string) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			requestLogger(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				next.ServeHTTP(w, r.WithContext(log.WithLogger(r.Context(), log.G(ctx).With("request.id", middleware.GetReqID(r.Context())))))
+				next.ServeHTTP(w, r.WithContext(logx.WithLogger(r.Context(), logx.G(ctx).With("request.id", middleware.GetReqID(r.Context())))))
 			})).ServeHTTP(w, r)
 		})
 	}

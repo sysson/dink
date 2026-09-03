@@ -6,7 +6,7 @@ import (
 
 	"github.com/moby/moby/client/pkg/versions"
 	"github.com/sysson/dink/dink/server/middleware"
-	"github.com/sysson/dink/pkg/httputils"
+	"github.com/sysson/syskit/httpx"
 )
 
 type Router interface {
@@ -14,7 +14,7 @@ type Router interface {
 }
 
 type Route interface {
-	Handler() httputils.HTTPFunc
+	Handler() httpx.HTTPErrorFunc
 	Method() string
 	Path() string
 }
@@ -24,10 +24,10 @@ type RouteWrapper func(Route) Route
 type localRoute struct {
 	method  string
 	path    string
-	handler httputils.HTTPFunc
+	handler httpx.HTTPErrorFunc
 }
 
-func (r localRoute) Handler() httputils.HTTPFunc {
+func (r localRoute) Handler() httpx.HTTPErrorFunc {
 	return r.handler
 }
 
@@ -39,7 +39,7 @@ func (r localRoute) Path() string {
 	return r.path
 }
 
-func NewRoute(method, path string, handler httputils.HTTPFunc, opts ...RouteWrapper) Route {
+func NewRoute(method, path string, handler httpx.HTTPErrorFunc, opts ...RouteWrapper) Route {
 	var r Route = localRoute{
 		method:  method,
 		path:    path,
@@ -51,27 +51,27 @@ func NewRoute(method, path string, handler httputils.HTTPFunc, opts ...RouteWrap
 	return r
 }
 
-func NewGetRoute(path string, handler httputils.HTTPFunc, opts ...RouteWrapper) Route {
+func NewGetRoute(path string, handler httpx.HTTPErrorFunc, opts ...RouteWrapper) Route {
 	return NewRoute(http.MethodGet, path, handler, opts...)
 }
 
-func NewPostRoute(path string, handler httputils.HTTPFunc, opts ...RouteWrapper) Route {
+func NewPostRoute(path string, handler httpx.HTTPErrorFunc, opts ...RouteWrapper) Route {
 	return NewRoute(http.MethodPost, path, handler, opts...)
 }
 
-func NewPutRoute(path string, handler httputils.HTTPFunc, opts ...RouteWrapper) Route {
+func NewPutRoute(path string, handler httpx.HTTPErrorFunc, opts ...RouteWrapper) Route {
 	return NewRoute(http.MethodPut, path, handler, opts...)
 }
 
-func NewDeleteRoute(path string, handler httputils.HTTPFunc, opts ...RouteWrapper) Route {
+func NewDeleteRoute(path string, handler httpx.HTTPErrorFunc, opts ...RouteWrapper) Route {
 	return NewRoute(http.MethodDelete, path, handler, opts...)
 }
 
-func NewOptionsRoute(path string, handler httputils.HTTPFunc, opts ...RouteWrapper) Route {
+func NewOptionsRoute(path string, handler httpx.HTTPErrorFunc, opts ...RouteWrapper) Route {
 	return NewRoute(http.MethodOptions, path, handler, opts...)
 }
 
-func NewHeadRoute(path string, handler httputils.HTTPFunc, opts ...RouteWrapper) Route {
+func NewHeadRoute(path string, handler httpx.HTTPErrorFunc, opts ...RouteWrapper) Route {
 	return NewRoute(http.MethodHead, path, handler, opts...)
 }
 
@@ -81,12 +81,12 @@ func WithMinAPIVersion(minVersion string) RouteWrapper {
 			method: r.Method(),
 			path:   r.Path(),
 			handler: func(w http.ResponseWriter, req *http.Request) error {
-				v, ok := httputils.KeyFromContext[middleware.APIVersion, string](req.Context(), middleware.APIVersion{})
+				v, ok := httpx.KeyFromContext[middleware.APIVersion, string](req.Context(), middleware.APIVersion{})
 				if !ok {
-					return httputils.BadRequest(fmt.Errorf("API version not specified"))
+					return httpx.BadRequest(fmt.Errorf("API version not specified"))
 				}
 				if versions.LessThan(v, minVersion) {
-					return httputils.BadRequest(fmt.Errorf("API version %s is not supported. Minimum supported version is %s", v, minVersion))
+					return httpx.BadRequest(fmt.Errorf("API version %s is not supported. Minimum supported version is %s", v, minVersion))
 				}
 				return r.Handler()(w, req)
 			},

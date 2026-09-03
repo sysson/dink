@@ -9,6 +9,7 @@ require (
 	github.com/moby/moby/api v1.55.0
 	github.com/moby/moby/client v0.5.1
 	github.com/moby/moby/v2 v2.0.0-beta.21
+	github.com/sysson/syskit v1.0.0
 	github.com/urfave/cli/v3 v3.11.0
 	golang.org/x/net v0.58.0
 	google.golang.org/grpc v1.83.2

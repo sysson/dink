@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/sysson/dink/pkg/httputils"
-	"github.com/sysson/dink/pkg/log"
+	"github.com/sysson/syskit/httpx"
+	"github.com/sysson/syskit/logx"
 )
 
 type Identity struct {
@@ -93,20 +93,20 @@ func Middleware(cfg MiddlewareConfig) func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			id, err := Resolve(PeerCertificate(r), map[string]struct{}{cfg.SystemNamespace: {}, cfg.DefaultNamespace: {}})
 			if err != nil {
-				_ = httputils.Forbidden(fmt.Errorf("resolving identity: %w", err)).Write(w)
+				_ = httpx.Forbidden(fmt.Errorf("resolving identity: %w", err)).Write(w)
 				return
 			}
 			if id.Anonymous {
 				id.Namespace = cfg.DefaultNamespace
 				if err := cfg.Ensurer.EnsureNamespace(r.Context(), id.Namespace); err != nil {
-					log.G(r.Context()).WithError(err).Error("error accessing default namespace", "namespace", id.Namespace)
-					_ = httputils.InternalServerError(fmt.Errorf("accessing default namespace: %w", err)).Write(w)
+					logx.G(r.Context()).WithError(err).Error("error accessing default namespace", "namespace", id.Namespace)
+					_ = httpx.InternalServerError(fmt.Errorf("accessing default namespace: %w", err)).Write(w)
 					return
 				}
 			} else {
 				if err := cfg.Ensurer.EnsureNamespace(r.Context(), id.Namespace); err != nil {
-					log.G(r.Context()).WithError(err).Error("error accessing tenant namespace", "namespace", id.Namespace)
-					_ = httputils.InternalServerError(fmt.Errorf("accessing tenant namespace: %w", err)).Write(w)
+					logx.G(r.Context()).WithError(err).Error("error accessing tenant namespace", "namespace", id.Namespace)
+					_ = httpx.InternalServerError(fmt.Errorf("accessing tenant namespace: %w", err)).Write(w)
 					return
 				}
 			}

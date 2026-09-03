@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/sysson/dink/pkg/log"
+	"github.com/sysson/syskit/logx"
 )
 
 const forceQuitCount = 3
@@ -17,7 +17,7 @@ func trap(ctx context.Context, cleanup func()) {
 	go func() {
 		var interruptCount int
 		for sig := range c {
-			log.G(ctx).Info("received signal", "signal", sig.String())
+			logx.G(ctx).Info("received signal", "signal", sig.String())
 			if interruptCount < forceQuitCount {
 				interruptCount++
 				if interruptCount == 1 {
@@ -25,7 +25,7 @@ func trap(ctx context.Context, cleanup func()) {
 				}
 				continue
 			}
-			log.G(ctx).Info("forcing shutdown without cleanup", "signals", interruptCount)
+			logx.G(ctx).Info("forcing shutdown without cleanup", "signals", interruptCount)
 			os.Exit(128 + int(sig.(syscall.Signal)))
 		}
 	}()

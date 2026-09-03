@@ -6,8 +6,8 @@ import (
 	"fmt"
 
 	"github.com/sysson/dink/pkg/k8s"
-	"github.com/sysson/dink/pkg/log"
 	"github.com/sysson/dink/pkg/types"
+	"github.com/sysson/syskit/logx"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -53,7 +53,7 @@ func New(ctx context.Context, systemNamespace string) (*Translator, error) {
 
 	err = t.EnsureNamespace(ctx, types.DefaultNamespace)
 	if err != nil {
-		log.G(ctx).WithError(err).Warn("default namespace not available", "namespace", types.DefaultNamespace)
+		logx.G(ctx).WithError(err).Warn("default namespace not available", "namespace", types.DefaultNamespace)
 	}
 
 	return t, nil

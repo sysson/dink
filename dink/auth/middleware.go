@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"github.com/sysson/dink/dink/identity"
-	"github.com/sysson/dink/pkg/httputils"
-	"github.com/sysson/dink/pkg/ioutils"
+	"github.com/sysson/syskit/httpx"
+	"github.com/sysson/syskit/iox"
 )
 
 func Middleware(chain *AuthChain) func(next http.Handler) http.Handler {
@@ -29,15 +29,15 @@ func Middleware(chain *AuthChain) func(next http.Handler) http.Handler {
 			})
 
 			if err := authCtx.AuthZRequest(w, r); err != nil {
-				_ = httputils.Forbidden(fmt.Errorf("AuthZRequest returned error: %w", err)).Write(w)
+				_ = httpx.Forbidden(fmt.Errorf("AuthZRequest returned error: %w", err)).Write(w)
 				return
 			}
 
-			rw := ioutils.NewResponseModifier(w)
+			rw := iox.NewResponseModifier(w)
 			next.ServeHTTP(rw, r)
 
 			if err := authCtx.AuthZResponse(rw, r); err != nil {
-				_ = httputils.Forbidden(fmt.Errorf("AuthZResponse returned error: %w", err)).Write(w)
+				_ = httpx.Forbidden(fmt.Errorf("AuthZResponse returned error: %w", err)).Write(w)
 				return
 			}
 		})
