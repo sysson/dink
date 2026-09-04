@@ -29,7 +29,7 @@ func Middleware(chain *AuthChain) func(next http.Handler) http.Handler {
 			})
 
 			if err := authCtx.AuthZRequest(w, r); err != nil {
-				_ = httpx.Forbidden(fmt.Errorf("AuthZRequest returned error: %w", err)).Write(w)
+				_ = httpx.Forbidden(fmt.Errorf("AuthZRequest returned error: %w", err)).WriteJSON(w)
 				return
 			}
 
@@ -37,7 +37,7 @@ func Middleware(chain *AuthChain) func(next http.Handler) http.Handler {
 			next.ServeHTTP(rw, r)
 
 			if err := authCtx.AuthZResponse(rw, r); err != nil {
-				_ = httpx.Forbidden(fmt.Errorf("AuthZResponse returned error: %w", err)).Write(w)
+				_ = httpx.Forbidden(fmt.Errorf("AuthZResponse returned error: %w", err)).WriteJSON(w)
 				return
 			}
 		})

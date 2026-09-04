@@ -46,7 +46,7 @@ func (s *Server) CreateMux(ctx context.Context, routers ...router.Router) *chi.M
 	}
 
 	notFoundHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = httpx.NotFound(fmt.Errorf("%s not found", r.URL.Path)).Write(w)
+		_ = httpx.NotFound(fmt.Errorf("%s not found", r.URL.Path)).WriteJSON(w)
 	})
 	r.HandleFunc(versionMatcher+"/*", notFoundHandler)
 	r.NotFound(notFoundHandler)

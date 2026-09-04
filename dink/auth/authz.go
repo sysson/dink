@@ -11,10 +11,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/sysson/dink/pkg/certs"
-	"github.com/sysson/syskit/iox"
 	authv1 "github.com/sysson/dink/sdk/auth/v1"
 	"github.com/sysson/syskit/httpx"
+	"github.com/sysson/syskit/iox"
+	"github.com/sysson/syskit/pki"
 )
 
 const maxBodySize = 4 * 1024 * 1024
@@ -74,7 +74,7 @@ func (ctx *Ctx) AuthZRequest(w http.ResponseWriter, r *http.Request) error {
 
 	if r.TLS != nil {
 		for _, c := range r.TLS.PeerCertificates {
-			pc := certs.PeerCertificate(*c)
+			pc := pki.PeerCertificate(*c)
 			b, err := pc.MarshalJSON()
 			if err != nil {
 				return err

@@ -93,20 +93,20 @@ func Middleware(cfg MiddlewareConfig) func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			id, err := Resolve(PeerCertificate(r), map[string]struct{}{cfg.SystemNamespace: {}, cfg.DefaultNamespace: {}})
 			if err != nil {
-				_ = httpx.Forbidden(fmt.Errorf("resolving identity: %w", err)).Write(w)
+				_ = httpx.Forbidden(fmt.Errorf("resolving identity: %w", err)).WriteJSON(w)
 				return
 			}
 			if id.Anonymous {
 				id.Namespace = cfg.DefaultNamespace
 				if err := cfg.Ensurer.EnsureNamespace(r.Context(), id.Namespace); err != nil {
 					logx.G(r.Context()).WithError(err).Error("error accessing default namespace", "namespace", id.Namespace)
-					_ = httpx.InternalServerError(fmt.Errorf("accessing default namespace: %w", err)).Write(w)
+					_ = httpx.InternalServerError(fmt.Errorf("accessing default namespace: %w", err)).WriteJSON(w)
 					return
 				}
 			} else {
 				if err := cfg.Ensurer.EnsureNamespace(r.Context(), id.Namespace); err != nil {
 					logx.G(r.Context()).WithError(err).Error("error accessing tenant namespace", "namespace", id.Namespace)
-					_ = httpx.InternalServerError(fmt.Errorf("accessing tenant namespace: %w", err)).Write(w)
+					_ = httpx.InternalServerError(fmt.Errorf("accessing tenant namespace: %w", err)).WriteJSON(w)
 					return
 				}
 			}

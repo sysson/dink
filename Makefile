@@ -29,7 +29,7 @@ CTX_ENDPOINT := host=$(DINK_HOST),ca=$(DOCKER_CERT_DIR)/ca.pem,cert=$(DOCKER_CER
 # daemon, so anything touching minikube must bypass the dink context. 
 HOST_DOCKER := env -u DOCKER_HOST -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH DOCKER_CONTEXT=minikube
 
-.PHONY: all build test generate lint clean fix dev image image-minikube load bootstrap bootstrap-local bootstrap-rotate tenant \
+.PHONY: all build test generate lint clean fix dev image image-minikube load ca-generate ca-generate-local ca-rotate tenant \
 	context context-sync context-use context-default context-rm port-forward restart release show-image \
 	deploy undeploy logs docker-env start
 
@@ -75,19 +75,19 @@ load: image
 image-minikube:
 	$(HOST_DOCKER) $(MINI) -p $(MINIKUBE_PROFILE) image build -t $(REF) .
 
-## bootstrap: Create the CA/namespaces/server cert if they don't exist yet, and apply the dink-tls Secret
-# Idempotent: reuses the cached CA and only (re)issues the server cert, so it's
+## ca-generate: Create the CA/namespaces/server cert if they don't exist yet, and apply the CA + dink-tls Secrets
+# Idempotent: reuses the cached (or cluster) CA and only (re)issues the server cert, so it's
 # safe to call on every devcontainer start or CI run.
-bootstrap:
-	$(GO) run $(DINKLE) --certsDir $(CERT_DIR) bootstrap --systemNamespace $(NAMESPACE)
+ca-generate:
+	$(GO) run $(DINKLE) --certsDir $(CERT_DIR) ca generate --systemNamespace $(NAMESPACE)
 
-## bootstrap-local: Same as bootstrap but without touching the cluster
-bootstrap-local:
-	$(GO) run $(DINKLE) --certsDir $(CERT_DIR) bootstrap --systemNamespace $(NAMESPACE) --apply=false
+## ca-generate-local: Same as ca-generate but without touching the cluster
+ca-generate-local:
+	$(GO) run $(DINKLE) --certsDir $(CERT_DIR) ca generate --systemNamespace $(NAMESPACE) --apply=false
 
-## bootstrap-rotate: Rotate the CA and reissue the server cert, invalidating existing clients
-bootstrap-rotate:
-	$(GO) run $(DINKLE) --certsDir $(CERT_DIR) bootstrap --systemNamespace $(NAMESPACE) --force
+## ca-rotate: Rotate the CA and reissue the server cert, invalidating existing clients
+ca-rotate:
+	$(GO) run $(DINKLE) --certsDir $(CERT_DIR) ca rotate --systemNamespace $(NAMESPACE) --yes
 	@echo "the pod still serves the previous certificate; run 'make restart'" >&2
 
 ## tenant: Create (or reuse) the '$(TENANT)' tenant and refresh the local docker context for it
@@ -100,7 +100,7 @@ restart:
 	$(KUBECTL) -n $(NAMESPACE) rollout restart deployment/dink
 	$(KUBECTL) -n $(NAMESPACE) rollout status deployment/dink --timeout=120s
 
-## deploy: Apply the manifests (expects `make load bootstrap` first)
+## deploy: Apply the manifests (expects `make load ca-generate` first)
 deploy:
 	$(KUBECTL) apply -k deploy
 	$(KUBECTL) -n $(NAMESPACE) rollout status deployment/dink --timeout=120s

@@ -5,13 +5,12 @@ package command
 import (
 	"io"
 
-	"github.com/sysson/dink/dinkle/store"
 	"github.com/sysson/dink/pkg/types"
 	"github.com/urfave/cli/v3"
 )
 
 func New(stdout, stderr io.Writer) (*cli.Command, error) {
-	defaultCertsDir, err := store.DefaultDir()
+	defaultCertsDir, err := defaultDir()
 	if err != nil {
 		return nil, err
 	}
@@ -20,10 +19,12 @@ func New(stdout, stderr io.Writer) (*cli.Command, error) {
 
 	return &cli.Command{
 		Name:  "dinkle",
-		Usage: "Bootstrap dink and manage tenants and client certificates",
-		Description: "dinkle bootstraps dink's certificate authority and Kubernetes namespaces,\n" +
-			"then manages the per-tenant namespaces and client certificates used to\n" +
-			"authenticate docker clients against dink.",
+		Usage: "Manage dink's certificate authority, tenants and client certificates",
+		Description: "dinkle generates and rotates dink's certificate authority, and manages\n" +
+			"the per-tenant namespaces and client certificates used to authenticate\n" +
+			"docker clients against dink. The CA is stored both locally and as a\n" +
+			"cluster Secret so that `dinkle` commands give consistent results\n" +
+			"regardless of which host they run on; see `dinkle ca sync`.",
 		Writer:    stdout,
 		ErrWriter: stderr,
 		Flags: []cli.Flag{
@@ -42,7 +43,7 @@ func New(stdout, stderr io.Writer) (*cli.Command, error) {
 			},
 		},
 		Commands: []*cli.Command{
-			bootstrapCmd(o),
+			caCmd(o),
 			tenantCmd(o),
 			clientCmd(o),
 		},

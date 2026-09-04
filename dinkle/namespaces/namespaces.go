@@ -18,6 +18,9 @@ const (
 	LabelManagedBy = "app.kubernetes.io/managed-by"
 	// LabelTenant marks a namespace as a tenant namespace, holding its name.
 	LabelTenant = "dink.io/tenant"
+	// LabelLeaf marks a Secret as holding a leaf certificate, so ListLeaves
+	// can find every leaf in a namespace without also matching the CA Secret.
+	LabelLeaf = "dink.io/leaf"
 
 	ManagedByValue = "dinkle"
 
@@ -33,7 +36,7 @@ func New(client kubernetes.Interface) *Manager {
 	return &Manager{client: client}
 }
 
-// Create creates namespace if it does not already exist.
+// Create creates a namespace owned by dinkle.
 func (m *Manager) Create(ctx context.Context, name string, tenant bool) error {
 	labels := map[string]string{LabelManagedBy: ManagedByValue}
 	if tenant {
@@ -48,9 +51,25 @@ func (m *Manager) Create(ctx context.Context, name string, tenant bool) error {
 	return err
 }
 
-// Get returns the tenant namespace, or an error if it does not exist.
+// Ensure creates a non-tenant namespace unless it already exists.
+func (m *Manager) Ensure(ctx context.Context, name string) error {
+	if err := m.Create(ctx, name, false); err != nil && !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	return nil
+}
+
+// Get returns a dinkle-managed tenant namespace, or an error if it does not
+// exist or is not a tenant namespace owned by dinkle.
 func (m *Manager) Get(ctx context.Context, name string) (*corev1.Namespace, error) {
-	return m.client.CoreV1().Namespaces().Get(ctx, name, metav1.GetOptions{})
+	ns, err := m.client.CoreV1().Namespaces().Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	if ns.Labels[LabelManagedBy] != ManagedByValue || ns.Labels[LabelTenant] != name {
+		return nil, fmt.Errorf("namespace %q is not a dinkle-managed tenant", name)
+	}
+	return ns, nil
 }
 
 // ListTenants returns the names of every tenant namespace dinkle provisioned,
@@ -73,6 +92,9 @@ func (m *Manager) ListTenants(ctx context.Context) ([]string, error) {
 
 // Delete removes a tenant namespace and everything in it.
 func (m *Manager) Delete(ctx context.Context, name string) error {
+	if _, err := m.Get(ctx, name); err != nil {
+		return err
+	}
 	return m.client.CoreV1().Namespaces().Delete(ctx, name, metav1.DeleteOptions{})
 }
 
@@ -86,58 +108,4 @@ func (m *Manager) HasDeployments(ctx context.Context, name string) (bool, error)
 		return false, fmt.Errorf("listing deployments in namespace %q: %w", name, err)
 	}
 	return len(list.Items) > 0, nil
-}
-
-func (m *Manager) DeleteSecret(ctx context.Context, namespace, secretName string) error {
-	if err := m.client.CoreV1().Secrets(namespace).Delete(ctx, secretName, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("deleting secret %s/%s: %w", namespace, secretName, err)
-	}
-	return nil
-}
-
-func (m *Manager) StoreServerSecret(ctx context.Context, namespace, secretName string, data map[string][]byte) error {
-	secret := &corev1.Secret{
-		Name:      secretName,
-		Namespace: namespace,
-		Labels: map[string]string{
-			LabelManagedBy:           ManagedByValue,
-			"app.kubernetes.io/name": "dink",
-		},
-		Type: corev1.SecretTypeOpaque,
-		Data: data,
-	}
-	return m.storeSecret(ctx, namespace, secret)
-}
-
-func (m *Manager) StoreClientSecret(ctx context.Context, namespace, clientName string, data map[string][]byte) error {
-	secretName := clientSecretName(clientName)
-
-	secret := &corev1.Secret{
-		Name:      secretName,
-		Namespace: namespace,
-		Labels: map[string]string{
-			LabelManagedBy:   ManagedByValue,
-			"dink.io/client": secretName,
-		},
-		Type: corev1.SecretTypeOpaque,
-		Data: data,
-	}
-	return m.storeSecret(ctx, namespace, secret)
-}
-
-func (m *Manager) storeSecret(ctx context.Context, namespace string, secret *corev1.Secret) error {
-	secrets := m.client.CoreV1().Secrets(namespace)
-
-	_, err := secrets.Update(ctx, secret, metav1.UpdateOptions{FieldManager: CertFieldManager})
-	if apierrors.IsNotFound(err) {
-		_, err = secrets.Create(ctx, secret, metav1.CreateOptions{FieldManager: CertFieldManager})
-	}
-	if err != nil {
-		return fmt.Errorf("applying secret %s/%s: %w", namespace, secret.Name, err)
-	}
-	return nil
-}
-
-func clientSecretName(clientName string) string {
-	return "dink-client-" + clientName
 }

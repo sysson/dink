@@ -4,17 +4,32 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/sysson/dink/pkg/k8s"
+	"github.com/sysson/syskit/pki/file"
 	"k8s.io/client-go/kubernetes"
 )
 
+const (
+	defaultConfigDirName    = "dink"
+	defaultCertsDirName     = ".certs"
+	defaultOrganization     = "dink"
+	defaultCACommonName     = "dink-ca"
+	defaultClientCN         = "dink-client"
+	defaultServiceName      = "dink"
+	defaultSystemNamespace  = "dink-system"
+	defaultNamespace        = "dink"
+	defaultCASecretName     = "dink-ca"
+	defaultServerSecretName = "dink-tls"
+)
+
 var (
-	ErrNamespaceRequired      = errors.New("namespace is required")
-	ErrClientNameRequired     = errors.New("client name is required")
-	ErrTenantNameRequired     = errors.New("tenant name is required")
-	ErrNamespaceClientMissing = errors.New("namespace and client name are required")
+	ErrNamespaceRequired  = errors.New("namespace is required")
+	ErrClientNameRequired = errors.New("client name is required")
+	ErrTenantNameRequired = errors.New("tenant name is required")
 )
 
 // Options holds the flags shared by every dinkle subcommand.
@@ -56,4 +71,30 @@ func requireString(value string, missingErr error) error {
 		return missingErr
 	}
 	return nil
+}
+
+func defaultDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolving home directory: %w", err)
+	}
+	return filepath.Join(home, ".config", defaultConfigDirName, defaultCertsDirName), nil
+}
+
+func tenantDir(certsDir, namespace string) string {
+	return filepath.Join(certsDir, namespace)
+}
+
+func clientStore(certsDir, namespace string) *file.FileStore {
+	store := file.New(tenantDir(certsDir, namespace))
+	store.LeafCACertFile = "ca.pem"
+	store.LeafCertFile = "cert.pem"
+	store.LeafKeyFile = "key.pem"
+	return store
+}
+
+// clientDir returns the directory holding a single client's certificate,
+// laid out so it can be used directly as DOCKER_CERT_PATH.
+func clientDir(certsDir, namespace, client string) string {
+	return filepath.Join(tenantDir(certsDir, namespace), client)
 }

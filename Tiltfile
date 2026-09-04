@@ -10,8 +10,8 @@ IMAGE='ghcr.io/sysson/dink'
 
 # The Secret is a prerequisite for the Deployment: the pod blocks on mounting it.
 local_resource(
-    'bootstrap',
-    cmd='make bootstrap',
+    'ca-generate',
+    cmd='make ca-generate',
     deps=['pkg/certs', 'dinkle'],
     labels=['setup'],
 )
@@ -31,6 +31,6 @@ k8s_yaml(kustomize('deploy'))
 k8s_resource(
     'dink',
     port_forwards='2376:2376',
-    resource_deps=['bootstrap'],
+    resource_deps=['ca-generate'],
     labels=['app'],
 )

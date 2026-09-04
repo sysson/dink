@@ -2,12 +2,8 @@ package command
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 
-	"github.com/sysson/dink/dinkle/store"
 	"github.com/urfave/cli/v3"
 )
 
@@ -19,6 +15,7 @@ func clientCmd(o *Options) *cli.Command {
 			clientCreateCmd(o),
 			clientListCmd(o),
 			clientDeleteCmd(o),
+			clientInfoCmd(o),
 		},
 	}
 }
@@ -33,8 +30,7 @@ func clientCreateCmd(o *Options) *cli.Command {
 			if err != nil {
 				return err
 			}
-
-			return newService(o).CreateClient(ctx, namespace, clientName, cmd.Writer)
+			return newService(o, &caOptions{}).CreateClient(ctx, namespace, clientName, cmd.Writer)
 		},
 	}
 }
@@ -57,17 +53,12 @@ func clientListCmd(o *Options) *cli.Command {
 				return err
 			}
 
-			entries, err := os.ReadDir(store.TenantDir(o.certsDir, namespace))
+			names, err := clientStore(o.certsDir, namespace).ListLeaves(ctx)
 			if err != nil {
-				if errors.Is(err, fs.ErrNotExist) {
-					return fmt.Errorf("tenant %q not found", namespace)
-				}
 				return fmt.Errorf("listing clients for %q: %w", namespace, err)
 			}
-			for _, e := range entries {
-				if e.IsDir() {
-					_, _ = fmt.Fprintln(cmd.Writer, e.Name())
-				}
+			for _, name := range names {
+				_, _ = fmt.Fprintln(cmd.Writer, name)
 			}
 			return nil
 		},
@@ -85,7 +76,22 @@ func clientDeleteCmd(o *Options) *cli.Command {
 				return err
 			}
 
-			return newService(o).DeleteClient(ctx, namespace, clientName, cmd.Writer)
+			return newService(o, &caOptions{}).DeleteClient(ctx, namespace, clientName, cmd.Writer)
+		},
+	}
+}
+
+func clientInfoCmd(o *Options) *cli.Command {
+	return &cli.Command{
+		Name:      "info",
+		Usage:     "Show a client certificate's local and cluster state, and whether they match",
+		ArgsUsage: "<namespace> <client>",
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			namespace, clientName, err := namespaceAndClientArgs(cmd)
+			if err != nil {
+				return err
+			}
+			return newService(o, &caOptions{}).ClientInfo(ctx, namespace, clientName, cmd.Writer)
 		},
 	}
 }
