@@ -21,11 +21,11 @@ func issueClientCert(ctx context.Context, kc kubernetes.Interface, ca *pki.Autho
 	if clientName == "" {
 		return fmt.Errorf("client name is required")
 	}
-	leaf, err := ca.Issue(pki.LeafRequest{
-		CommonName:   clientName,
-		Organization: namespace,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-	})
+	leaf, err := ca.Issue(
+		pki.WithCommonName(clientName),
+		pki.WithOrganization(namespace),
+		pki.WithExtKeyUsage([]x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}),
+	)
 	if err != nil {
 		return fmt.Errorf("issuing client certificate for %s/%s: %w", namespace, clientName, err)
 	}

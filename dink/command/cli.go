@@ -20,7 +20,7 @@ import (
 	"github.com/sysson/dink/dink/translator"
 	"github.com/sysson/dink/dink/version"
 	"github.com/sysson/syskit/logx"
-	"github.com/sysson/dink/pkg/tlsconfig"
+	"github.com/sysson/syskit/tlsconfig"
 	"github.com/urfave/cli/v3"
 	"google.golang.org/grpc"
 )
@@ -82,13 +82,19 @@ func newTLSConfig(cfg *config.Config) (*tls.Config, error) {
 	if cfg.Server.DisableTLS != nil && *cfg.Server.DisableTLS {
 		return nil, nil
 	}
-	return tlsconfig.Config(&tlsconfig.TLSConfigOptions{
-		DisableTLS:    false,
-		TLSCertFile:   cfg.TLS.CertFile,
-		TLSKeyFile:    cfg.TLS.KeyFile,
-		MinTLSVersion: cfg.TLS.MinTLSVersion,
-		ClientCAFile:  cfg.TLS.ClientCAFile,
-	})
+	tlsVersion, err := config.TLSVersionFromString(cfg.TLS.MinTLSVersion)
+	if err != nil {
+		return nil, err
+	}
+	caFiles, err := config.LoadFiles(cfg.TLS.ClientCAFile, cfg.TLS.CertFile, cfg.TLS.KeyFile)
+	if err != nil {
+		return nil, err
+	}
+	return tlsconfig.ServerTLSConfig(
+		tlsconfig.WithCA(caFiles[0]),
+		tlsconfig.WithKeyPair(caFiles[1], caFiles[2]),
+		tlsconfig.WithMinVersion(tlsVersion),
+	)
 }
 
 func (c *dinkCLI) start(ctx context.Context) (retErr error) {

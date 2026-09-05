@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/sysson/dink/dinkle/namespaces"
+	"github.com/sysson/dink/dinkle/store"
 	"github.com/sysson/syskit/pki"
-	"github.com/sysson/syskit/pki/file"
 )
 
 // Service contains the application logic for dinkle operations.
@@ -47,7 +47,7 @@ func (s *Service) applyCA(ctx context.Context, force bool, out io.Writer) error 
 		return err
 	}
 
-	localStore := file.New(s.options.certsDir)
+	localStore := store.NewFileStore(s.options.certsDir)
 
 	ca, err := s.loadOrCreateCA(ctx, localStore, force, out)
 	if err != nil {
@@ -69,12 +69,13 @@ func (s *Service) applyCA(ctx context.Context, force bool, out io.Writer) error 
 	ips := []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback}
 	ips = append(ips, s.caOptions.validExtraIPs...)
 
-	server, err := ca.Issue(pki.LeafRequest{
-		CommonName:  fmt.Sprintf("%s.%s.svc", s.caOptions.serviceName, s.caOptions.systemNamespace),
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:    dnsNames,
-		IPAddresses: ips,
-	})
+	server, err := ca.Issue(
+		pki.WithCommonName(fmt.Sprintf("%s.%s.svc", s.caOptions.serviceName, s.caOptions.systemNamespace)),
+		pki.WithOrganization(s.caOptions.systemNamespace),
+		pki.WithExtKeyUsage([]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}),
+		pki.WithDNSNames(dnsNames),
+		pki.WithIPAddresses(ips),
+	)
 	if err != nil {
 		return fmt.Errorf("issuing server certificate: %w", err)
 	}
@@ -115,7 +116,7 @@ func (s *Service) applyCA(ctx context.Context, force bool, out io.Writer) error 
 // cluster's CA Secret if the cache is empty, so that a second host converges
 // on the same CA instead of minting a new one. It always mints a new CA when
 // force is set.
-func (s *Service) loadOrCreateCA(ctx context.Context, localStore *file.FileStore, force bool, out io.Writer) (*pki.Authority, error) {
+func (s *Service) loadOrCreateCA(ctx context.Context, localStore *store.FileStore, force bool, out io.Writer) (*pki.Authority, error) {
 	if !force {
 		pair, err := localStore.LoadCA(ctx)
 		switch {
@@ -148,10 +149,10 @@ func (s *Service) loadOrCreateCA(ctx context.Context, localStore *file.FileStore
 
 	_, _ = fmt.Fprintf(out, "generating a new %s CA\n", s.caOptions.keyType)
 	return pki.NewAuthority(
-		pki.WithCACommonName(s.caOptions.opts.CACommonName),
+		pki.WithCommonName(s.caOptions.opts.CommonName),
 		pki.WithKeyType(pki.KeyType(s.caOptions.keyType)),
 		pki.WithRSABits(s.caOptions.opts.RSABits),
-		pki.WithCADuration(s.caOptions.opts.CADuration),
+		pki.WithDuration(s.caOptions.opts.Duration),
 		pki.WithOrganization(s.caOptions.opts.Organization),
 	)
 }
@@ -159,7 +160,7 @@ func (s *Service) loadOrCreateCA(ctx context.Context, localStore *file.FileStore
 // CAInfo prints the CA cached locally and the CA stored in the cluster, and
 // whether the two match, so drift between hosts is visible without syncing.
 func (s *Service) CAInfo(ctx context.Context, out io.Writer) error {
-	localPair, localErr := file.New(s.options.certsDir).LoadCA(ctx)
+	localPair, localErr := store.NewFileStore(s.options.certsDir).LoadCA(ctx)
 	localInfo, localOK := printKeyPairInfo(out, "local", s.options.certsDir, localPair, localErr)
 
 	kc, err := s.options.kubeClient(ctx)
@@ -188,7 +189,7 @@ func (s *Service) SyncCA(ctx context.Context, systemNamespace, caSecretName stri
 	if err != nil {
 		return err
 	}
-	localStore := file.New(s.options.certsDir)
+	localStore := store.NewFileStore(s.options.certsDir)
 	clusterStore := namespaces.NewSecretStore(kc, systemNamespace, caSecretName)
 
 	if push {
@@ -219,7 +220,7 @@ func (s *Service) SyncCA(ctx context.Context, systemNamespace, caSecretName stri
 // fingerprint comparison.
 func printKeyPairInfo(out io.Writer, source, location string, pair pki.KeyPair, err error) (pki.Info, bool) {
 	switch {
-	case errors.Is(err, pki.ErrNoAuthority), errors.Is(err, pki.ErrNoLeaf):
+	case errors.Is(err, pki.ErrNoAuthority), errors.Is(err, errors.New("no certificate found")):
 		_, _ = fmt.Fprintf(out, "%s (%s): not found\n", source, location)
 		return pki.Info{}, false
 	case err != nil:
@@ -238,7 +239,7 @@ func printKeyPairInfo(out io.Writer, source, location string, pair pki.KeyPair, 
 }
 
 func (s *Service) CreateTenant(ctx context.Context, name, defaultClient string, out io.Writer) error {
-	a, err := file.New(s.options.certsDir).LoadCA(ctx)
+	a, err := store.NewFileStore(s.options.certsDir).LoadCA(ctx)
 	if err != nil {
 		return err
 	}
@@ -263,7 +264,7 @@ func (s *Service) CreateTenant(ctx context.Context, name, defaultClient string, 
 }
 
 func (s *Service) CreateClient(ctx context.Context, namespace, clientName string, out io.Writer) error {
-	a, err := file.New(s.options.certsDir).LoadCA(ctx)
+	a, err := store.NewFileStore(s.options.certsDir).LoadCA(ctx)
 	if err != nil {
 		return err
 	}

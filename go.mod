@@ -4,12 +4,13 @@ go 1.27.0
 
 require (
 	connectrpc.com/connect v1.20.0
+	github.com/docker/oci v0.0.23
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/go-chi/httplog/v3 v3.4.0
 	github.com/moby/moby/api v1.56.0
 	github.com/moby/moby/client v0.6.0
 	github.com/moby/moby/v2 v2.0.0-beta.23
-	github.com/sysson/syskit v1.1.1
+	github.com/sysson/syskit v1.2.1
 	github.com/urfave/cli/v3 v3.11.0
 	golang.org/x/net v0.58.0
 	google.golang.org/grpc v1.83.2

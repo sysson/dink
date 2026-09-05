@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/sysson/dink/dinkle/store"
 	"github.com/sysson/dink/pkg/k8s"
-	"github.com/sysson/syskit/pki/file"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -85,8 +85,8 @@ func tenantDir(certsDir, namespace string) string {
 	return filepath.Join(certsDir, namespace)
 }
 
-func clientStore(certsDir, namespace string) *file.FileStore {
-	store := file.New(tenantDir(certsDir, namespace))
+func clientStore(certsDir, namespace string) *store.FileStore {
+	store := store.NewFileStore(tenantDir(certsDir, namespace))
 	store.LeafCACertFile = "ca.pem"
 	store.LeafCertFile = "cert.pem"
 	store.LeafKeyFile = "key.pem"

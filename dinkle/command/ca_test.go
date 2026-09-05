@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/sysson/dink/dinkle/namespaces"
+	"github.com/sysson/dink/dinkle/store"
 	"github.com/sysson/syskit/pki"
-	"github.com/sysson/syskit/pki/file"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
@@ -20,8 +20,8 @@ func TestCAOptionsValidateSetsCAIdentity(t *testing.T) {
 	if err := c.validate(); err != nil {
 		t.Fatalf("validating CA options: %v", err)
 	}
-	if c.opts.CACommonName != defaultCACommonName {
-		t.Errorf("CA common name = %q, want %q", c.opts.CACommonName, defaultCACommonName)
+	if c.opts.CommonName != defaultCACommonName {
+		t.Errorf("CA common name = %q, want %q", c.opts.CommonName, defaultCACommonName)
 	}
 	if c.opts.Organization != defaultOrganization {
 		t.Errorf("organization = %q, want %q", c.opts.Organization, defaultOrganization)
@@ -52,7 +52,7 @@ func TestLoadOrCreateCAReusesSystemNamespaceCA(t *testing.T) {
 		caSecretName:    caSecretName,
 	})
 
-	loaded, err := s.loadOrCreateCA(ctx, file.New(s.options.certsDir), false, &bytes.Buffer{})
+	loaded, err := s.loadOrCreateCA(ctx, store.NewFileStore(s.options.certsDir), false, &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("loading CA: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestLoadOrCreateCAReturnsClusterReadError(t *testing.T) {
 		},
 	}, &caOptions{systemNamespace: "system", caSecretName: "ca"})
 
-	if _, err := s.loadOrCreateCA(ctx, file.New(s.options.certsDir), false, &bytes.Buffer{}); err == nil || !errors.Is(err, clusterErr) {
+	if _, err := s.loadOrCreateCA(ctx, store.NewFileStore(s.options.certsDir), false, &bytes.Buffer{}); err == nil || !errors.Is(err, clusterErr) {
 		t.Fatalf("expected cluster read error, got %v", err)
 	}
 }
@@ -90,7 +90,7 @@ func TestGenerateCAWritesServerCertificateAtCertsDir(t *testing.T) {
 			return fake.NewSimpleClientset(), nil
 		},
 	}, &caOptions{
-		opts:             pki.Options{RSABits: pki.DefaultRSABits, CADuration: pki.DefaultCADuration, Duration: pki.DefaultDuration},
+		opts:             pki.Options{RSABits: pki.DefaultRSABits, Duration: pki.DefaultDuration},
 		keyType:          string(pki.DefaultKeyType),
 		systemNamespace:  defaultSystemNamespace,
 		defaultNamespace: defaultNamespace,
@@ -103,7 +103,7 @@ func TestGenerateCAWritesServerCertificateAtCertsDir(t *testing.T) {
 	if err := s.GenerateCA(ctx, &bytes.Buffer{}); err != nil {
 		t.Fatalf("generating CA: %v", err)
 	}
-	if _, _, err := file.New(certsDir).LoadLeaf(ctx, ""); err != nil {
+	if _, _, err := store.NewFileStore(certsDir).LoadLeaf(ctx, ""); err != nil {
 		t.Fatalf("loading server certificate from certs directory: %v", err)
 	}
 }

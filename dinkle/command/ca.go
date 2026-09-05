@@ -98,14 +98,8 @@ func caFlags(c *caOptions) []cli.Flag {
 			Destination: &c.opts.RSABits,
 		},
 		&cli.DurationFlag{
-			Name:        "caValidity",
-			Usage:       "Validity period of the CA certificate",
-			Value:       pki.DefaultCADuration,
-			Destination: &c.opts.CADuration,
-		},
-		&cli.DurationFlag{
 			Name:        "validity",
-			Usage:       "Validity period of the server certificate",
+			Usage:       "Validity period of the certificate",
 			Value:       pki.DefaultDuration,
 			Destination: &c.opts.Duration,
 		},
@@ -241,7 +235,7 @@ func (c *caOptions) validate() error {
 	}
 	c.validExtraIPs = ips
 	c.opts.KeyType = pki.KeyType(c.keyType)
-	c.opts.CACommonName = defaultCACommonName
+	c.opts.CommonName = defaultCACommonName
 	c.opts.Organization = defaultOrganization
 	return nil
 }

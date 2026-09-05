@@ -1,5 +1,11 @@
 package image
 
+import (
+	"context"
+
+	"github.com/moby/moby/api/types/jsonstream"
+)
+
 type Translator interface {
 	imageTranslator
 	importExportTranslator
@@ -24,7 +30,7 @@ type importExportTranslator interface {
 }
 
 type registryTranslator interface {
-	PullImage()
+	PullImage(ctx context.Context, fromImage, tag string, progress func(jsonstream.Message)) (string, error)
 	PushImage()
 }
 

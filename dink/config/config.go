@@ -1,10 +1,12 @@
 package config
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 
@@ -23,7 +25,7 @@ type AccessLog struct {
 type Kubernetes struct {
 	SystemNamespace  string `json:"systemNamespace,omitempty"`
 	DefaultNamespace string `json:"defaultNamespace,omitempty"`
-	HealthPort string `json:"healthPort,omitempty"`
+	HealthPort       string `json:"healthPort,omitempty"`
 }
 
 type TLS struct {
@@ -77,7 +79,7 @@ func Default() *Config {
 		Kubernetes: Kubernetes{
 			SystemNamespace:  types.DefaultSystemNamespace,
 			DefaultNamespace: types.DefaultNamespace,
-			HealthPort: "8080",
+			HealthPort:       "8080",
 		},
 		TLS: TLS{
 			CertFile:      "/etc/dink/certs/server.crt",
@@ -310,4 +312,32 @@ func validatePort(field, value string) error {
 		return fmt.Errorf("%s=%q is invalid; expected range 1024-65535", field, value)
 	}
 	return nil
+}
+
+func TLSVersionFromString(v string) (uint16, error) {
+	switch v {
+	case "1.1":
+		return tls.VersionTLS11, nil
+	case "1.2":
+		return tls.VersionTLS12, nil
+	case "1.3":
+		return tls.VersionTLS13, nil
+	default:
+		return 0, fmt.Errorf("invalid TLS version: %q", v)
+	}
+}
+
+func LoadFiles(paths ...string) ([][]byte, error) {
+	var files [][]byte
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, data)
+	}
+	return files, nil
 }
