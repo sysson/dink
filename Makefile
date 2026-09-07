@@ -29,7 +29,7 @@ CTX_ENDPOINT := host=$(DINK_HOST),ca=$(DOCKER_CERT_DIR)/ca.pem,cert=$(DOCKER_CER
 # daemon, so anything touching minikube must bypass the dink context. 
 HOST_DOCKER := env -u DOCKER_HOST -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH DOCKER_CONTEXT=minikube
 
-.PHONY: all build test generate lint clean fix dev image image-minikube load ca-generate ca-generate-local ca-rotate tenant \
+.PHONY: all build test generate lint clean fix dev image image-minikube load ca-generate ca-generate-local ca-rotate server tenant bootstrap \
 	context context-sync context-use context-default context-rm port-forward restart release show-image \
 	deploy undeploy logs docker-env start
 
@@ -90,10 +90,32 @@ ca-rotate:
 	$(GO) run $(DINKLE) --certsDir $(CERT_DIR) ca rotate --systemNamespace $(NAMESPACE) --yes
 	@echo "the pod still serves the previous certificate; run 'make restart'" >&2
 
-## tenant: Create (or reuse) the '$(TENANT)' tenant and refresh the local docker context for it
+## server: Issue the server certificate from the existing CA and apply it as the dink-tls Secret
+server:
+	$(GO) run $(DINKLE) --certsDir $(CERT_DIR) server issue --systemNamespace $(NAMESPACE)
+
+## tenant: Create the '$(TENANT)' tenant and refresh the local docker context for it
 tenant:
 	$(GO) run $(DINKLE) --certsDir $(CERT_DIR) tenant create $(TENANT)
 	@$(MAKE) --no-print-directory context-sync
+
+## bootstrap: Bring up the cluster and create the CA, server certificate and '$(TENANT)' tenant if missing
+# Safe to re-run: `ca generate` reuses an existing CA, and the server certificate and
+# tenant are only created when they aren't there already.
+bootstrap:
+	@$(MAKE) --no-print-directory start
+	@$(MAKE) --no-print-directory ca-generate
+	@if [ -f "$(CERT_DIR)/tls.crt" ]; then \
+		echo "server certificate already present in $(CERT_DIR); skipping"; \
+	else \
+		$(MAKE) --no-print-directory server; \
+	fi
+	@if $(KUBECTL) get namespace $(TENANT) >/dev/null 2>&1; then \
+		echo "tenant '$(TENANT)' already exists; refreshing docker context"; \
+		$(MAKE) --no-print-directory context-sync; \
+	else \
+		$(MAKE) --no-print-directory tenant; \
+	fi
 
 ## restart: Roll the dink deployment so it picks up a new TLS Secret
 restart:

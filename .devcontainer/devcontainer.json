@@ -29,7 +29,7 @@
         },
         {
             "source": "dink-go-mod",
-            "target": "/home/vscode/go/pkg/mod",
+            "target": "/go/pkg/mod",
             "type": "volume"
         },
         {

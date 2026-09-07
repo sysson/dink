@@ -4,7 +4,7 @@ set -euo pipefail
 sudo mkdir -p ${DINK_CONFIG:-$HOME/.config/dink}
 sudo chown -R vscode:vscode ${DINK_CONFIG:-$HOME/.config/dink}
 
-sudo install -d -o vscode -g vscode "$HOME/.cache" "$HOME/go/pkg/mod" "$HOME/.cache/go-build"
+sudo install -d -o vscode -g vscode "$HOME/.cache" "$HOME/.cache/go-build" "$(go env GOPATH)/pkg/mod"
 
 sudo apt-get update -y
 sudo apt-get install -y --no-install-recommends ca-certificates curl
@@ -16,9 +16,7 @@ if ! command -v tilt >/dev/null 2>&1; then
 fi
 
 docker context create --docker host=unix:///var/run/docker.sock minikube >/dev/null 2>&1 || true
-make start
-make ca-generate
-make tenant
+make bootstrap
 
 echo "Post-create script completed successfully."
 echo "Run 'make dev' to start the development environment."
