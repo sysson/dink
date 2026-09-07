@@ -1,0 +1,31 @@
+package translator
+
+func (s *Swarm) Init()          {}
+func (s *Swarm) Join()          {}
+func (s *Swarm) Leave()         {}
+func (s *Swarm) Inspect()       {}
+func (s *Swarm) Update()        {}
+func (s *Swarm) GetUnlockKey()  {}
+func (s *Swarm) UnlockSwarm()   {}
+func (s *Swarm) GetServices()   {}
+func (s *Swarm) GetService()    {}
+func (s *Swarm) CreateService() {}
+func (s *Swarm) UpdateService() {}
+func (s *Swarm) RemoveService() {}
+func (s *Swarm) ServiceLogs()   {}
+func (s *Swarm) GetNodes()      {}
+func (s *Swarm) GetNode()       {}
+func (s *Swarm) UpdateNode()    {}
+func (s *Swarm) RemoveNode()    {}
+func (s *Swarm) GetTasks()      {}
+func (s *Swarm) GetTask()       {}
+func (s *Swarm) GetSecrets()    {}
+func (s *Swarm) CreateSecret()  {}
+func (s *Swarm) RemoveSecret()  {}
+func (s *Swarm) GetSecret()     {}
+func (s *Swarm) UpdateSecret()  {}
+func (s *Swarm) GetConfigs()    {}
+func (s *Swarm) CreateConfig()  {}
+func (s *Swarm) RemoveConfig()  {}
+func (s *Swarm) GetConfig()     {}
+func (s *Swarm) UpdateConfig()  {}

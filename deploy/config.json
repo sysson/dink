@@ -1,0 +1,26 @@
+{
+    "log": {
+        "level": "error"
+    },
+    "accessLog": {
+        "level": "error"
+    },
+    "kubernetes": {
+        "systemNamespace": "dink-system",
+        "defaultNamespace": "dink-default",
+        "healthPort": "8080"
+    },
+    "server": {
+        "port": "2375",
+        "tlsPort": "2376"
+    },
+    "tls": {
+        "certFile": "/etc/dink/tls/tls.crt",
+        "keyFile": "/etc/dink/tls/tls.key",
+        "clientCAFile": "/etc/dink/tls/ca.crt",
+        "minTLSVersion": "1.3"
+    },
+    "auth": {
+        "pluginDir": "/var/lib/dink/plugins"
+    }
+}

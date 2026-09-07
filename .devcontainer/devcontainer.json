@@ -1,15 +1,15 @@
 {
     "name": "dink-dev",
-    "image": "mcr.microsoft.com/devcontainers/base:bullseye",
+    "image": "mcr.microsoft.com/devcontainers/base:trixie",
     "runArgs": [
         "--privileged",
         "--device",
         "/dev/kvm"
     ],
     "features": {
-        "ghcr.io/devcontainers/features/docker-in-docker:4.0.0": {
+        "ghcr.io/devcontainers/features/docker-in-docker:4.1.0": {
             "enableNonRootDocker": "true",
-            "moby": "true"
+            "moby": "false"
         },
         "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
             "version": "latest",
@@ -20,12 +20,32 @@
             "version": "latest"
         }
     },
-    "remoteEnv": {
-        "DINK_TLSCERTFILE": "${containerWorkspaceFolder}/.devcontainer/certs/server.crt",
-        "DINK_TLSKEYFILE": "${containerWorkspaceFolder}/.devcontainer/certs/server.key",
-        "DINK_CLIENTCAFILE": "${containerWorkspaceFolder}/.devcontainer/certs/ca.crt"
-    },
     "remoteUser": "vscode",
+    "mounts": [
+        {
+            "source": "dink-config",
+            "target": "/home/vscode/.config/dink",
+            "type": "volume"
+        },
+        {
+            "source": "dink-go-mod",
+            "target": "/go/pkg/mod",
+            "type": "volume"
+        },
+        {
+            "source": "dink-go-sumdb",
+            "target": "/go/pkg/sumdb",
+            "type": "volume"
+        },
+        {
+            "source": "dink-go-build-cache",
+            "target": "/home/vscode/.cache/go-build",
+            "type": "volume"
+        }
+    ],
+    "containerEnv": {
+        "DINK_CONFIG": "/home/vscode/.config/dink"
+    },
     "postCreateCommand": "bash .devcontainer/post-create.sh",
     "customizations": {
         "vscode": {

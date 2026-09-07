@@ -1,0 +1,8 @@
+.github
+.devcontainer
+.certs
+*.md
+LICENSE
+Tiltfile
+Makefile
+testing/conformance
