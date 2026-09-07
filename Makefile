@@ -136,9 +136,14 @@ logs:
 	$(KUBECTL) -n $(NAMESPACE) logs -l app.kubernetes.io/name=dink -f --tail=100
 
 ## context: Create or update the '$(DOCKER_CTX)' docker context pointing at dink
+# A missing local client certificate is restored from the tenant's cluster
+# Secret first, so a rebuilt devcontainer can reattach without reissuing.
 context:
-	@test -f $(DOCKER_CERT_DIR)/cert.pem || { \
-		echo "no client certificate in $(DOCKER_CERT_DIR); run 'make tenant' first" >&2; exit 1; }
+	@if [ ! -f $(DOCKER_CERT_DIR)/cert.pem ]; then \
+		echo "no local client certificate in $(DOCKER_CERT_DIR); restoring from cluster secret $(TENANT)/dink-client-$(CLIENT)"; \
+		$(GO) run $(DINKLE) --certsDir $(CERT_DIR) client sync $(TENANT) $(CLIENT) || { \
+			echo "no client certificate in $(DOCKER_CERT_DIR); run 'make tenant' first" >&2; exit 1; }; \
+	fi
 	@if $(HOST_DOCKER) $(DOCKER) context inspect $(DOCKER_CTX) >/dev/null 2>&1; then \
 		$(HOST_DOCKER) $(DOCKER) context update $(DOCKER_CTX) --docker "$(CTX_ENDPOINT)" >/dev/null; \
 		echo "updated docker context $(DOCKER_CTX)"; \

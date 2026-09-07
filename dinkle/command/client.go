@@ -10,10 +10,11 @@ import (
 func clientCmd(o *Options) *cli.Command {
 	return &cli.Command{
 		Name:  "client",
-		Usage: "Create, list and delete client certificates within a tenant namespace",
+		Usage: "Create, list, sync and delete client certificates within a tenant namespace",
 		Commands: []*cli.Command{
 			clientCreateCmd(o),
 			clientListCmd(o),
+			clientSyncCmd(o),
 			clientDeleteCmd(o),
 			clientInfoCmd(o),
 		},
@@ -61,6 +62,21 @@ func clientListCmd(o *Options) *cli.Command {
 				_, _ = fmt.Fprintln(cmd.Writer, name)
 			}
 			return nil
+		},
+	}
+}
+
+func clientSyncCmd(o *Options) *cli.Command {
+	return &cli.Command{
+		Name:      "sync",
+		Usage:     "Restore a client certificate from its cluster Secret into the local cache",
+		ArgsUsage: "<namespace> <client>",
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			namespace, clientName, err := namespaceAndClientArgs(cmd)
+			if err != nil {
+				return err
+			}
+			return newService(o, &caOptions{}).SyncClient(ctx, namespace, clientName, cmd.Writer)
 		},
 	}
 }

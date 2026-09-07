@@ -33,6 +33,11 @@
             "type": "volume"
         },
         {
+            "source": "dink-go-sumdb",
+            "target": "/go/pkg/sumdb",
+            "type": "volume"
+        },
+        {
             "source": "dink-go-build-cache",
             "target": "/home/vscode/.cache/go-build",
             "type": "volume"

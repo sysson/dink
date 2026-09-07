@@ -420,6 +420,27 @@ func (s *Service) DeleteClient(ctx context.Context, namespace, clientName string
 	return nil
 }
 
+// SyncClient restores a client certificate from the tenant namespace's
+// cluster Secret into the local cache, so a host that lost its cache (e.g. a
+// rebuilt devcontainer) can reattach to an existing tenant without reissuing.
+func (s *Service) SyncClient(ctx context.Context, namespace, clientName string, out io.Writer) error {
+	kc, err := s.options.kubeClient(ctx)
+	if err != nil {
+		return err
+	}
+
+	secretName := clientSecretName(clientName)
+	ca, leaf, err := namespaces.NewSecretStore(kc, namespace, "").LoadLeaf(ctx, secretName)
+	if err != nil {
+		return fmt.Errorf("no client certificate found in cluster secret %s/%s; run `dinkle client create %s %s` first: %w", namespace, secretName, namespace, clientName, err)
+	}
+	if err := clientStore(s.options.certsDir, namespace).SaveLeaf(ctx, clientName, ca, leaf); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(out, "restored client certificate %s/%s from cluster secret %s into %s\n", namespace, clientName, secretName, clientDir(s.options.certsDir, namespace, clientName))
+	return nil
+}
+
 // TenantInfo prints a tenant namespace's status and its local and cluster
 // clients, so drift between hosts is visible without syncing.
 func (s *Service) TenantInfo(ctx context.Context, name string, out io.Writer) error {

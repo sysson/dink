@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-sudo mkdir -p ${DINK_CONFIG:-$HOME/.config/dink}
-sudo chown -R vscode:vscode ${DINK_CONFIG:-$HOME/.config/dink}
-
-sudo install -d -o vscode -g vscode "$HOME/.cache" "$HOME/.cache/go-build" "$(go env GOPATH)/pkg/mod"
+sudo install -d -o vscode -g vscode /go/pkg/mod /go/pkg/sumdb /home/vscode/.cache/go-build /home/vscode/.config/dink
 
 sudo apt-get update -y
 sudo apt-get install -y --no-install-recommends ca-certificates curl
