@@ -3,8 +3,11 @@ kind: Kustomization
 
 resources:
   - dink.yaml
+  - dinki.yaml
 images:
   - name: ghcr.io/sysson/dink
+    newTag: dev
+  - name: ghcr.io/sysson/dinki
     newTag: dev
 
 configMapGenerator:

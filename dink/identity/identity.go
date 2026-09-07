@@ -66,6 +66,11 @@ func sanitize(org string) string {
 
 type contextKey struct{}
 
+// NewContext returns a copy of ctx carrying id.
+func NewContext(ctx context.Context, id Identity) context.Context {
+	return context.WithValue(ctx, contextKey{}, id)
+}
+
 func FromContext(ctx context.Context) (Identity, bool) {
 	id, ok := ctx.Value(contextKey{}).(Identity)
 	return id, ok
@@ -111,7 +116,7 @@ func Middleware(cfg MiddlewareConfig) func(next http.Handler) http.Handler {
 				}
 			}
 
-			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), contextKey{}, id)))
+			next.ServeHTTP(w, r.WithContext(NewContext(r.Context(), id)))
 		})
 	}
 }

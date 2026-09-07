@@ -148,6 +148,20 @@ func (o *options) addFlags(flags *[]cli.Flag) {
 			Sources:     cli.EnvVars(types.DefaultEnvPrefix+"_TLS_MINTLSVERSION", types.DefaultEnvPrefix+"_TLS_MIN_TLS_VERSION"),
 			Destination: &o.cfg.TLS.MinTLSVersion,
 		},
+		&cli.StringFlag{
+			Name:        "registryURL",
+			Usage:       "OCI registry endpoint address",
+			DefaultText: o.defaults.Registry.URL,
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix + "_REGISTRY_URL"),
+			Destination: &o.cfg.Registry.URL,
+		},
+		&cli.StringFlag{
+			Name:        "registryCAFile",
+			Usage:       "Path to CA bundle PEM for the internal OCI registry; defaults to clientCAFile",
+			DefaultText: o.defaults.Registry.CAFile,
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix+"_REGISTRY_CAFILE", types.DefaultEnvPrefix+"_REGISTRY_CA_FILE"),
+			Destination: &o.cfg.Registry.CAFile,
+		},
 	}...)
 }
 

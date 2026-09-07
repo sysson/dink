@@ -17,7 +17,7 @@ fi
 
 docker context create --docker host=unix:///var/run/docker.sock minikube >/dev/null 2>&1 || true
 make start
-make bootstrap
+make ca-generate
 make tenant
 
 echo "Post-create script completed successfully."

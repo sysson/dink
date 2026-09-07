@@ -4,13 +4,15 @@ go 1.27.0
 
 require (
 	connectrpc.com/connect v1.20.0
+	github.com/containerd/platforms v1.0.0-rc.5
 	github.com/docker/oci v0.0.23
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/go-chi/httplog/v3 v3.4.0
 	github.com/moby/moby/api v1.56.0
 	github.com/moby/moby/client v0.6.0
 	github.com/moby/moby/v2 v2.0.0-beta.23
-	github.com/sysson/syskit v1.2.1
+	github.com/opencontainers/image-spec v1.1.1
+	github.com/sysson/syskit v1.3.0
 	github.com/urfave/cli/v3 v3.11.0
 	golang.org/x/net v0.58.0
 	google.golang.org/grpc v1.83.2
@@ -22,6 +24,7 @@ require (
 )
 
 require (
+	github.com/containerd/log v0.1.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
@@ -50,7 +53,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
-	github.com/opencontainers/image-spec v1.1.1 // indirect
+	github.com/sirupsen/logrus v1.10.2 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect

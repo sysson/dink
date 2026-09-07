@@ -1,6 +1,7 @@
 package command
 
 import (
+	"github.com/sysson/dink/dink/registry"
 	"github.com/sysson/dink/dink/server/router"
 	"github.com/sysson/dink/dink/server/router/build"
 	"github.com/sysson/dink/dink/server/router/checkpoint"
@@ -18,7 +19,7 @@ import (
 	"github.com/sysson/dink/dink/translator"
 )
 
-func buildRouters(t *translator.Translator) []router.Router {
+func buildRouters(t *translator.Translator, is *registry.ImageService) []router.Router {
 
 	return []router.Router{
 		build.New(t.Builder()),
@@ -27,7 +28,7 @@ func buildRouters(t *translator.Translator) []router.Router {
 		debug.New(),
 		distribution.New(t.Docker()),
 		grpc.New(t.Builder()),
-		image.New(t.Docker(), t.Docker()),
+		image.New(is, is),
 		network.New(t.Docker(), t.Swarm()),
 		plugin.New(t.Docker()),
 		session.New(t.Docker()),

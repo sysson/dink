@@ -3,7 +3,8 @@ package image
 import (
 	"context"
 
-	"github.com/moby/moby/api/types/jsonstream"
+	"github.com/docker/oci/ociref"
+	"github.com/sysson/dink/pkg/types"
 )
 
 type Translator interface {
@@ -30,7 +31,7 @@ type importExportTranslator interface {
 }
 
 type registryTranslator interface {
-	PullImage(ctx context.Context, fromImage, tag string, progress func(jsonstream.Message)) (string, error)
+	PullImage(ctx context.Context, ref ociref.Reference, options types.PullOptions) error
 	PushImage()
 }
 

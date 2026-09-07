@@ -65,7 +65,7 @@ dev: start context-use
 
 ## image: Build the release container image in docker
 image:
-	$(HOST_DOCKER) $(DOCKER) build -t $(REF) .
+	$(HOST_DOCKER) $(DOCKER) build --target $(TARGET) -t $(REF) .
 
 ## load: Push the image into the minikube node's image store
 load: image

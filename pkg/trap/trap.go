@@ -1,4 +1,4 @@
-package command
+package trap
 
 import (
 	"context"
@@ -9,9 +9,14 @@ import (
 	"github.com/sysson/syskit/logx"
 )
 
-const forceQuitCount = 3
+const defaultForceQuitCount = 3
 
-func trap(ctx context.Context, cleanup func()) {
+var T = trap
+
+func trap(ctx context.Context, forceQuitCount int, cleanup func()) {
+	if forceQuitCount < 1 {
+		forceQuitCount = defaultForceQuitCount
+	}
 	c := make(chan os.Signal, forceQuitCount)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -25,7 +30,7 @@ func trap(ctx context.Context, cleanup func()) {
 				}
 				continue
 			}
-			logx.G(ctx).Info("forcing shutdown without cleanup", "signals", interruptCount)
+			logx.G(ctx).Info("forcing shutdown without cleanup", "signals", forceQuitCount)
 			os.Exit(128 + int(sig.(syscall.Signal)))
 		}
 	}()

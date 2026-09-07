@@ -9,6 +9,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/sysson/dink/pkg/types"
 )
@@ -52,6 +53,11 @@ type BuildKit struct {
 	URL string `json:"url,omitempty"`
 }
 
+type Registry struct {
+	URL    string `json:"url,omitempty"`
+	CAFile string `json:"caFile,omitempty"`
+}
+
 type Config struct {
 	Log        Log        `json:"log"`
 	AccessLog  AccessLog  `json:"accessLog"`
@@ -60,6 +66,7 @@ type Config struct {
 	Server     Server     `json:"server"`
 	BuildKit   BuildKit   `json:"buildKit"`
 	Auth       Auth       `json:"auth"`
+	Registry   Registry   `json:"registry"`
 }
 
 type AuthPlugin struct {
@@ -97,6 +104,9 @@ func Default() *Config {
 		Auth: Auth{
 			Plugins:   []AuthPlugin{},
 			PluginDir: "/var/lib/dink/plugins",
+		},
+		Registry: Registry{
+			URL: "https://dinki.dink-system.svc.cluster.local:5000",
 		},
 	}
 }
@@ -196,41 +206,12 @@ func (a *Auth) Validate() error {
 	return nil
 }
 
+func (r *Registry) Validate() error {
+	return validateURL(r.URL, "registryURL", "http", "https")
+}
+
 func (b *BuildKit) Validate() error {
-	if b.URL == "" {
-		return nil
-	}
-
-	u, err := url.Parse(b.URL)
-	if err != nil {
-		return fmt.Errorf("buildKitURL=%q is invalid: %w", b.URL, err)
-	}
-
-	switch u.Scheme {
-	case "tcp":
-		host, port, err := net.SplitHostPort(u.Host)
-		if err != nil {
-			return fmt.Errorf("buildKitURL=%q is invalid; expected tcp://host:port", b.URL)
-		}
-		if host == "" {
-			return fmt.Errorf("buildKitURL=%q is invalid; host must not be empty", b.URL)
-		}
-		if err := validateHost(host); err != nil {
-			return fmt.Errorf("buildKitURL=%q is invalid; %w", b.URL, err)
-		}
-		p, err := strconv.Atoi(port)
-		if err != nil || p < 1 || p > 65535 {
-			return fmt.Errorf("buildKitURL=%q is invalid; port must be in range 1-65535", b.URL)
-		}
-	case "unix":
-		if u.Path == "" || u.Path == "/" {
-			return fmt.Errorf("buildKitURL=%q is invalid; expected unix:///path/to/socket", b.URL)
-		}
-	default:
-		return fmt.Errorf("buildKitURL=%q is invalid; expected a tcp:// or unix:// address", b.URL)
-	}
-
-	return nil
+	return validateURL(b.URL, "buildKitURL", "tcp")
 }
 
 func (c *Config) Validate() error {
@@ -257,6 +238,9 @@ func (c *Config) Validate() error {
 		errs = append(errs, err)
 	}
 	if err := c.BuildKit.Validate(); err != nil {
+		errs = append(errs, err)
+	}
+	if err := c.Registry.Validate(); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -340,4 +324,49 @@ func LoadFiles(paths ...string) ([][]byte, error) {
 		files = append(files, data)
 	}
 	return files, nil
+}
+
+func validateURL(value, name string, networkSchemes ...string) error {
+	if value == "" {
+		return nil
+	}
+
+	u, err := url.Parse(value)
+	if err != nil {
+		return fmt.Errorf("%s=%q is invalid: %w", name, value, err)
+	}
+
+	for _, scheme := range networkSchemes {
+		if scheme != u.Scheme {
+			continue
+		}
+		host, port, err := net.SplitHostPort(u.Host)
+		if err != nil {
+			return fmt.Errorf("%s=%q is invalid; expected %s://host:port", name, value, u.Scheme)
+		}
+		if host == "" {
+			return fmt.Errorf("%s=%q is invalid; host must not be empty", name, value)
+		}
+		if err := validateHost(host); err != nil {
+			return fmt.Errorf("%s=%q is invalid; %w", name, value, err)
+		}
+		p, err := strconv.Atoi(port)
+		if err != nil || p < 1 || p > 65535 {
+			return fmt.Errorf("%s=%q is invalid; port must be in range 1-65535", name, value)
+		}
+		return nil
+	}
+
+	if u.Scheme == "unix" {
+		if u.Path == "" || u.Path == "/" {
+			return fmt.Errorf("%s=%q is invalid; expected unix:///path/to/socket", name, value)
+		}
+		return nil
+	}
+
+	expected := make([]string, len(networkSchemes))
+	for i, scheme := range networkSchemes {
+		expected[i] = scheme + "://"
+	}
+	return fmt.Errorf("%s=%q is invalid; expected a %s or unix:// address", name, value, strings.Join(expected, " or "))
 }

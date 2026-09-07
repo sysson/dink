@@ -3,22 +3,27 @@ package command
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/sysson/dink/dink/auth"
 	"github.com/sysson/dink/dink/config"
 	"github.com/sysson/dink/dink/identity"
+	"github.com/sysson/dink/dink/registry"
 	"github.com/sysson/dink/dink/server"
 	"github.com/sysson/dink/dink/server/middleware"
 	"github.com/sysson/dink/dink/translator"
 	"github.com/sysson/dink/dink/version"
+	"github.com/sysson/dink/pkg/trap"
 	"github.com/sysson/syskit/logx"
 	"github.com/sysson/syskit/tlsconfig"
 	"github.com/urfave/cli/v3"
@@ -97,6 +102,51 @@ func newTLSConfig(cfg *config.Config) (*tls.Config, error) {
 	)
 }
 
+func newImageService(cfg *config.Config) *registry.ImageService {
+	transport, err := newRegistryTransport(cfg)
+	if err != nil {
+		return registry.Unavailable(fmt.Errorf("registry transport for %q: %w", cfg.Registry.URL, err))
+	}
+	internal, err := registry.NewClient(cfg.Registry.URL, registry.ClientOptions{Transport: transport})
+	if err != nil {
+		return registry.Unavailable(fmt.Errorf("registry client for %q: %w", cfg.Registry.URL, err))
+	}
+	return registry.New(internal)
+}
+
+func newRegistryTransport(cfg *config.Config) (http.RoundTripper, error) {
+	if strings.HasPrefix(cfg.Registry.URL, "http://") {
+		return nil, nil
+	}
+
+	caFile := cfg.Registry.CAFile
+	if caFile == "" {
+		caFile = cfg.TLS.ClientCAFile
+	}
+	if caFile == "" {
+		return nil, nil
+	}
+
+	caPEM, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, err
+	}
+	roots, err := x509.SystemCertPool()
+	if err != nil {
+		roots = x509.NewCertPool()
+	}
+	if !roots.AppendCertsFromPEM(caPEM) {
+		return nil, fmt.Errorf("no certificates found in %s", caFile)
+	}
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    roots,
+	}
+	return transport, nil
+}
+
 func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 	logx.G(ctx).Info("starting up")
 	defer func() {
@@ -150,7 +200,7 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 	}
 	apiShutdownCtx, apiShutdownCancel := context.WithCancel(context.WithoutCancel(ctx))
 	apiShutdownDone := make(chan struct{})
-	trap(ctx, c.stop)
+	trap.T(ctx, 3, c.stop)
 	go func() {
 		<-c.apiShutdown
 		if err := httpServer.Shutdown(apiShutdownCtx); err != nil {
@@ -182,15 +232,15 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 	server := server.New()
 	server.Use(middleware.RequestID())
 	server.Use(middleware.Logging(ctx, c.stdOut, c.cfg.AccessLog.Level))
-	server.Use(middleware.Version(v.Version, v.APIVersion, v.MinAPIVersion))
+	server.Use(version.Middleware(v.Version, v.APIVersion, v.MinAPIVersion))
 	server.Use(identity.Middleware(identity.MiddlewareConfig{
 		DefaultNamespace: c.cfg.Kubernetes.DefaultNamespace,
 		SystemNamespace:  c.cfg.Kubernetes.SystemNamespace,
 		Ensurer:          translator,
 	}))
 	server.Use(auth.Middleware(authChain))
-
-	router := buildRouters(translator)
+	is := newImageService(c.cfg)
+	router := buildRouters(translator, is)
 	gs := grpc.NewServer()
 
 	proto := new(http.Protocols)

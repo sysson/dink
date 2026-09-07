@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/sysson/dink/dink/server/middleware"
+	"github.com/sysson/dink/dink/version"
 	"github.com/sysson/syskit/httpx"
 )
 
@@ -53,7 +53,7 @@ func TestWithMinAPIVersion(t *testing.T) {
 
 			request := httptest.NewRequest(http.MethodGet, "/resource", nil)
 			if tt.apiVersion != "" {
-				ctx := context.WithValue(request.Context(), middleware.APIVersion{}, tt.apiVersion)
+				ctx := context.WithValue(request.Context(), version.APIVersion{}, tt.apiVersion)
 				request = request.WithContext(ctx)
 			}
 

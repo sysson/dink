@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/moby/moby/client/pkg/versions"
-	"github.com/sysson/dink/dink/server/middleware"
+	"github.com/sysson/dink/dink/version"
 	"github.com/sysson/syskit/httpx"
 )
 
@@ -81,7 +81,7 @@ func WithMinAPIVersion(minVersion string) RouteWrapper {
 			method: r.Method(),
 			path:   r.Path(),
 			handler: func(w http.ResponseWriter, req *http.Request) error {
-				v, ok := httpx.KeyFromContext[middleware.APIVersion, string](req.Context(), middleware.APIVersion{})
+				v, ok := httpx.KeyFromContext[version.APIVersion, string](req.Context(), version.APIVersion{})
 				if !ok {
 					return httpx.BadRequest(fmt.Errorf("API version not specified"))
 				}

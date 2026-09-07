@@ -44,6 +44,7 @@ func New(stdout, stderr io.Writer) (*cli.Command, error) {
 		},
 		Commands: []*cli.Command{
 			caCmd(o),
+			serverCmd(o),
 			tenantCmd(o),
 			clientCmd(o),
 		},

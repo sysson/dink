@@ -81,7 +81,7 @@ func TestLoadOrCreateCAReturnsClusterReadError(t *testing.T) {
 	}
 }
 
-func TestGenerateCAWritesServerCertificateAtCertsDir(t *testing.T) {
+func TestGenerateCAWritesCAAtCertsDir(t *testing.T) {
 	ctx := context.Background()
 	certsDir := t.TempDir()
 	s := newService(&Options{
@@ -95,15 +95,39 @@ func TestGenerateCAWritesServerCertificateAtCertsDir(t *testing.T) {
 		systemNamespace:  defaultSystemNamespace,
 		defaultNamespace: defaultNamespace,
 		caSecretName:     defaultCASecretName,
-		serverSecretName: defaultServerSecretName,
-		serviceName:      defaultServiceName,
-		clusterDomain:    "cluster.local",
 	})
 
 	if err := s.GenerateCA(ctx, &bytes.Buffer{}); err != nil {
 		t.Fatalf("generating CA: %v", err)
 	}
-	if _, _, err := store.NewFileStore(certsDir).LoadLeaf(ctx, ""); err != nil {
+	if _, err := store.NewFileStore(certsDir).LoadCA(ctx); err != nil {
+		t.Fatalf("loading CA from certs directory: %v", err)
+	}
+}
+
+func TestIssueServerWritesDefaultCertificateAtCertsDir(t *testing.T) {
+	ctx := context.Background()
+	certsDir := t.TempDir()
+	localStore := store.NewFileStore(certsDir)
+	ca, err := pki.NewAuthority()
+	if err != nil {
+		t.Fatalf("creating CA: %v", err)
+	}
+	if err := localStore.SaveCA(ctx, ca.KeyPair()); err != nil {
+		t.Fatalf("saving CA: %v", err)
+	}
+
+	s := newService(&Options{certsDir: certsDir}, &caOptions{})
+	if err := s.IssueServer(ctx, &serverOptions{
+		systemNamespace:  defaultSystemNamespace,
+		caSecretName:     defaultCASecretName,
+		serverSecretName: defaultServerSecretName,
+		serviceName:      defaultServiceName,
+		clusterDomain:    "cluster.local",
+	}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("issuing server certificate: %v", err)
+	}
+	if _, _, err := localStore.LoadLeaf(ctx, ""); err != nil {
 		t.Fatalf("loading server certificate from certs directory: %v", err)
 	}
 }

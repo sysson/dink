@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -28,15 +29,14 @@ func newService(o *Options, ca *caOptions) *Service {
 	return &Service{options: o, caOptions: ca}
 }
 
-// GenerateCA creates the CA and server certificate if they don't already
-// exist, reusing the local cache or the cluster's CA Secret before minting a
-// new CA.
+// GenerateCA creates the CA if it doesn't already exist, reusing the local
+// cache or the cluster's CA Secret before minting a new CA.
 func (s *Service) GenerateCA(ctx context.Context, out io.Writer) error {
 	return s.applyCA(ctx, false, out)
 }
 
-// RotateCA always mints a new CA and server certificate, invalidating every
-// certificate issued by the previous CA.
+// RotateCA always mints a new CA, invalidating every certificate issued by the
+// previous CA.
 func (s *Service) RotateCA(ctx context.Context, out io.Writer) error {
 	return s.applyCA(ctx, true, out)
 }
@@ -56,33 +56,7 @@ func (s *Service) applyCA(ctx context.Context, force bool, out io.Writer) error 
 	if err := localStore.SaveCA(ctx, ca.KeyPair()); err != nil {
 		return err
 	}
-
-	dnsNames := []string{
-		s.caOptions.serviceName,
-		fmt.Sprintf("%s.%s", s.caOptions.serviceName, s.caOptions.systemNamespace),
-		fmt.Sprintf("%s.%s.svc", s.caOptions.serviceName, s.caOptions.systemNamespace),
-		fmt.Sprintf("%s.%s.svc.%s", s.caOptions.serviceName, s.caOptions.systemNamespace, s.caOptions.clusterDomain),
-		"localhost",
-	}
-	dnsNames = append(dnsNames, s.caOptions.extraDNSNames...)
-
-	ips := []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback}
-	ips = append(ips, s.caOptions.validExtraIPs...)
-
-	server, err := ca.Issue(
-		pki.WithCommonName(fmt.Sprintf("%s.%s.svc", s.caOptions.serviceName, s.caOptions.systemNamespace)),
-		pki.WithOrganization(s.caOptions.systemNamespace),
-		pki.WithExtKeyUsage([]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}),
-		pki.WithDNSNames(dnsNames),
-		pki.WithIPAddresses(ips),
-	)
-	if err != nil {
-		return fmt.Errorf("issuing server certificate: %w", err)
-	}
-	if err := localStore.SaveLeaf(ctx, "", ca.KeyPair(), server); err != nil {
-		return err
-	}
-	_, _ = fmt.Fprintf(out, "wrote certificates to %s\n", s.options.certsDir)
+	_, _ = fmt.Fprintf(out, "wrote CA to %s\n", s.options.certsDir)
 
 	if !s.caOptions.apply {
 		return nil
@@ -104,12 +78,110 @@ func (s *Service) applyCA(ctx context.Context, force bool, out io.Writer) error 
 	if err := namespaces.NewSecretStore(kc, s.caOptions.systemNamespace, s.caOptions.caSecretName).SaveCA(ctx, ca.KeyPair()); err != nil {
 		return err
 	}
-	if err := namespaces.NewSecretStore(kc, s.caOptions.systemNamespace, "").SaveLeaf(ctx, s.caOptions.serverSecretName, ca.KeyPair(), server); err != nil {
-		return err
-	}
 
 	_, _ = fmt.Fprintf(out, "done\n")
 	return nil
+}
+
+// IssueServer issues a server certificate from the existing CA and stores it
+// locally and, when requested, in the cluster as a TLS Secret.
+func (s *Service) IssueServer(ctx context.Context, opts *serverOptions, out io.Writer) error {
+	if err := opts.validate(); err != nil {
+		return err
+	}
+
+	localStore := store.NewFileStore(s.options.certsDir)
+	caPair, err := s.loadExistingCA(ctx, localStore, opts.systemNamespace, opts.caSecretName, out)
+	if err != nil {
+		return err
+	}
+	ca, err := pki.LoadAuthority(caPair)
+	if err != nil {
+		return err
+	}
+
+	server, err := issueServerCert(ca, opts)
+	if err != nil {
+		return err
+	}
+
+	localName := opts.serverSecretName
+	if opts.serverSecretName == defaultServerSecretName && opts.serviceName == defaultServiceName {
+		localName = ""
+	}
+	if err := localStore.SaveLeaf(ctx, localName, caPair, server); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(out, "wrote server certificate to %s\n", filepath.Join(s.options.certsDir, localName))
+
+	if !opts.apply {
+		return nil
+	}
+
+	kc, err := s.options.kubeClient(ctx)
+	if err != nil {
+		return err
+	}
+	if err := namespaces.New(kc).Ensure(ctx, opts.systemNamespace); err != nil {
+		return fmt.Errorf("creating system namespace %q: %w", opts.systemNamespace, err)
+	}
+	if err := namespaces.NewSecretStore(kc, opts.systemNamespace, "").SaveLeaf(ctx, opts.serverSecretName, caPair, server); err != nil {
+		return err
+	}
+
+	_, _ = fmt.Fprintf(out, "wrote server certificate to cluster secret %s/%s\n", opts.systemNamespace, opts.serverSecretName)
+	return nil
+}
+
+func issueServerCert(ca *pki.Authority, opts *serverOptions) (pki.KeyPair, error) {
+	dnsNames := []string{
+		opts.serviceName,
+		fmt.Sprintf("%s.%s", opts.serviceName, opts.systemNamespace),
+		fmt.Sprintf("%s.%s.svc", opts.serviceName, opts.systemNamespace),
+		fmt.Sprintf("%s.%s.svc.%s", opts.serviceName, opts.systemNamespace, opts.clusterDomain),
+		"localhost",
+	}
+	dnsNames = append(dnsNames, opts.extraDNSNames...)
+
+	ips := []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback}
+	ips = append(ips, opts.validExtraIPs...)
+
+	server, err := ca.Issue(
+		pki.WithCommonName(fmt.Sprintf("%s.%s.svc", opts.serviceName, opts.systemNamespace)),
+		pki.WithOrganization(opts.systemNamespace),
+		pki.WithExtKeyUsage([]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}),
+		pki.WithDNSNames(dnsNames),
+		pki.WithIPAddresses(ips),
+	)
+	if err != nil {
+		return pki.KeyPair{}, fmt.Errorf("issuing server certificate: %w", err)
+	}
+	return server, nil
+}
+
+func (s *Service) loadExistingCA(ctx context.Context, localStore *store.FileStore, systemNamespace, caSecretName string, out io.Writer) (pki.KeyPair, error) {
+	pair, err := localStore.LoadCA(ctx)
+	switch {
+	case err == nil:
+		_, _ = fmt.Fprintf(out, "using existing CA in %s\n", s.options.certsDir)
+		return pair, nil
+	case !errors.Is(err, pki.ErrNoAuthority):
+		return pki.KeyPair{}, err
+	}
+
+	kc, err := s.options.kubeClient(ctx)
+	if err != nil {
+		return pki.KeyPair{}, fmt.Errorf("no local CA found in %s and cluster CA could not be loaded: %w", s.options.certsDir, err)
+	}
+	pair, err = namespaces.NewSecretStore(kc, systemNamespace, caSecretName).LoadCA(ctx)
+	if err != nil {
+		return pki.KeyPair{}, fmt.Errorf("no CA found locally or in cluster secret %s/%s; run `dinkle ca generate` first: %w", systemNamespace, caSecretName, err)
+	}
+	if err := localStore.SaveCA(ctx, pair); err != nil {
+		return pki.KeyPair{}, err
+	}
+	_, _ = fmt.Fprintf(out, "using existing CA from cluster secret %s/%s\n", systemNamespace, caSecretName)
+	return pair, nil
 }
 
 // loadOrCreateCA reuses the CA cached in localStore, falling back to the

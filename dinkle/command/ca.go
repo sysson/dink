@@ -3,8 +3,6 @@ package command
 import (
 	"context"
 	"errors"
-	"fmt"
-	"net"
 
 	"github.com/sysson/dink/pkg/types"
 	"github.com/sysson/syskit/pki"
@@ -12,23 +10,15 @@ import (
 )
 
 // caOptions holds the flags shared by `ca generate` and `ca rotate`. opts
-// holds every field also present on pki.Options (RSABits, CADuration,
-// ClusterDomain, RSABits, CADuration, Duration, ExtraDNSNames) so their
-// flags bind directly to it instead of duplicating the fields here; keyType
-// and extraIPs still need converting before they fit certs.Options.
+// holds the pki.Options values whose flags bind directly to it; keyType still
+// needs converting before it fits pki.Options.
 type caOptions struct {
 	opts pki.Options
 
 	defaultNamespace string
 	systemNamespace  string
 	caSecretName     string
-	serverSecretName string
-	serviceName      string
 	keyType          string
-	clusterDomain    string
-	extraDNSNames    []string
-	extraIPs         []string
-	validExtraIPs    []net.IP
 	apply            bool
 }
 
@@ -68,24 +58,6 @@ func caFlags(c *caOptions) []cli.Flag {
 			Destination: &c.caSecretName,
 		},
 		&cli.StringFlag{
-			Name:        "serverSecretName",
-			Usage:       "Name of the server TLS Secret",
-			Value:       defaultServerSecretName,
-			Destination: &c.serverSecretName,
-		},
-		&cli.StringFlag{
-			Name:        "serviceName",
-			Usage:       "Name of the dink Service, used for the server certificate SANs",
-			Value:       defaultServiceName,
-			Destination: &c.serviceName,
-		},
-		&cli.StringFlag{
-			Name:        "clusterDomain",
-			Usage:       "Cluster DNS domain",
-			Value:       "cluster.local",
-			Destination: &c.clusterDomain,
-		},
-		&cli.StringFlag{
 			Name:        "keyType",
 			Usage:       "Key algorithm: ecdsa|ed25519|rsa",
 			Value:       string(pki.DefaultKeyType),
@@ -103,19 +75,9 @@ func caFlags(c *caOptions) []cli.Flag {
 			Value:       pki.DefaultDuration,
 			Destination: &c.opts.Duration,
 		},
-		&cli.StringSliceFlag{
-			Name:        "dnsName",
-			Usage:       "Additional DNS SAN for the server certificate; repeatable",
-			Destination: &c.extraDNSNames,
-		},
-		&cli.StringSliceFlag{
-			Name:        "ip",
-			Usage:       "Additional IP SAN for the server certificate; repeatable",
-			Destination: &c.extraIPs,
-		},
 		&cli.BoolFlag{
 			Name:        "apply",
-			Usage:       "Ensure the namespaces exist and apply the CA and server keypair to the cluster as Secrets",
+			Usage:       "Ensure the namespaces exist and apply the CA keypair to the cluster as a Secret",
 			Value:       true,
 			Destination: &c.apply,
 		},
@@ -127,14 +89,14 @@ func caGenerateCmd(o *Options) *cli.Command {
 
 	return &cli.Command{
 		Name:  "generate",
-		Usage: "Create the CA, dink's namespaces and the server certificate if they don't already exist",
+		Usage: "Create the CA and dink's namespaces if they don't already exist",
 		Description: "Reuses the CA cached in --certsDir if present, otherwise pulls it from the\n" +
 			"cluster's CA Secret so that running this on a second host converges on\n" +
 			"the same CA instead of minting a new one. Only if neither is found is a\n" +
 			"new CA generated.\n\n" +
-			"The CA keypair and the server certificate are applied to the cluster as\n" +
-			"Secrets so every host managing dink can issue tenant and client\n" +
-			"certificates consistent with each other.",
+			"The CA keypair is applied to the cluster as a Secret so every host\n" +
+			"managing dink can issue server, tenant and client certificates\n" +
+			"consistent with each other.",
 		Flags: caFlags(c),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			return newService(o, c).GenerateCA(ctx, cmd.Writer)
@@ -148,8 +110,9 @@ func caRotateCmd(o *Options) *cli.Command {
 
 	return &cli.Command{
 		Name:  "rotate",
-		Usage: "Generate a new CA and reissue the server certificate, invalidating every existing client certificate",
+		Usage: "Generate a new CA, invalidating every existing server and client certificate",
 		Description: "Every client certificate issued by the previous CA stops being trusted:\n" +
+			"server certificates must be reissued with `dinkle server issue`, and\n" +
 			"tenants and clients must be recreated with `dinkle tenant create` /\n" +
 			"`dinkle client create` after rotating.",
 		Flags: append(caFlags(c), &cli.BoolFlag{
@@ -225,15 +188,6 @@ func caSyncCmd(o *Options) *cli.Command {
 }
 
 func (c *caOptions) validate() error {
-	ips := make([]net.IP, 0, len(c.extraIPs))
-	for _, raw := range c.extraIPs {
-		ip := net.ParseIP(raw)
-		if ip == nil {
-			return fmt.Errorf("invalid IP address %q", raw)
-		}
-		ips = append(ips, ip)
-	}
-	c.validExtraIPs = ips
 	c.opts.KeyType = pki.KeyType(c.keyType)
 	c.opts.CommonName = defaultCACommonName
 	c.opts.Organization = defaultOrganization
