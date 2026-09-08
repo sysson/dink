@@ -11,8 +11,8 @@ import (
 	"github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/client/pkg/versions"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sysson/dink/core/types"
 	"github.com/sysson/dink/core/version"
-	"github.com/sysson/dink/pkg/types"
 	"github.com/sysson/syskit/httpx"
 	"github.com/sysson/syskit/iox"
 	"github.com/sysson/syskit/stream"
@@ -111,9 +111,12 @@ func (ir *imageRouter) postImagesCreate(w http.ResponseWriter, r *http.Request) 
 		return httpx.BadRequest(errors.New("fromImage parameter is required"))
 	}
 	if progressErr != nil {
-		_, _ = output.Write(stream.FormatError(progressErr))
+		if output.HasWritten() {
+			_, _ = output.Write(stream.FormatError(progressErr))
+		} else {
+			return progressErr
+		}
 	}
-
 	return nil
 }
 

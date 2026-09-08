@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/sysson/dink/pkg/k8s"
-	"github.com/sysson/dink/pkg/types"
+	"github.com/sysson/dink/core/k8s"
+	"github.com/sysson/dink/core/types"
 	"github.com/sysson/syskit/logx"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )

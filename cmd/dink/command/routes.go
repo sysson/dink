@@ -19,7 +19,7 @@ import (
 	"github.com/sysson/dink/core/translator"
 )
 
-func buildRouters(t *translator.Translator, is *registry.ImageService) []router.Router {
+func buildRouters(t *translator.Translator, is *registry.RegistryService) []router.Router {
 
 	return []router.Router{
 		build.New(t.Builder()),

@@ -16,7 +16,7 @@ import (
 	"github.com/docker/oci/ociauth"
 	"github.com/docker/oci/ociclient"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/sysson/dink/pkg/types"
+	"github.com/sysson/dink/core/types"
 )
 
 // Authenticate verifies auth against host by using it to make a request,
@@ -61,7 +61,7 @@ func Authenticate(ctx context.Context, auth types.RegistryAuth) (string, error) 
 	return "", nil
 }
 
-type ImageService struct {
+type RegistryService struct {
 	// internal is the client for dink's own registry. Its credentials are
 	// dink's and never change, so one client is shared for the process.
 	internal oci.Interface
@@ -71,26 +71,26 @@ type ImageService struct {
 }
 
 // New returns an image service backed by internal.
-func New(internal oci.Interface) *ImageService {
+func New(internal oci.Interface) *RegistryService {
 	if internal == nil {
 		return Unavailable(fmt.Errorf("registry client is not set"))
 	}
-	return &ImageService{internal: internal}
+	return &RegistryService{internal: internal}
 }
 
 // Unavailable returns an image service whose registry-backed endpoints report
 // err while endpoints that do not need the registry can still be mounted.
-func Unavailable(err error) *ImageService {
-	return &ImageService{internalErr: err}
+func Unavailable(err error) *RegistryService {
+	return &RegistryService{internalErr: err}
 }
 
 // client returns the internal registry client, or the error that prevented
 // it from being built.
-func (s *ImageService) client() (oci.Interface, error) {
-	if s.internalErr != nil {
-		return nil, s.internalErr
+func (r *RegistryService) client() (oci.Interface, error) {
+	if r.internalErr != nil {
+		return nil, r.internalErr
 	}
-	return s.internal, nil
+	return r.internal, nil
 }
 
 func RegistryTransport(cfg *tls.Config, headers map[string][]string) http.RoundTripper {

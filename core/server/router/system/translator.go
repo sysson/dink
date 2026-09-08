@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/moby/moby/api/types/system"
-	"github.com/sysson/dink/pkg/types"
+	"github.com/sysson/dink/core/types"
 )
 
 type Translator interface {

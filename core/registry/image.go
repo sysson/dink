@@ -8,29 +8,29 @@ import (
 	"github.com/docker/oci"
 	"github.com/docker/oci/ociref"
 	"github.com/sysson/dink/core/identity"
-	"github.com/sysson/dink/pkg/types"
+	"github.com/sysson/dink/core/types"
 	"github.com/sysson/syskit/stream"
 )
 
-func (is *ImageService) ImageDelete()       {}
-func (is *ImageService) ImageHistory()      {}
-func (is *ImageService) Images()            {}
-func (is *ImageService) GetImage()          {}
-func (is *ImageService) ImageInspect()      {}
-func (is *ImageService) ImageAttestations() {}
-func (is *ImageService) TagImage()          {}
-func (is *ImageService) ImagePrune()        {}
-func (is *ImageService) LoadImage()         {}
-func (is *ImageService) ImportImage()       {}
-func (is *ImageService) ExportImage()       {}
-func (is *ImageService) PushImage()         {}
-func (is *ImageService) Search()            {}
+func (r *RegistryService) ImageDelete()       {}
+func (r *RegistryService) ImageHistory()      {}
+func (r *RegistryService) Images()            {}
+func (r *RegistryService) GetImage()          {}
+func (r *RegistryService) ImageInspect()      {}
+func (r *RegistryService) ImageAttestations() {}
+func (r *RegistryService) TagImage()          {}
+func (r *RegistryService) ImagePrune()        {}
+func (r *RegistryService) LoadImage()         {}
+func (r *RegistryService) ImportImage()       {}
+func (r *RegistryService) ExportImage()       {}
+func (r *RegistryService) PushImage()         {}
+func (r *RegistryService) Search()            {}
 
 // PullImage pulls the image identified by ref from its source registry into
 // the internal registry, namespaced by the identity present in ctx, and
 // streams progress to options.OutStream in the JSON stream format understood
 // by docker clients.
-func (is *ImageService) PullImage(ctx context.Context, ref ociref.Reference, options types.PullOptions) (err error) {
+func (r *RegistryService) PullImage(ctx context.Context, ref ociref.Reference, options types.PullOptions) (err error) {
 	id, ok := identity.FromContext(ctx)
 	if !ok {
 		return fmt.Errorf("missing identity in context")
@@ -45,7 +45,7 @@ func (is *ImageService) PullImage(ctx context.Context, ref ociref.Reference, opt
 		}
 	}()
 
-	internal, err := is.client()
+	internal, err := r.client()
 	if err != nil {
 		return err
 	}

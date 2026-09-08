@@ -15,7 +15,7 @@ import (
 	"github.com/docker/oci/ociserver"
 	"github.com/go-chi/httplog/v3"
 	"github.com/sysson/dink/cmd/dinki/registry"
-	"github.com/sysson/dink/pkg/trap"
+	"github.com/sysson/dink/core/trap"
 	"github.com/sysson/syskit/logx"
 	"github.com/urfave/cli/v3"
 )

@@ -8,7 +8,7 @@ import (
 	"strconv"
 
 	"github.com/sysson/dink/core/config"
-	"github.com/sysson/dink/pkg/types"
+	"github.com/sysson/dink/core/types"
 	"github.com/urfave/cli/v3"
 )
 

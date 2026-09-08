@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/docker/oci/ociref"
-	"github.com/sysson/dink/pkg/types"
+	"github.com/sysson/dink/core/types"
 )
 
 type Translator interface {

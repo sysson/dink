@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	"github.com/sysson/dink/cmd/dinkle/store"
-	"github.com/sysson/dink/pkg/k8s"
+	"github.com/sysson/dink/core/k8s"
 	"k8s.io/client-go/kubernetes"
 )
 
