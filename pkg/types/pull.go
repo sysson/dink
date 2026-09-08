@@ -34,8 +34,6 @@ func DecodeRegistryAuthHeader(authEncoded string) (*RegistryAuth, error) {
 	}
 
 	decoded, err := base64.URLEncoding.DecodeString(authEncoded)
-	println(authEncoded)
-	println(string(decoded))
 	if err != nil {
 		return &RegistryAuth{}, fmt.Errorf("invalid X-Registry-Auth header: must be a valid base64url-encoded string")
 	}

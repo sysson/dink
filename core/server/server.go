@@ -39,7 +39,7 @@ func (s *Server) CreateMux(ctx context.Context, routers ...router.Router) *chi.M
 	r := chi.NewRouter()
 	for _, apiRouter := range routers {
 		for _, route := range apiRouter.Routes() {
-			f := s.withMiddleware(httpx.ErrorLogger(middleware.ErrorLogger(route.Handler())))
+			f := s.withMiddleware(httpx.ErrorLogger(route.Handler()))
 			r.Method(route.Method(), route.Path(), f)
 			r.Method(route.Method(), versionMatcher+route.Path(), f)
 		}
