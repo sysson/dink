@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sysson/dink/pkg/types"
+	"github.com/sysson/dink/core/types"
 )
 
 type Log struct {

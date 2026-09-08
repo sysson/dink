@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/sysson/dink/pkg/types"
+	"github.com/sysson/dink/core/types"
 	"github.com/sysson/syskit/pki"
 	"github.com/urfave/cli/v3"
 )

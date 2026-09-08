@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	registrytypes "github.com/moby/moby/api/types/registry"
-	"github.com/sysson/dink/pkg/types"
+	"github.com/sysson/dink/core/types"
 	"github.com/sysson/syskit/httpx"
 )
 

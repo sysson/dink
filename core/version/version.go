@@ -10,7 +10,7 @@ import (
 
 	"github.com/moby/moby/client/pkg/versions"
 	"github.com/sysson/dink/core/server/middleware"
-	"github.com/sysson/dink/pkg/types"
+	"github.com/sysson/dink/core/types"
 )
 
 var (

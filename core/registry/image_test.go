@@ -20,7 +20,7 @@ import (
 	"github.com/docker/oci/ociserver"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sysson/dink/core/identity"
-	"github.com/sysson/dink/pkg/types"
+	"github.com/sysson/dink/core/types"
 )
 
 const layerMediaType = "application/vnd.oci.image.layer.v1.tar+gzip"
@@ -328,7 +328,7 @@ func newTestRegistry(t *testing.T, mw ...func(http.Handler) http.Handler) *testR
 	return &testRegistry{store: store, url: strings.TrimPrefix(srv.URL, "http://")}
 }
 
-func newImageService(t *testing.T, internal *testRegistry) *ImageService {
+func newImageService(t *testing.T, internal *testRegistry) *RegistryService {
 	t.Helper()
 	client, err := NewClient(internal.url, ClientOptions{})
 	if err != nil {

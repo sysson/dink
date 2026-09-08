@@ -6,8 +6,8 @@ import (
 
 	"github.com/moby/moby/api/types/system"
 	"github.com/sysson/dink/core/registry"
+	"github.com/sysson/dink/core/types"
 	"github.com/sysson/dink/core/version"
-	"github.com/sysson/dink/pkg/types"
 )
 
 func (d *Docker) SystemInfo() {

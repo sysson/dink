@@ -22,8 +22,8 @@ import (
 	"github.com/sysson/dink/core/server"
 	"github.com/sysson/dink/core/server/middleware"
 	"github.com/sysson/dink/core/translator"
+	"github.com/sysson/dink/core/trap"
 	"github.com/sysson/dink/core/version"
-	"github.com/sysson/dink/pkg/trap"
 	"github.com/sysson/syskit/logx"
 	"github.com/sysson/syskit/tlsconfig"
 	"github.com/urfave/cli/v3"
@@ -102,7 +102,7 @@ func newTLSConfig(cfg *config.Config) (*tls.Config, error) {
 	)
 }
 
-func newImageService(cfg *config.Config) *registry.ImageService {
+func newRegistryService(cfg *config.Config) *registry.RegistryService {
 	transport, err := newRegistryTransport(cfg)
 	if err != nil {
 		return registry.Unavailable(fmt.Errorf("registry transport for %q: %w", cfg.Registry.URL, err))
@@ -239,8 +239,8 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 		Ensurer:          translator,
 	}))
 	server.Use(auth.Middleware(authChain))
-	is := newImageService(c.cfg)
-	router := buildRouters(translator, is)
+	rs := newRegistryService(c.cfg)
+	router := buildRouters(translator, rs)
 	gs := grpc.NewServer()
 
 	proto := new(http.Protocols)
