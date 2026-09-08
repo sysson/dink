@@ -31,19 +31,27 @@ func newSourceRef(ref ociref.Reference) sourceRef {
 	return src
 }
 
-// String renders the reference the way docker echoes it back to the client.
+// String renders the reference the way docker echoes it back to the client:
+// the docker.io host is implied and its official images drop the "library/"
+// namespace, while any other host is spelled out.
 func (r sourceRef) String() string {
-	if r.Digest != "" {
-		return r.Repository + "@" + r.Digest.String()
+	repo := r.Repository
+	if r.Host == "" || r.Host == "docker.io" {
+		repo = strings.TrimPrefix(repo, "library/")
+	} else {
+		repo = r.Host + "/" + repo
 	}
-	return r.Repository + ":" + r.Tag
+	if r.Digest != "" {
+		return repo + "@" + r.Digest.String()
+	}
+	return repo + ":" + r.Tag
 }
 
 // progressID is the identifier docker clients display for the pull as a
 // whole, as opposed to for an individual layer.
 func (r sourceRef) progressID() string {
 	if r.Digest != "" {
-		return ShortDigest(r.Digest)
+		return shortDigest(r.Digest)
 	}
 	return r.Tag
 }
@@ -69,9 +77,9 @@ func repositoryHost(host string) string {
 	return strings.ReplaceAll(host, ":", "-")
 }
 
-// ShortDigest returns the truncated form of a digest suitable for display in
+// shortDigest returns the truncated form of a digest suitable for display in
 // progress output (e.g. "sha256:1a2b3c4d5e6f").
-func ShortDigest(digest oci.Digest) string {
+func shortDigest(digest oci.Digest) string {
 	const maxLen = 19
 	s := digest.String()
 	if len(s) <= maxLen {

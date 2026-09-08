@@ -59,6 +59,11 @@ spec:
             privileged: false
             capabilities:
               drop: ["ALL"]
+          env:
+            # Keep the Go heap well inside the cgroup limit; the rest of the
+            # limit is taken up by page cache from blob writes.
+            - name: GOMEMLIMIT
+              value: 1500MiB
           livenessProbe:
             httpGet:
               path: /livez
@@ -66,6 +71,8 @@ spec:
               scheme: HTTP
             initialDelaySeconds: 3
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
           readinessProbe:
             httpGet:
               path: /readyz
@@ -73,13 +80,17 @@ spec:
               scheme: HTTP
             initialDelaySeconds: 3
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
           resources:
             requests:
-              cpu: 100m
-              memory: 128Mi
+              cpu: 250m
+              memory: 256Mi
             limits:
-              cpu: 200m
-              memory: 512Mi
+              # A pull streams several layer blobs at once, so ingest is both
+              # CPU bound (TLS and digest verification) and page-cache heavy.
+              cpu: "2"
+              memory: 2Gi
           volumeMounts:
             - name: data
               mountPath: /var/lib/dinki
