@@ -60,7 +60,10 @@ func (is *ImageService) PullImage(ctx context.Context, ref ociref.Reference, opt
 		return nil
 	}
 
-	source, err := NewClient(src.Host, ClientOptions{Auth: options.Auth})
+	source, err := NewClient(src.Host, ClientOptions{
+		Auth:      options.Auth,
+		Transport: RegistryTransport(nil, options.MetaHeaders),
+	})
 	if err != nil {
 		return err
 	}

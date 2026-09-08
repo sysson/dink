@@ -20,10 +20,11 @@ type PullOptions struct {
 
 // RegistryAuth holds registry credentials supplied by a Docker-compatible API client.
 type RegistryAuth struct {
-	Username     string `json:"username,omitempty"`
-	Password     string `json:"password,omitempty"`
-	RefreshToken string `json:"identitytoken,omitempty"`
-	AccessToken  string `json:"registrytoken,omitempty"`
+	Username      string `json:"username,omitempty"`
+	Password      string `json:"password,omitempty"`
+	RefreshToken  string `json:"identitytoken,omitempty"`
+	AccessToken   string `json:"registrytoken,omitempty"`
+	ServerAddress string `json:"serveraddress,omitempty"`
 }
 
 // DecodeRegistryAuthHeader decodes the base64url-encoded JSON value from X-Registry-Auth.
@@ -33,6 +34,8 @@ func DecodeRegistryAuthHeader(authEncoded string) (*RegistryAuth, error) {
 	}
 
 	decoded, err := base64.URLEncoding.DecodeString(authEncoded)
+	println(authEncoded)
+	println(string(decoded))
 	if err != nil {
 		return &RegistryAuth{}, fmt.Errorf("invalid X-Registry-Auth header: must be a valid base64url-encoded string")
 	}

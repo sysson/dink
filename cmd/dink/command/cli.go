@@ -139,11 +139,11 @@ func newRegistryTransport(cfg *config.Config) (http.RoundTripper, error) {
 		return nil, fmt.Errorf("no certificates found in %s", caFile)
 	}
 
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{
+	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 		RootCAs:    roots,
 	}
+	transport := registry.RegistryTransport(tlsConfig, nil)
 	return transport, nil
 }
 

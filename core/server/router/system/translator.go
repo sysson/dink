@@ -1,6 +1,11 @@
 package system
 
-import "github.com/moby/moby/api/types/system"
+import (
+	"context"
+
+	"github.com/moby/moby/api/types/system"
+	"github.com/sysson/dink/pkg/types"
+)
 
 type Translator interface {
 	SystemInfo()
@@ -8,7 +13,7 @@ type Translator interface {
 	SystemDiskUsage()
 	SubscribeToEvents()
 	UnsubscribeFromEvents()
-	AuthenticateToRegistry()
+	AuthenticateToRegistry(ctx context.Context, auth types.RegistryAuth) (string, error)
 }
 
 type ClusterTranslator interface {

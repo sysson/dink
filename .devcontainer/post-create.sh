@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-sudo install -d -o vscode -g vscode /go/pkg/mod /go/pkg/sumdb /home/vscode/.cache/go-build /home/vscode/.config/dink
+sudo install -d -o vscode -g vscode /go/pkg/mod /go/pkg/sumdb /home/vscode/.cache /home/vscode/.config/dink
 
 sudo apt-get update -y
 sudo apt-get install -y --no-install-recommends ca-certificates curl

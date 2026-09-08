@@ -1,12 +1,15 @@
 package registry
 
 import (
+	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/containerd/platforms"
 	"github.com/docker/oci"
@@ -15,6 +18,48 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sysson/dink/pkg/types"
 )
+
+// Authenticate verifies auth against host by using it to make a request,
+// letting [ociauth.NewStdTransport] negotiate whatever Basic or Bearer
+// challenge the registry responds with (the same transport pulls use). It
+// does not persist anything: the docker client that sent auth owns the
+// credentials and resends them via X-Registry-Auth on later requests.
+func Authenticate(ctx context.Context, auth types.RegistryAuth) (string, error) {
+	host, insecure, err := registryHost(auth.ServerAddress)
+	if err != nil {
+		return "", err
+	}
+	cfg, err := ociauth.Load(nil)
+	if err != nil {
+		return "", err
+	}
+	transport := ociauth.NewStdTransport(ociauth.StdTransportParams{
+		Config:    authConfigSource{host: host, auth: &auth, fallback: cfg},
+		Transport: RegistryTransport(nil, nil),
+	})
+
+	scheme := "https"
+	if insecure {
+		scheme = "http"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scheme+"://"+host+"/v2/", nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := transport.RoundTrip(req)
+	if err != nil {
+		return "", fmt.Errorf("contacting registry %s: %w", host, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return "", fmt.Errorf("registry %s rejected the supplied credentials", host)
+	}
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("registry %s returned %s", host, resp.Status)
+	}
+	return "", nil
+}
 
 type ImageService struct {
 	// internal is the client for dink's own registry. Its credentials are
@@ -48,6 +93,41 @@ func (s *ImageService) client() (oci.Interface, error) {
 	return s.internal, nil
 }
 
+func RegistryTransport(cfg *tls.Config, headers map[string][]string) http.RoundTripper {
+	direct := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+
+	base := &http.Transport{
+		Proxy:               http.ProxyFromEnvironment,
+		DialContext:         direct.DialContext,
+		TLSHandshakeTimeout: 10 * time.Second,
+		TLSClientConfig:     cfg,
+		IdleConnTimeout:     30 * time.Second,
+	}
+	if headers == nil {
+		headers = map[string][]string{}
+	}
+	headers["User-Agent"] = []string{"dink"}
+	return &registryRoundTripper{
+		base:    base,
+		headers: headers,
+	}
+}
+
+type registryRoundTripper struct {
+	base    http.RoundTripper
+	headers map[string][]string
+}
+
+func (h *registryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	for k, v := range h.headers {
+		req.Header[k] = v
+	}
+	return h.base.RoundTrip(req)
+}
+
 // ClientOptions configures an OCI registry client.
 type ClientOptions struct {
 	Auth      *types.RegistryAuth
@@ -77,18 +157,15 @@ func NewClient(host string, opts ClientOptions) (oci.Interface, error) {
 }
 
 func registryHost(value string) (string, bool, error) {
+	if value == "" {
+		return "docker.io", false, nil
+	}
 	if !strings.Contains(value, "://") {
 		return value, isLoopback(value), nil
 	}
 	u, err := url.Parse(value)
 	if err != nil {
 		return "", false, err
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", false, fmt.Errorf("unsupported registry scheme %q", u.Scheme)
-	}
-	if u.Host == "" || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
-		return "", false, fmt.Errorf("registry URL must be %s://host:port", u.Scheme)
 	}
 	return u.Host, u.Scheme == "http", nil
 }

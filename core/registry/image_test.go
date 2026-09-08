@@ -263,6 +263,18 @@ func TestNewDoesNotContactRegistry(t *testing.T) {
 	}
 }
 
+func TestNewClientDefaultsBlankHostToDockerHub(t *testing.T) {
+	if _, err := NewClient("", ClientOptions{}); err != nil {
+		t.Fatalf("client: %v", err)
+	}
+}
+
+func TestNewClientAcceptsRegistryURLWithPath(t *testing.T) {
+	if _, err := NewClient("https://index.docker.io/v1/", ClientOptions{}); err != nil {
+		t.Fatalf("client: %v", err)
+	}
+}
+
 // Endpoints that never touch the internal registry must keep working without
 // one, so a missing URL is only reported to the endpoints that need it.
 func TestMissingRegistryURLIsReportedOnUse(t *testing.T) {
