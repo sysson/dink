@@ -8,7 +8,6 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httplog/v3"
-	"github.com/sysson/syskit/httpx"
 	"github.com/sysson/syskit/logx"
 )
 
@@ -60,15 +59,5 @@ func Logging(ctx context.Context, out io.Writer, level string) Middleware {
 				next.ServeHTTP(w, r.WithContext(logx.WithLogger(r.Context(), logx.G(ctx).With("request.id", middleware.GetReqID(r.Context())))))
 			})).ServeHTTP(w, r)
 		})
-	}
-}
-
-func ErrorLogger(next httpx.HTTPErrorFunc) httpx.HTTPErrorFunc {
-	return func(w http.ResponseWriter, r *http.Request) error {
-		err := next(w, r)
-		if err != nil {
-			logx.G(r.Context()).WithError(err).Error("request failed")
-		}
-		return err
 	}
 }

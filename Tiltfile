@@ -20,7 +20,7 @@ local_resource(
 custom_build(
     DINK,
     'make load REF=$EXPECTED_REF TARGET=dink',
-    deps=['Dockerfile', 'cmd/dink', 'dink', 'pkg', 'sdk', 'go.mod', 'go.sum'],
+    deps=['Dockerfile', 'cmd/dink', 'core', 'pkg', 'sdk', 'go.mod', 'go.sum'],
     skips_local_docker=True,
 )
 
