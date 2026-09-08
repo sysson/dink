@@ -4,18 +4,16 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
-	"runtime"
 	"strings"
 	"time"
 
-	"github.com/containerd/platforms"
 	"github.com/docker/oci"
 	"github.com/docker/oci/ociauth"
 	"github.com/docker/oci/ociclient"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sysson/dink/core/types"
 )
 
@@ -122,9 +120,7 @@ type registryRoundTripper struct {
 }
 
 func (h *registryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	for k, v := range h.headers {
-		req.Header[k] = v
-	}
+	maps.Copy(req.Header, h.headers)
 	return h.base.RoundTrip(req)
 }
 
@@ -207,32 +203,4 @@ func (s authConfigSource) EntryForRegistry(host string) (ociauth.ConfigEntry, er
 		return s.fallback.EntryForRegistry(host)
 	}
 	return ociauth.ConfigEntry{}, nil
-}
-
-// platformMatcher returns a matcher for the first requested platform, or nil
-// to use the runtime default.
-func platformMatcher(pls []ocispec.Platform) platforms.MatchComparer {
-	if len(pls) == 0 {
-		return nil
-	}
-	return platforms.Only(pls[0])
-}
-
-// ociPlatformToSpec converts an oci.Platform to the OCI image-spec platform
-// used by platform matchers.
-func ociPlatformToSpec(p oci.Platform) ocispec.Platform {
-	return ocispec.Platform{
-		Architecture: p.Architecture,
-		OS:           p.OS,
-		OSVersion:    p.OSVersion,
-		OSFeatures:   p.OSFeatures,
-		Variant:      p.Variant,
-	}
-}
-
-func matcherString(m platforms.MatchComparer) string {
-	if m == nil {
-		return runtime.GOOS + "/" + runtime.GOARCH
-	}
-	return fmt.Sprintf("%v", m)
 }

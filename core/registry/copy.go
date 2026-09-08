@@ -3,15 +3,19 @@ package registry
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/containerd/platforms"
 	"github.com/docker/oci"
 	"github.com/sysson/syskit/stream"
 )
+
+// maxConcurrentLayers bounds how many layer blobs of a single image are
+// transferred at the same time.
+const maxConcurrentLayers = 3
 
 // Copier copies images (manifests, blobs and tags) from a source registry
 // to a destination registry. The source and destination may be any
@@ -56,14 +60,6 @@ type repoPair struct {
 	DstRepo string
 }
 
-// manifestCopy is a single manifest to copy, along with the tags to apply to
-// it in the destination repository.
-type manifestCopy struct {
-	desc     oci.Descriptor
-	contents []byte
-	tags     []string
-}
-
 // blobCopy is a single blob to copy.
 type blobCopy struct {
 	desc oci.Descriptor
@@ -74,128 +70,135 @@ type blobCopy struct {
 	report bool
 }
 
+// CopyResult reports the outcome of an image copy.
+type CopyResult struct {
+	// Digest is the digest the source reference resolved to, which for a
+	// multi-platform image is the digest of the index rather than of the
+	// platform manifest the copy was flattened onto.
+	Digest oci.Digest
+	// Cached is true when the destination already resolved the reference and
+	// nothing was transferred.
+	Cached bool
+}
+
 // CopyImage copies the image named by req from the source registry to the
-// destination registry, and returns the digest of the copied root manifest.
+// destination registry.
 //
 // A copy by tag is flattened onto a single platform, since a tag can only
 // name one image. A copy by digest is copied verbatim, so that the requested
 // digest resolves in the destination.
-func (c *Copier) CopyImage(ctx context.Context, req CopyRequest) (digest oci.Digest, err error) {
-	var (
-		manifest oci.BlobReader
-		tags     = req.DstTags
-	)
-	if req.SrcDigest != "" {
-		manifest, err = c.Src.GetManifest(ctx, req.SrcRepo, req.SrcDigest)
-	} else {
-		srcTag := req.SrcTag
-		if srcTag == "" {
-			srcTag = "latest"
-		}
-		if len(tags) == 0 {
-			tags = []string{srcTag}
-		}
-		manifest, err = c.Src.GetTag(ctx, req.SrcRepo, srcTag)
-	}
+func (c *Copier) CopyImage(ctx context.Context, req CopyRequest) (CopyResult, error) {
+	// The source reference is resolved even when the destination may already
+	// hold the image, since a tag can be moved to a different image at any
+	// time and the digest it currently names is part of the result.
+	root, tags, err := c.resolveManifest(ctx, req)
 	if err != nil {
-		return "", err
-	}
-	defer func() {
-		if closeErr := manifest.Close(); closeErr != nil {
-			err = errors.Join(err, closeErr)
-		}
-	}()
-	desc := manifest.Descriptor()
-	contents, err := io.ReadAll(manifest)
-	if err != nil {
-		return "", err
+		return CopyResult{}, err
 	}
 
-	return desc.Digest, c.copyManifest(ctx, req.repoPair, manifestCopy{desc: desc, contents: contents, tags: tags})
+	cached, err := c.alreadyCopied(ctx, req.repoPair, root, tags)
+	if err != nil {
+		return CopyResult{}, err
+	}
+	if !cached {
+		if err := c.copyManifest(ctx, req.repoPair, root, tags); err != nil {
+			return CopyResult{}, err
+		}
+	}
+	return CopyResult{Digest: root.desc.Digest, Cached: cached}, nil
 }
 
-// copyManifest recursively copies the given manifest, its child manifests,
-// config and blobs.
-func (c *Copier) copyManifest(ctx context.Context, repos repoPair, m manifestCopy) error {
-	var manifest oci.IndexOrManifest
-	if err := json.Unmarshal(m.contents, &manifest); err != nil {
-		return fmt.Errorf("decode manifest %s: %w", m.desc.Digest, err)
-	}
-
-	isIndex := len(manifest.Manifests) > 0
-	children := childManifests{{descriptor: m.desc, tags: m.tags}}
-	switch {
-	case isIndex && len(m.tags) > 0:
-		selected, err := selectManifest(c.Platform, manifest.Manifests)
+// alreadyCopied reports whether the destination already resolves the copy.
+// Because a tagged index is flattened, what the destination tags must name is
+// the manifest selected for the platform, not the index itself.
+func (c *Copier) alreadyCopied(ctx context.Context, repos repoPair, root fetchedManifest, tags []string) (bool, error) {
+	want := root.desc.Digest
+	if root.isIndex() && len(tags) > 0 {
+		selected, err := selectManifest(c.Platform, root.manifests)
 		if err != nil {
-			return err
+			return false, err
 		}
-		children = childManifestsForPlatform(manifest.Manifests, selected, m.tags)
-	case isIndex:
-		children = allChildManifests(manifest.Manifests)
+		want = selected.Digest
 	}
 
-	for _, child := range children {
-		if child.descriptor.Digest == m.desc.Digest {
-			continue
+	// An untagged copy is addressed by digest alone.
+	if len(tags) == 0 {
+		return contentExists(c.Dst.GetManifest(ctx, repos.DstRepo, want))
+	}
+	for _, tag := range tags {
+		manifest, err := c.Dst.GetTag(ctx, repos.DstRepo, tag)
+		if isNotFound(err) {
+			return false, nil
 		}
-		childReader, err := c.Src.GetManifest(ctx, repos.SrcRepo, child.descriptor.Digest)
 		if err != nil {
-			return fmt.Errorf("get child manifest %s: %w", child.descriptor.Digest, err)
+			return false, err
 		}
-		childDesc := childReader.Descriptor()
-		childContents, err := io.ReadAll(childReader)
-		closeErr := childReader.Close()
-		if err != nil {
-			return fmt.Errorf("read child manifest %s: %w", child.descriptor.Digest, err)
+		digest := manifest.Descriptor().Digest
+		if err := manifest.Close(); err != nil {
+			return false, err
 		}
-		if closeErr != nil {
-			return fmt.Errorf("close child manifest %s: %w", child.descriptor.Digest, closeErr)
-		}
-		childCopy := manifestCopy{desc: childDesc, contents: childContents, tags: child.tags}
-		if err := c.copyManifest(ctx, repos, childCopy); err != nil {
-			return err
+		if digest != want {
+			return false, nil
 		}
 	}
-	// A tagged index is flattened: the selected child carries the tag, so the
-	// index itself is dropped. An untagged index is preserved in full, since
-	// dropping platforms would change its bytes and so its digest.
-	if isIndex && len(m.tags) > 0 {
-		return nil
+	return true, nil
+}
+
+// copyLayers copies the layer blobs of a manifest, transferring up to
+// maxConcurrentLayers of them at a time. The first failure cancels the
+// transfers still in flight and is returned once they have stopped.
+func (c *Copier) copyLayers(ctx context.Context, repos repoPair, layers []oci.Descriptor) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var (
+		wg    sync.WaitGroup
+		slots = make(chan struct{}, maxConcurrentLayers)
+		errs  = make(chan error, len(layers))
+	)
+
+	stopAndReturn := func() error {
+		wg.Wait()
+		close(errs)
+		if err := <-errs; err != nil {
+			return err
+		}
+		return ctx.Err()
 	}
 
-	if manifest.Config != nil {
-		config := blobCopy{desc: *manifest.Config, completeStatus: "Download complete", report: false}
-		if err := c.copyBlob(ctx, repos, config); err != nil {
-			return err
+	for _, layer := range layers {
+		select {
+		case slots <- struct{}{}:
+		case <-ctx.Done():
+			// stop scheduling new work
+			return stopAndReturn()
 		}
-	}
-	for _, layer := range manifest.Layers {
-		if err := c.copyBlob(ctx, repos, blobCopy{desc: layer, completeStatus: c.completeStatus(), report: true}); err != nil {
-			return err
-		}
-	}
 
-	if _, err := c.Dst.PushManifest(ctx, repos.DstRepo, m.contents, m.desc.MediaType, &oci.PushManifestParameters{
-		Digest: m.desc.Digest,
-		Tags:   m.tags,
-	}); err != nil {
-		return fmt.Errorf("push manifest %s: %w", m.desc.Digest, err)
+		wg.Go(func() {
+			defer func() { <-slots }()
+
+			b := blobCopy{desc: layer, completeStatus: c.completeStatus(), report: true}
+			if err := c.copyBlob(ctx, repos, b); err != nil {
+				errs <- err
+				cancel()
+			}
+		})
 	}
-	return nil
+	return stopAndReturn()
 }
 
 // copyBlob copies a single blob from source to destination, reporting
 // progress for the transfer. Blob data is streamed directly from the source
 // to the destination; it is never buffered in memory.
 func (c *Copier) copyBlob(ctx context.Context, repos repoPair, b blobCopy) (err error) {
-	id := ShortDigest(b.desc.Digest)
+	id := shortDigest(b.desc.Digest)
+	progress := c.progress()
 
-	if cached, err := c.blobExists(ctx, repos.DstRepo, b.desc.Digest); err != nil {
+	if cached, err := contentExists(c.Dst.GetBlob(ctx, repos.DstRepo, b.desc.Digest)); err != nil {
 		return err
 	} else if cached {
 		if b.report {
-			stream.Update(c.progress(), id, "Already exists")
+			stream.Update(progress, id, "Already exists")
 		}
 		return nil
 	}
@@ -204,7 +207,7 @@ func (c *Copier) copyBlob(ctx context.Context, repos repoPair, b blobCopy) (err 
 	if len(b.desc.Data) > 0 {
 		_, err := c.Dst.PushBlob(ctx, repos.DstRepo, b.desc, bytes.NewReader(b.desc.Data))
 		if err == nil && b.report {
-			stream.Update(c.progress(), id, b.completeStatus)
+			stream.Update(progress, id, b.completeStatus)
 		}
 		return err
 	}
@@ -221,7 +224,7 @@ func (c *Copier) copyBlob(ctx context.Context, repos repoPair, b blobCopy) (err 
 
 	var reader io.Reader = blob
 	if b.report {
-		pr := stream.NewProgressReader(blob, c.progress(), b.desc.Size, id, "Downloading")
+		pr := stream.NewProgressReader(blob, progress, b.desc.Size, id, "Downloading")
 		defer func() { _ = pr.Close() }()
 		reader = pr
 	}
@@ -229,22 +232,30 @@ func (c *Copier) copyBlob(ctx context.Context, repos repoPair, b blobCopy) (err 
 		return fmt.Errorf("push blob %s: %w", b.desc.Digest, err)
 	}
 	if b.report {
-		stream.Update(c.progress(), id, b.completeStatus)
+		stream.Update(progress, id, b.completeStatus)
 	}
 	return nil
 }
 
-// blobExists reports whether a blob with the given digest is already present
-// in the destination repository.
-func (c *Copier) blobExists(ctx context.Context, repo string, digest oci.Digest) (bool, error) {
-	blob, err := c.Dst.GetBlob(ctx, repo, digest)
+// contentExists reports whether a fetch found the content, treating a
+// registry "not found" as a negative answer rather than an error. It takes
+// the results of a get so that it can be called on one directly.
+func contentExists(content oci.BlobReader, err error) (bool, error) {
 	if err == nil {
-		return true, blob.Close()
+		return true, content.Close()
 	}
-	if errors.Is(err, oci.ErrNameUnknown) || errors.Is(err, oci.ErrBlobUnknown) {
+	if isNotFound(err) {
 		return false, nil
 	}
 	return false, err
+}
+
+// isNotFound reports whether err says the registry does not hold the
+// requested repository, manifest or blob.
+func isNotFound(err error) bool {
+	return errors.Is(err, oci.ErrNameUnknown) ||
+		errors.Is(err, oci.ErrManifestUnknown) ||
+		errors.Is(err, oci.ErrBlobUnknown)
 }
 
 func (c *Copier) progress() stream.ProgressWriter {
