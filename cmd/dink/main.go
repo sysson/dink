@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sysson/dink/dink/command"
+	"github.com/sysson/dink/cmd/dink/command"
 )
 
 func main() {
