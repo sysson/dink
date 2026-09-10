@@ -7,14 +7,13 @@ require (
 	github.com/containerd/platforms v1.0.0-rc.5
 	github.com/docker/oci v0.0.23
 	github.com/go-chi/chi/v5 v5.3.2
-	github.com/go-chi/httplog/v3 v3.4.0
+	github.com/go-chi/httplog/v3 v3.5.0
 	github.com/moby/moby/api v1.56.0
 	github.com/moby/moby/client v0.6.0
 	github.com/moby/moby/v2 v2.0.0-beta.23
 	github.com/opencontainers/image-spec v1.1.1
-	github.com/sysson/syskit v1.3.1
+	github.com/sysson/syskit v1.4.1
 	github.com/urfave/cli/v3 v3.11.0
-	golang.org/x/net v0.59.0
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
 	k8s.io/api v0.37.0
@@ -58,6 +57,7 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
+	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/term v0.46.0 // indirect

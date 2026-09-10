@@ -12,7 +12,7 @@ import (
 
 func (r *RegistryService) ImageDelete()       {}
 func (r *RegistryService) ImageHistory()      {}
-func (r *RegistryService) Images()            {}
+
 func (r *RegistryService) GetImage()          {}
 func (r *RegistryService) ImageInspect()      {}
 func (r *RegistryService) ImageAttestations() {}
@@ -28,7 +28,7 @@ func (r *RegistryService) Search()            {}
 // the internal registry, namespaced by the identity present in ctx, and
 // streams progress to options.OutStream in the JSON stream format understood
 // by docker clients.
-func (r *RegistryService) PullImage(ctx context.Context, ref ociref.Reference, options types.PullOptions) error {
+func (r *RegistryService) PullImage(ctx context.Context, ref ociref.Reference, options types.ImagePullOptions) error {
 	src := newSourceRef(ref)
 
 	progressChan := make(chan stream.Progress, 100)
@@ -48,7 +48,7 @@ func (r *RegistryService) PullImage(ctx context.Context, ref ociref.Reference, o
 	return err
 }
 
-func (r *RegistryService) pullImage(ctx context.Context, src sourceRef, options types.PullOptions, out stream.ProgressWriter) error {
+func (r *RegistryService) pullImage(ctx context.Context, src sourceRef, options types.ImagePullOptions, out stream.ProgressWriter) error {
 	id, ok := identity.FromContext(ctx)
 	if !ok {
 		return fmt.Errorf("missing identity in context")

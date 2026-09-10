@@ -15,11 +15,7 @@ type Middleware func(next http.Handler) http.Handler
 
 func RequestID() Middleware {
 	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			middleware.RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				next.ServeHTTP(w, r)
-			})).ServeHTTP(w, r)
-		})
+		return middleware.RequestID(next)
 	}
 }
 
@@ -54,10 +50,11 @@ func Logging(ctx context.Context, out io.Writer, level string) Middleware {
 		},
 	})
 	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			requestLogger(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				next.ServeHTTP(w, r.WithContext(logx.WithLogger(r.Context(), logx.G(ctx).With("request.id", middleware.GetReqID(r.Context())))))
-			})).ServeHTTP(w, r)
+		wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			logger := logx.G(r.Context()).With("request.id", middleware.GetReqID(r.Context()))
+			r = r.WithContext(logx.WithLogger(r.Context(), logger))
+			next.ServeHTTP(w, r)
 		})
+		return requestLogger(wrapped)
 	}
 }

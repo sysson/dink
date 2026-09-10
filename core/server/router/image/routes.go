@@ -3,6 +3,7 @@ package image
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/containerd/platforms"
@@ -19,9 +20,46 @@ import (
 )
 
 func (ir *imageRouter) getImagesJSON(w http.ResponseWriter, r *http.Request) error {
-	return nil
-}
+	imageFilters, err := types.FromJSON(r.URL.Query().Get("filters"))
+	if err != nil {
+		return httpx.BadRequest(err)
+	}
+	version := version.FromContext(r.Context())
+	var sharedSize bool
+	if versions.GreaterThanOrEqualTo(version, "1.42") {
+		sharedSize, err = strconv.ParseBool(r.URL.Query().Get("shared-size"))
+		if err != nil {
+			sharedSize = false
+		}
+	}
 
+	var manifests bool
+	if versions.GreaterThanOrEqualTo(version, "1.47") {
+		manifests, err = strconv.ParseBool(r.URL.Query().Get("manifests"))
+		if err != nil {
+			manifests = false
+		}
+	}
+
+	var idenity bool
+	if versions.GreaterThanOrEqualTo(version, "1.54") {
+		idenity, err = strconv.ParseBool(r.URL.Query().Get("idenity"))
+		if err != nil {
+			idenity = false
+		}
+	}
+
+	images, err := ir.translator.Images(r.Context(), types.ImageListOptions{
+		Filters:    imageFilters,
+		SharedSize: sharedSize,
+		Manifests:  manifests,
+		Identity:   idenity,
+	})
+	if err != nil {
+		return err
+	}
+	return httpx.WriteJSON(w, 200, images)
+}
 func (ir *imageRouter) getImagesSearch(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
@@ -48,12 +86,13 @@ func (ir *imageRouter) postImagesLoad(w http.ResponseWriter, r *http.Request) er
 
 func (ir *imageRouter) postImagesCreate(w http.ResponseWriter, r *http.Request) error {
 	var (
+		rw          = iox.NewResponseWrapper(w)
 		img         = r.URL.Query().Get("fromImage")
 		tag         = r.URL.Query().Get("tag")
 		repo        = r.URL.Query().Get("repo")
 		_           = r.URL.Query().Get("message")
 		progressErr error
-		output      = iox.NewWriteFlusher(w)
+		output      = iox.NewWriteFlusher(rw)
 		platform    *ocispec.Platform
 	)
 	defer func() {
@@ -98,7 +137,7 @@ func (ir *imageRouter) postImagesCreate(w http.ResponseWriter, r *http.Request) 
 			return httpx.BadRequest(err)
 		}
 		authConfig, _ := types.DecodeRegistryAuthHeader(r.Header.Get(registry.AuthHeader))
-		pullOptions := types.PullOptions{
+		pullOptions := types.ImagePullOptions{
 			Auth:        authConfig,
 			MetaHeaders: metaHeaders,
 			OutStream:   output,
@@ -110,8 +149,9 @@ func (ir *imageRouter) postImagesCreate(w http.ResponseWriter, r *http.Request) 
 	} else {
 		return httpx.BadRequest(errors.New("fromImage parameter is required"))
 	}
+
 	if progressErr != nil {
-		if output.HasWritten() {
+		if rw.StatusCode() != 0 {
 			_, _ = output.Write(stream.FormatError(progressErr))
 		} else {
 			return progressErr

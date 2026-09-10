@@ -52,7 +52,7 @@ func TestPullImageCopiesIntoNamespacedRepository(t *testing.T) {
 	out := &bytes.Buffer{}
 	is := newImageService(t, internal)
 	ref := mustRef(t, source.url+"/library/nginx:latest")
-	if err := is.PullImage(pullContext("dev"), ref, types.PullOptions{OutStream: out}); err != nil {
+	if err := is.PullImage(pullContext("dev"), ref, types.ImagePullOptions{OutStream: out}); err != nil {
 		t.Fatalf("PullImage: %v", err)
 	}
 
@@ -90,7 +90,7 @@ func TestPullImageRewritesTagFromRequestedRef(t *testing.T) {
 	out := &bytes.Buffer{}
 	is := newImageService(t, internal)
 	ref := mustRef(t, source.url+"/acme/api:v1.2.3")
-	if err := is.PullImage(pullContext("tenant-a"), ref, types.PullOptions{OutStream: out}); err != nil {
+	if err := is.PullImage(pullContext("tenant-a"), ref, types.ImagePullOptions{OutStream: out}); err != nil {
 		t.Fatalf("PullImage: %v", err)
 	}
 
@@ -118,7 +118,7 @@ func TestPullImageSelectsRequestedPlatformFromIndex(t *testing.T) {
 
 	out := &bytes.Buffer{}
 	is := newImageService(t, internal)
-	err := is.PullImage(pullContext("dev"), mustRef(t, source.url+"/"+srcRepo+":latest"), types.PullOptions{
+	err := is.PullImage(pullContext("dev"), mustRef(t, source.url+"/"+srcRepo+":latest"), types.ImagePullOptions{
 		OutStream: out,
 		Platforms: []ocispec.Platform{{OS: "linux", Architecture: "arm64"}},
 	})
@@ -155,7 +155,7 @@ func TestPullImageReportsTheIndexDigestForATaggedIndex(t *testing.T) {
 	is := newImageService(t, internal)
 	ctx := pullContext("dev")
 	ref := mustRef(t, source.url+"/"+srcRepo+":latest")
-	opts := types.PullOptions{Platforms: []ocispec.Platform{{OS: "linux", Architecture: "arm64"}}}
+	opts := types.ImagePullOptions{Platforms: []ocispec.Platform{{OS: "linux", Architecture: "arm64"}}}
 
 	first := &bytes.Buffer{}
 	opts.OutStream = first
@@ -191,7 +191,7 @@ func TestPullImageSkipsCopyWhenTagAlreadyPresent(t *testing.T) {
 	is := newImageService(t, internal)
 	ctx := pullContext("dev")
 	ref := mustRef(t, source.url+"/library/nginx:latest")
-	if err := is.PullImage(ctx, ref, types.PullOptions{OutStream: &bytes.Buffer{}}); err != nil {
+	if err := is.PullImage(ctx, ref, types.ImagePullOptions{OutStream: &bytes.Buffer{}}); err != nil {
 		t.Fatalf("PullImage: %v", err)
 	}
 	afterFirst := blobs.Load()
@@ -200,7 +200,7 @@ func TestPullImageSkipsCopyWhenTagAlreadyPresent(t *testing.T) {
 	}
 
 	out := &bytes.Buffer{}
-	if err := is.PullImage(ctx, ref, types.PullOptions{OutStream: out}); err != nil {
+	if err := is.PullImage(ctx, ref, types.ImagePullOptions{OutStream: out}); err != nil {
 		t.Fatalf("PullImage: %v", err)
 	}
 	if extra := blobs.Load() - afterFirst; extra != 0 {
@@ -234,7 +234,7 @@ func TestPullImageFetchesTagMovedAtTheSource(t *testing.T) {
 	is := newImageService(t, internal)
 	ctx := pullContext("dev")
 	ref := mustRef(t, source.url+"/"+srcRepo+":latest")
-	if err := is.PullImage(ctx, ref, types.PullOptions{OutStream: &bytes.Buffer{}}); err != nil {
+	if err := is.PullImage(ctx, ref, types.ImagePullOptions{OutStream: &bytes.Buffer{}}); err != nil {
 		t.Fatalf("PullImage: %v", err)
 	}
 
@@ -246,7 +246,7 @@ func TestPullImageFetchesTagMovedAtTheSource(t *testing.T) {
 	})
 
 	out := &bytes.Buffer{}
-	if err := is.PullImage(ctx, ref, types.PullOptions{OutStream: out}); err != nil {
+	if err := is.PullImage(ctx, ref, types.ImagePullOptions{OutStream: out}); err != nil {
 		t.Fatalf("PullImage: %v", err)
 	}
 
@@ -273,7 +273,7 @@ func TestPullImageByDigest(t *testing.T) {
 	out := &bytes.Buffer{}
 	is := newImageService(t, internal)
 	ref := mustRef(t, source.url+"/library/nginx@"+manifest.Digest.String())
-	if err := is.PullImage(pullContext("dev"), ref, types.PullOptions{OutStream: out}); err != nil {
+	if err := is.PullImage(pullContext("dev"), ref, types.ImagePullOptions{OutStream: out}); err != nil {
 		t.Fatalf("PullImage: %v", err)
 	}
 
@@ -304,7 +304,7 @@ func TestPullImageByDigestPreservesIndex(t *testing.T) {
 	out := &bytes.Buffer{}
 	is := newImageService(t, internal)
 	ref := mustRef(t, source.url+"/"+srcRepo+"@"+index.Digest.String())
-	if err := is.PullImage(pullContext("dev"), ref, types.PullOptions{OutStream: out}); err != nil {
+	if err := is.PullImage(pullContext("dev"), ref, types.ImagePullOptions{OutStream: out}); err != nil {
 		t.Fatalf("PullImage: %v", err)
 	}
 
@@ -330,7 +330,7 @@ func TestPullImageSkipsCopyWhenDigestAlreadyPresent(t *testing.T) {
 	is := newImageService(t, internal)
 	ctx := pullContext("dev")
 	ref := mustRef(t, source.url+"/library/nginx@"+manifest.Digest.String())
-	if err := is.PullImage(ctx, ref, types.PullOptions{OutStream: &bytes.Buffer{}}); err != nil {
+	if err := is.PullImage(ctx, ref, types.ImagePullOptions{OutStream: &bytes.Buffer{}}); err != nil {
 		t.Fatalf("PullImage: %v", err)
 	}
 	afterFirst := blobs.Load()
@@ -338,7 +338,7 @@ func TestPullImageSkipsCopyWhenDigestAlreadyPresent(t *testing.T) {
 		t.Fatal("first pull never fetched a blob from the source registry")
 	}
 
-	if err := is.PullImage(ctx, ref, types.PullOptions{OutStream: &bytes.Buffer{}}); err != nil {
+	if err := is.PullImage(ctx, ref, types.ImagePullOptions{OutStream: &bytes.Buffer{}}); err != nil {
 		t.Fatalf("PullImage: %v", err)
 	}
 	if extra := blobs.Load() - afterFirst; extra != 0 {
@@ -361,7 +361,7 @@ func TestPullImageDownloadsLayersConcurrentlyUpToTheLimit(t *testing.T) {
 
 	is := newImageService(t, internal)
 	ref := mustRef(t, source.url+"/library/many:latest")
-	if err := is.PullImage(pullContext("dev"), ref, types.PullOptions{OutStream: &bytes.Buffer{}}); err != nil {
+	if err := is.PullImage(pullContext("dev"), ref, types.ImagePullOptions{OutStream: &bytes.Buffer{}}); err != nil {
 		t.Fatalf("PullImage: %v", err)
 	}
 
@@ -390,7 +390,7 @@ func TestPullImageReportsLayerFailure(t *testing.T) {
 
 	is := newImageService(t, internal)
 	ref := mustRef(t, source.url+"/library/broken:latest")
-	err := is.PullImage(pullContext("dev"), ref, types.PullOptions{OutStream: &bytes.Buffer{}})
+	err := is.PullImage(pullContext("dev"), ref, types.ImagePullOptions{OutStream: &bytes.Buffer{}})
 	if err == nil {
 		t.Fatal("expected a pull with an unreadable layer to fail")
 	}
@@ -405,7 +405,7 @@ func TestPullImageRequiresIdentity(t *testing.T) {
 	source := newTestRegistry(t)
 	is := newImageService(t, newTestRegistry(t))
 	ref := mustRef(t, source.url+"/library/nginx:latest")
-	err := is.PullImage(context.Background(), ref, types.PullOptions{OutStream: &bytes.Buffer{}})
+	err := is.PullImage(context.Background(), ref, types.ImagePullOptions{OutStream: &bytes.Buffer{}})
 	if err == nil {
 		t.Fatal("expected an error when the context carries no identity")
 	}
@@ -440,7 +440,7 @@ func TestMissingRegistryURLIsReportedOnUse(t *testing.T) {
 	}
 
 	ref := mustRef(t, newTestRegistry(t).url+"/library/nginx:latest")
-	err := is.PullImage(pullContext("dev"), ref, types.PullOptions{OutStream: &bytes.Buffer{}})
+	err := is.PullImage(pullContext("dev"), ref, types.ImagePullOptions{OutStream: &bytes.Buffer{}})
 	if err == nil {
 		t.Fatal("expected a pull without an internal registry to fail")
 	}

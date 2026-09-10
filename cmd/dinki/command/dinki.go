@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/httplog/v3"
 	"github.com/sysson/dink/cmd/dinki/registry"
 	"github.com/sysson/dink/core/trap"
+	"github.com/sysson/syskit/iox"
 	"github.com/sysson/syskit/logx"
 	"github.com/urfave/cli/v3"
 )
@@ -72,6 +73,15 @@ func run(ctx context.Context, cmd *cli.Command) (retErr error) {
 	mw := []func(http.Handler) http.Handler{
 		registry.RequestID(),
 		registry.Logging(ctx, cmd.ErrWriter, "info"),
+		func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/v2/_catalog" {
+					registry.Catalog(backend).ServeHTTP(w, r)
+					return
+				}
+				next.ServeHTTP(w, r)
+			})
+		},
 	}
 	reg, err := registry.New(backend, &ociserver.ServerConfig{
 		Logger:      slog.Default(),
@@ -131,7 +141,16 @@ func run(ctx context.Context, cmd *cli.Command) (retErr error) {
 	proto.SetHTTP2(true)
 	proto.SetUnencryptedHTTP2(true)
 	httpServer.Protocols = proto
-	httpServer.Handler = reg
+	mux := reg.Mux()
+
+	logged := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rw := iox.NewResponseWrapper(w)
+		fmt.Printf("[INCOMING] %s %s\n", r.Method, r.URL.String())
+		mux.ServeHTTP(rw, r)
+		fmt.Printf("[OUTGOING] %d\n", rw.StatusCode())
+	})
+	mux.Handle("/v2/_catalog", registry.Catalog(backend))
+	httpServer.Handler = logged
 	httpServer.Addr = net.JoinHostPort(defaultHost, defaultPort)
 	logx.G(ctx).Info("completed initialization;")
 

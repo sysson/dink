@@ -5,6 +5,7 @@ import (
 
 	"github.com/docker/oci/ociref"
 	"github.com/sysson/dink/core/types"
+	imagetypes "github.com/moby/moby/api/types/image"
 )
 
 type Translator interface {
@@ -16,7 +17,7 @@ type Translator interface {
 type imageTranslator interface {
 	ImageDelete()
 	ImageHistory()
-	Images()
+	Images(ctx context.Context, options types.ImageListOptions) ([]imagetypes.Summary, error)
 	GetImage()
 	ImageInspect()
 	ImageAttestations()
@@ -31,7 +32,7 @@ type importExportTranslator interface {
 }
 
 type registryTranslator interface {
-	PullImage(ctx context.Context, ref ociref.Reference, options types.PullOptions) error
+	PullImage(ctx context.Context, ref ociref.Reference, options types.ImagePullOptions) error
 	PushImage()
 }
 
