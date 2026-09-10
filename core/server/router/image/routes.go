@@ -145,7 +145,7 @@ func (ir *imageRouter) postImagesCreate(w http.ResponseWriter, r *http.Request) 
 		if platform != nil {
 			pullOptions.Platforms = append(pullOptions.Platforms, *platform)
 		}
-		progressErr = ir.translator.PullImage(r.Context(), ref, pullOptions)
+		progressErr = ir.translator.PullImage(r.Context(), types.Reference{Reference: ref}, pullOptions)
 	} else {
 		return httpx.BadRequest(errors.New("fromImage parameter is required"))
 	}

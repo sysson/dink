@@ -29,7 +29,7 @@ CTX_ENDPOINT := host=$(DINK_HOST),ca=$(DOCKER_CERT_DIR)/ca.pem,cert=$(DOCKER_CER
 # daemon, so anything touching minikube must bypass the dink context. 
 HOST_DOCKER := env -u DOCKER_HOST -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH DOCKER_CONTEXT=minikube
 
-.PHONY: all build test generate lint clean fix dev image image-minikube load ca-generate ca-generate-local ca-rotate server tenant bootstrap \
+.PHONY: all build test generate lint clean fix dev image image-minikube load ca-generate ca-generate-local ca-rotate server registry-server certificates tenant bootstrap \
 	context context-sync context-use context-default context-rm port-forward restart release show-image \
 	deploy undeploy logs docker-env start
 
@@ -75,7 +75,7 @@ load: image
 image-minikube:
 	$(HOST_DOCKER) $(MINI) -p $(MINIKUBE_PROFILE) image build -t $(REF) .
 
-## ca-generate: Create the CA/namespaces/server cert if they don't exist yet, and apply the CA + dink-tls Secrets
+## ca-generate: Create the CA and namespaces if they don't exist yet, and apply the CA Secret
 # Idempotent: reuses the cached (or cluster) CA and only (re)issues the server cert, so it's
 # safe to call on every devcontainer start or CI run.
 ca-generate:
@@ -94,6 +94,15 @@ ca-rotate:
 server:
 	$(GO) run $(DINKLE) --certsDir $(CERT_DIR) server issue --systemNamespace $(NAMESPACE)
 
+## registry-server: Issue the registry certificate and apply it as the dinki-tls Secret
+registry-server:
+	$(GO) run $(DINKLE) --certsDir $(CERT_DIR) server issue --systemNamespace $(NAMESPACE) --serviceName dinki --serverSecretName dinki-tls
+
+## certificates: Ensure the CA and both server TLS Secrets exist
+certificates: ca-generate
+	@$(KUBECTL) -n $(NAMESPACE) get secret dink-tls >/dev/null 2>&1 || $(MAKE) --no-print-directory server
+	@$(KUBECTL) -n $(NAMESPACE) get secret dinki-tls >/dev/null 2>&1 || $(MAKE) --no-print-directory registry-server
+
 ## tenant: Create the '$(TENANT)' tenant and refresh the local docker context for it
 tenant:
 	$(GO) run $(DINKLE) --certsDir $(CERT_DIR) tenant create $(TENANT)
@@ -104,12 +113,7 @@ tenant:
 # tenant are only created when they aren't there already.
 bootstrap:
 	@$(MAKE) --no-print-directory start
-	@$(MAKE) --no-print-directory ca-generate
-	@if [ -f "$(CERT_DIR)/tls.crt" ]; then \
-		echo "server certificate already present in $(CERT_DIR); skipping"; \
-	else \
-		$(MAKE) --no-print-directory server; \
-	fi
+	@$(MAKE) --no-print-directory certificates
 	@if $(KUBECTL) get namespace $(TENANT) >/dev/null 2>&1; then \
 		echo "tenant '$(TENANT)' already exists; refreshing docker context"; \
 		$(MAKE) --no-print-directory context-sync; \

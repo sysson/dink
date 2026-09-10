@@ -3,7 +3,6 @@ package translator
 import (
 	"context"
 
-	"github.com/docker/oci/ociref"
 	imagetypes "github.com/moby/moby/api/types/image"
 	"github.com/sysson/dink/core/types"
 )
@@ -24,6 +23,6 @@ func (r *Registry) ExportImage()       {}
 func (r *Registry) PushImage()         {}
 func (r *Registry) Search()            {}
 
-func (r *Registry) PullImage(ctx context.Context, ref ociref.Reference, options types.ImagePullOptions) error {
+func (r *Registry) PullImage(ctx context.Context, ref types.Reference, options types.ImagePullOptions) error {
 	return r.registry.PullImage(ctx, ref, options)
 }

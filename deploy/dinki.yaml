@@ -1,9 +1,9 @@
 ---
-# Optional internal OCI registry for the dink system namespace.
+# Internal OCI registry for the dink system namespace.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: dinki-data
+  name: dinki-distribution-data
   namespace: dink-system
   labels:
     app.kubernetes.io/name: dinki
@@ -44,14 +44,16 @@ spec:
           type: RuntimeDefault
       containers:
         - name: dinki
-          image: ghcr.io/sysson/dinki
+          image: registry:3
           imagePullPolicy: IfNotPresent
+          args:
+            - /etc/distribution/config.yml
           ports:
             - name: registry
               containerPort: 5000
               protocol: TCP
-            - name: health
-              containerPort: 8000
+            - name: debug
+              containerPort: 5001
               protocol: TCP
           securityContext:
             allowPrivilegeEscalation: false
@@ -59,15 +61,10 @@ spec:
             privileged: false
             capabilities:
               drop: ["ALL"]
-          env:
-            # Keep the Go heap well inside the cgroup limit; the rest of the
-            # limit is taken up by page cache from blob writes.
-            - name: GOMEMLIMIT
-              value: 1500MiB
           livenessProbe:
             httpGet:
-              path: /livez
-              port: health
+              path: /debug/health
+              port: debug
               scheme: HTTP
             initialDelaySeconds: 3
             periodSeconds: 10
@@ -75,8 +72,8 @@ spec:
             failureThreshold: 6
           readinessProbe:
             httpGet:
-              path: /readyz
-              port: health
+              path: /debug/health
+              port: debug
               scheme: HTTP
             initialDelaySeconds: 3
             periodSeconds: 10
@@ -93,16 +90,21 @@ spec:
               memory: 2Gi
           volumeMounts:
             - name: data
-              mountPath: /var/lib/dinki
-            - name: tls
-              mountPath: /etc/dinki/tls
+              mountPath: /var/lib/registry
+            - name: config
+              mountPath: /etc/distribution/config.yml
+              subPath: config.yml
               readOnly: true
-            - name: tmp
-              mountPath: /tmp
+            - name: tls
+              mountPath: /etc/distribution/tls
+              readOnly: true
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: dinki-data
+            claimName: dinki-distribution-data
+        - name: config
+          configMap:
+            name: dinki-config
         - name: tls
           secret:
             secretName: dinki-tls
@@ -112,8 +114,6 @@ spec:
                 path: tls.crt
               - key: tls.key
                 path: tls.key
-        - name: tmp
-          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -131,4 +131,3 @@ spec:
     - name: registry
       port: 5000
       targetPort: registry
-      protocol: TCP

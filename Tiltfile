@@ -7,12 +7,11 @@
 allow_k8s_contexts('dink-dev')
 
 DINK='ghcr.io/sysson/dink'
-DINKI='ghcr.io/sysson/dinki'
 
-# The Secret is a prerequisite for the Deployment: the pod blocks on mounting it.
+# The TLS Secrets are prerequisites for both Deployments.
 local_resource(
-    'ca-generate',
-    cmd='make ca-generate',
+    'certificates',
+    cmd='make certificates',
     deps=['pkg/certs', 'dinkle'],
     labels=['setup'],
 )
@@ -24,27 +23,22 @@ custom_build(
     skips_local_docker=True,
 )
 
-custom_build(
-    DINKI,
-    'make load REF=$EXPECTED_REF TARGET=dinki',
-    deps=['Dockerfile', 'cmd/dinki', 'dinki', 'pkg', 'sdk', 'go.mod', 'go.sum'],
-    skips_local_docker=True,
-)
-
 # configMapGenerator reads config.json, but kustomize() does not report it as a dep.
 watch_file('deploy/config.json')
+watch_file('deploy/registry-config.yml')
 
 k8s_yaml(kustomize('deploy'))
 
 k8s_resource(
     'dink',
     port_forwards='2376:2376',
-    resource_deps=['ca-generate'],
+    resource_deps=['certificates'],
     labels=['app'],
 )
 
 k8s_resource(
     'dinki',
     port_forwards='5000:5000',
+    resource_deps=['certificates'],
     labels=['registry'],
 )

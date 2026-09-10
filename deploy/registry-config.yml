@@ -1,0 +1,40 @@
+version: 0.1
+
+log:
+  level: info
+  formatter: json
+
+storage:
+  filesystem:
+    rootdirectory: /var/lib/registry
+  delete:
+    enabled: true
+  maintenance:
+    uploadpurging:
+      enabled: true
+      age: 168h
+      interval: 24h
+      dryrun: false
+
+http:
+  addr: :5000
+  tls:
+    certificate: /etc/distribution/tls/tls.crt
+    key: /etc/distribution/tls/tls.key
+  headers:
+    X-Content-Type-Options: [nosniff]
+  debug:
+    addr: :5001
+
+health:
+  storagedriver:
+    enabled: true
+    interval: 10s
+    threshold: 3
+
+validation:
+  manifests:
+    indexes:
+      # A pull by digest stores the index but only the requested platform's
+      # content, so children must not be required to exist.
+      platforms: none

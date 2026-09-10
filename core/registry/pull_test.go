@@ -68,7 +68,7 @@ func TestPullImageCopiesIntoNamespacedRepository(t *testing.T) {
 		t.Fatal("destination repository must not be written to the source registry")
 	}
 	want := []string{
-		"latest: Pulling from library/nginx",
+		source.url + "/library/nginx:latest: Pulling from library/nginx",
 		"Digest: " + manifest.Digest.String(),
 		"Status: Downloaded newer image for " + source.url + "/library/nginx:latest",
 	}
@@ -209,7 +209,7 @@ func TestPullImageSkipsCopyWhenTagAlreadyPresent(t *testing.T) {
 
 	// A cached pull reports the same steps as a real one, minus the layers.
 	want := []string{
-		"latest: Pulling from library/nginx",
+		source.url + "/library/nginx:latest: Pulling from library/nginx",
 		"Digest: " + manifest.Digest.String(),
 		"Status: Image is up to date for " + source.url + "/library/nginx:latest",
 	}
@@ -288,7 +288,8 @@ func TestPullImageByDigest(t *testing.T) {
 }
 
 // A digest pull of an index must reproduce the index, otherwise the digest
-// the caller asked for would not resolve in the internal registry.
+// the caller asked for would not resolve in the internal registry. Only the
+// requested platform's content is transferred, as docker does.
 func TestPullImageByDigestPreservesIndex(t *testing.T) {
 	source := newTestRegistry(t)
 	internal := newTestRegistry(t)
@@ -304,7 +305,11 @@ func TestPullImageByDigestPreservesIndex(t *testing.T) {
 	out := &bytes.Buffer{}
 	is := newImageService(t, internal)
 	ref := mustRef(t, source.url+"/"+srcRepo+"@"+index.Digest.String())
-	if err := is.PullImage(pullContext("dev"), ref, types.ImagePullOptions{OutStream: out}); err != nil {
+	err := is.PullImage(pullContext("dev"), ref, types.ImagePullOptions{
+		OutStream: out,
+		Platforms: []ocispec.Platform{{OS: "linux", Architecture: "arm64"}},
+	})
+	if err != nil {
 		t.Fatalf("PullImage: %v", err)
 	}
 
@@ -312,8 +317,13 @@ func TestPullImageByDigestPreservesIndex(t *testing.T) {
 	if _, err := internal.store.ResolveManifest(t.Context(), dstRepo, index.Digest); err != nil {
 		t.Fatalf("index digest does not resolve in %s: %v", dstRepo, err)
 	}
-	assertBlob(t, internal.store, dstRepo, "layer-amd64")
+	if _, err := internal.store.ResolveManifest(t.Context(), dstRepo, arm64.Digest); err != nil {
+		t.Fatalf("selected platform manifest does not resolve in %s: %v", dstRepo, err)
+	}
 	assertBlob(t, internal.store, dstRepo, "layer-arm64")
+	if _, err := internal.store.ResolveBlob(t.Context(), dstRepo, blobDigest("layer-amd64")); err == nil {
+		t.Fatal("amd64 layer was copied for an arm64 pull")
+	}
 }
 
 func TestPullImageSkipsCopyWhenDigestAlreadyPresent(t *testing.T) {
@@ -452,33 +462,33 @@ func TestMissingRegistryURLIsReportedOnUse(t *testing.T) {
 func TestSourceRefStringMatchesDockerFamiliarForm(t *testing.T) {
 	tests := []struct {
 		name string
-		ref  sourceRef
+		ref  types.Reference
 		want string
 	}{
 		{
 			name: "docker hub official image",
-			ref:  sourceRef{Host: "docker.io", Repository: "library/ubuntu", Tag: "latest"},
+			ref:  types.Reference{Host: "docker.io", Repository: "library/ubuntu", Tag: "latest"},
 			want: "ubuntu:latest",
 		},
 		{
 			name: "docker hub user image",
-			ref:  sourceRef{Host: "docker.io", Repository: "acme/api", Tag: "v1"},
+			ref:  types.Reference{Host: "docker.io", Repository: "acme/api", Tag: "v1"},
 			want: "acme/api:v1",
 		},
 		{
 			name: "other registry",
-			ref:  sourceRef{Host: "mcr.microsoft.com", Repository: "devcontainers/base", Tag: "ubuntu"},
+			ref:  types.Reference{Host: "mcr.microsoft.com", Repository: "devcontainers/base", Tag: "ubuntu"},
 			want: "mcr.microsoft.com/devcontainers/base:ubuntu",
 		},
 		{
 			name: "digest",
-			ref:  sourceRef{Host: "docker.io", Repository: "library/ubuntu", Digest: blobDigest("ubuntu")},
+			ref:  types.Reference{Host: "docker.io", Repository: "library/ubuntu", Digest: blobDigest("ubuntu")},
 			want: "ubuntu@" + blobDigest("ubuntu").String(),
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.ref.String(); got != tt.want {
+			if got := tt.ref.ID(); got != tt.want {
 				t.Fatalf("String() = %q, want %q", got, tt.want)
 			}
 		})
@@ -488,17 +498,17 @@ func TestSourceRefStringMatchesDockerFamiliarForm(t *testing.T) {
 // A registry address may include a port, but ":" is not valid in an OCI
 // repository name.
 func TestRepositoryForEscapesRegistryPort(t *testing.T) {
-	got := repositoryFor(identity.Identity{Namespace: "dev"}, sourceRef{
+	got := repositoryFor(identity.Identity{Namespace: "dev"}, types.Reference{
 		Host:       "registry.local:5000",
 		Repository: "team/api",
 		Tag:        "latest",
 	})
 	const want = "dev/registry.local-5000/team/api"
-	if got != want {
+	if got.Repository != want {
 		t.Fatalf("repositoryFor = %q, want %q", got, want)
 	}
-	if !ociref.IsValidRepository(got) {
-		t.Fatalf("%q is not a valid repository name", got)
+	if !ociref.IsValidRepository(got.Repository) {
+		t.Fatalf("%q is not a valid repository name", got.Repository)
 	}
 }
 
@@ -512,7 +522,9 @@ type testRegistry struct {
 
 func newTestRegistry(t *testing.T, mw ...func(http.Handler) http.Handler) *testRegistry {
 	t.Helper()
-	store := ocimem.New()
+	// Child references are not verified, matching distribution's default, so
+	// an index can be stored while only one platform's content is present.
+	store := ocimem.NewWithConfig(&ocimem.Config{LaxChildReferences: true})
 	handler, err := ociserver.New(store, &ociserver.ServerConfig{Middlewares: mw})
 	if err != nil {
 		t.Fatalf("new registry server: %v", err)
@@ -661,13 +673,13 @@ func pullContext(namespace string) context.Context {
 	return identity.NewContext(context.Background(), identity.Identity{Namespace: namespace})
 }
 
-func mustRef(t *testing.T, s string) ociref.Reference {
+func mustRef(t *testing.T, s string) types.Reference {
 	t.Helper()
 	ref, err := ociref.ParseRelative(s)
 	if err != nil {
 		t.Fatalf("parse %q: %v", s, err)
 	}
-	return ref
+	return types.Reference{Reference: ref}
 }
 
 // blobDigest returns the digest of the blob content identified by id, so that

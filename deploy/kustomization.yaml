@@ -7,8 +7,6 @@ resources:
 images:
   - name: ghcr.io/sysson/dink
     newTag: dev
-  - name: ghcr.io/sysson/dinki
-    newTag: dev
 
 configMapGenerator:
   - name: dink-config
@@ -18,3 +16,11 @@ configMapGenerator:
     options:
       labels:
         app.kubernetes.io/name: dink
+  - name: dinki-config
+    namespace: dink-system
+    files:
+      - config.yml=registry-config.yml
+    options:
+      labels:
+        app.kubernetes.io/name: dinki
+        app.kubernetes.io/component: registry

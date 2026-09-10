@@ -10,6 +10,7 @@ import (
 
 	"github.com/containerd/platforms"
 	"github.com/docker/oci"
+	"github.com/sysson/dink/core/types"
 	"github.com/sysson/syskit/stream"
 )
 
@@ -24,9 +25,12 @@ const maxConcurrentLayers = 3
 type Copier struct {
 	// Src is the registry content is read from.
 	Src oci.Interface
+	// SrcRef is the reference to the source image, including the repository and tag or digest.
+	SrcRef types.Reference
 	// Dst is the registry content is written to.
 	Dst oci.Interface
-
+	// DstRef is the reference to the destination image, including the repository and tag or digest.
+	DstRef types.Reference
 	// Progress receives transfer progress events. If nil, progress is
 	// discarded.
 	Progress stream.ProgressWriter
@@ -39,25 +43,6 @@ type Copier struct {
 	// transferring (e.g. "Pull complete" for pulls, "Pushed" for pushes).
 	// If empty, "Copy complete" is used.
 	CompleteStatus string
-}
-
-// CopyRequest describes a single image copy between two repositories.
-type CopyRequest struct {
-	repoPair
-	// SrcTag is the tag to copy. Ignored when SrcDigest is set; if both are
-	// empty, "latest" is used.
-	SrcTag string
-	// SrcDigest pins the exact manifest to copy.
-	SrcDigest oci.Digest
-	// DstTags are the tags applied to the copied manifest. If empty, a copy
-	// by tag uses SrcTag and a copy by digest is left untagged.
-	DstTags []string
-}
-
-// repos is the source/destination repository pair threaded through a copy.
-type repoPair struct {
-	SrcRepo string
-	DstRepo string
 }
 
 // blobCopy is a single blob to copy.
@@ -81,40 +66,58 @@ type CopyResult struct {
 	Cached bool
 }
 
-// CopyImage copies the image named by req from the source registry to the
-// destination registry.
+// CopyImage copies the image named by c.SrcRef from the source registry to
+// c.DstRef in the destination registry.
 //
 // A copy by tag is flattened onto a single platform, since a tag can only
 // name one image. A copy by digest is copied verbatim, so that the requested
 // digest resolves in the destination.
-func (c *Copier) CopyImage(ctx context.Context, req CopyRequest) (CopyResult, error) {
+func (c *Copier) CopyImage(ctx context.Context) (CopyResult, error) {
 	// The source reference is resolved even when the destination may already
 	// hold the image, since a tag can be moved to a different image at any
 	// time and the digest it currently names is part of the result.
-	root, tags, err := c.resolveManifest(ctx, req)
+	root, tags, err := c.resolveManifest(ctx)
 	if err != nil {
 		return CopyResult{}, err
 	}
 
-	cached, err := c.alreadyCopied(ctx, req.repoPair, root, tags)
+	cached, err := c.alreadyCopied(ctx, root, tags)
 	if err != nil {
 		return CopyResult{}, err
 	}
 	if !cached {
-		if err := c.copyManifest(ctx, req.repoPair, root, tags); err != nil {
+		if err := c.copyManifest(ctx, root, tags); err != nil {
 			return CopyResult{}, err
 		}
 	}
-	return CopyResult{Digest: root.desc.Digest, Cached: cached}, nil
+	if len(tags) == 0 {
+		if err := c.tagByDigest(ctx, root); err != nil {
+			return CopyResult{}, err
+		}
+	}
+	return CopyResult{Digest: root.Digest, Cached: cached}, nil
+}
+
+// tagByDigest names a copy made by digest with the tag form of that digest,
+// so that the destination can list it and does not garbage collect it.
+func (c *Copier) tagByDigest(ctx context.Context, root types.Manifest) error {
+	_, err := c.Dst.PushManifest(ctx, c.DstRef.Repository, root.Contents, root.MediaType, &oci.PushManifestParameters{
+		Digest: root.Digest,
+		Tags:   []string{digestTag(root.Digest)},
+	})
+	if err != nil {
+		return fmt.Errorf("tag manifest %s: %w", root.Digest, err)
+	}
+	return nil
 }
 
 // alreadyCopied reports whether the destination already resolves the copy.
 // Because a tagged index is flattened, what the destination tags must name is
 // the manifest selected for the platform, not the index itself.
-func (c *Copier) alreadyCopied(ctx context.Context, repos repoPair, root fetchedManifest, tags []string) (bool, error) {
-	want := root.desc.Digest
-	if root.isIndex() && len(tags) > 0 {
-		selected, err := selectManifest(c.Platform, root.manifests)
+func (c *Copier) alreadyCopied(ctx context.Context, root types.Manifest, tags []string) (bool, error) {
+	want := root.Digest
+	if root.IsIndex() && len(tags) > 0 {
+		selected, err := selectManifest(c.Platform, root.Manifests)
 		if err != nil {
 			return false, err
 		}
@@ -123,10 +126,10 @@ func (c *Copier) alreadyCopied(ctx context.Context, repos repoPair, root fetched
 
 	// An untagged copy is addressed by digest alone.
 	if len(tags) == 0 {
-		return contentExists(c.Dst.GetManifest(ctx, repos.DstRepo, want))
+		return contentExists(c.Dst.GetManifest(ctx, c.DstRef.Repository, want))
 	}
 	for _, tag := range tags {
-		manifest, err := c.Dst.GetTag(ctx, repos.DstRepo, tag)
+		manifest, err := c.Dst.GetTag(ctx, c.DstRef.Repository, tag)
 		if isNotFound(err) {
 			return false, nil
 		}
@@ -147,7 +150,7 @@ func (c *Copier) alreadyCopied(ctx context.Context, repos repoPair, root fetched
 // copyLayers copies the layer blobs of a manifest, transferring up to
 // maxConcurrentLayers of them at a time. The first failure cancels the
 // transfers still in flight and is returned once they have stopped.
-func (c *Copier) copyLayers(ctx context.Context, repos repoPair, layers []oci.Descriptor) error {
+func (c *Copier) copyLayers(ctx context.Context, layers []oci.Descriptor) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -178,7 +181,7 @@ func (c *Copier) copyLayers(ctx context.Context, repos repoPair, layers []oci.De
 			defer func() { <-slots }()
 
 			b := blobCopy{desc: layer, completeStatus: c.completeStatus(), report: true}
-			if err := c.copyBlob(ctx, repos, b); err != nil {
+			if err := c.copyBlob(ctx, b); err != nil {
 				errs <- err
 				cancel()
 			}
@@ -190,11 +193,11 @@ func (c *Copier) copyLayers(ctx context.Context, repos repoPair, layers []oci.De
 // copyBlob copies a single blob from source to destination, reporting
 // progress for the transfer. Blob data is streamed directly from the source
 // to the destination; it is never buffered in memory.
-func (c *Copier) copyBlob(ctx context.Context, repos repoPair, b blobCopy) (err error) {
-	id := shortDigest(b.desc.Digest)
+func (c *Copier) copyBlob(ctx context.Context, b blobCopy) (err error) {
+	id := types.Digest{Digest: b.desc.Digest}.ID()
 	progress := c.progress()
 
-	if cached, err := contentExists(c.Dst.GetBlob(ctx, repos.DstRepo, b.desc.Digest)); err != nil {
+	if cached, err := contentExists(c.Dst.GetBlob(ctx, c.DstRef.Repository, b.desc.Digest)); err != nil {
 		return err
 	} else if cached {
 		if b.report {
@@ -205,14 +208,14 @@ func (c *Copier) copyBlob(ctx context.Context, repos repoPair, b blobCopy) (err 
 
 	// Embedded data: push it directly without a network round trip.
 	if len(b.desc.Data) > 0 {
-		_, err := c.Dst.PushBlob(ctx, repos.DstRepo, b.desc, bytes.NewReader(b.desc.Data))
+		_, err := c.Dst.PushBlob(ctx, c.DstRef.Repository, b.desc, bytes.NewReader(b.desc.Data))
 		if err == nil && b.report {
 			stream.Update(progress, id, b.completeStatus)
 		}
 		return err
 	}
 
-	blob, err := c.Src.GetBlob(ctx, repos.SrcRepo, b.desc.Digest)
+	blob, err := c.Src.GetBlob(ctx, c.SrcRef.Repository, b.desc.Digest)
 	if err != nil {
 		return fmt.Errorf("get blob %s: %w", b.desc.Digest, err)
 	}
@@ -228,7 +231,7 @@ func (c *Copier) copyBlob(ctx context.Context, repos repoPair, b blobCopy) (err 
 		defer func() { _ = pr.Close() }()
 		reader = pr
 	}
-	if _, err := c.Dst.PushBlob(ctx, repos.DstRepo, b.desc, reader); err != nil {
+	if _, err := c.Dst.PushBlob(ctx, c.DstRef.Repository, b.desc, reader); err != nil {
 		return fmt.Errorf("push blob %s: %w", b.desc.Digest, err)
 	}
 	if b.report {
