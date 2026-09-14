@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/docker/oci"
+	"github.com/docker/oci/ociref"
 	imagetypes "github.com/moby/moby/api/types/image"
 	ocidigest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -41,7 +42,12 @@ func (r *RegistryService) Images(ctx context.Context, options types.ImageListOpt
 			if err != nil {
 				return nil, err
 			}
-			summary, ok, err := imageSummary(ctx, client, repo, strings.TrimPrefix(repo, id.Namespace+"/"), tag, desc)
+			ref := ociref.Reference{
+				Host:       "",
+				Repository: repo,
+				Tag:        tag,
+			}
+			summary, ok, err := imageSummary(ctx, client, id.Namespace, ref, desc)
 			if err != nil {
 				return nil, err
 			}
@@ -58,12 +64,14 @@ func (r *RegistryService) Images(ctx context.Context, options types.ImageListOpt
 // which is how it was pulled. The summary is dropped when the image's content
 // is not held locally, as is the case for the platforms of an index that were
 // never pulled.
-func imageSummary(ctx context.Context, client oci.Interface, repo, name, tag string, desc oci.Descriptor) (imagetypes.Summary, bool, error) {
-	manifest, err := client.GetManifest(ctx, repo, desc.Digest)
+func imageSummary(ctx context.Context, client oci.Interface, namespace string, ref ociref.Reference, desc oci.Descriptor) (imagetypes.Summary, bool, error) {
+	var totalSize int64
+	totalSize = desc.Size
+	manifest, err := client.GetManifest(ctx, ref.Repository, desc.Digest)
 	if err != nil {
 		return imagetypes.Summary{}, false, err
 	}
-	m, err := readManifest(manifest)
+	m, err := readBlob[*oci.IndexOrManifest](manifest)
 	if err != nil {
 		return imagetypes.Summary{}, false, err
 	}
@@ -71,32 +79,35 @@ func imageSummary(ctx context.Context, client oci.Interface, repo, name, tag str
 	// An index carries no config or layers of its own, so the image it
 	// resolves to for this platform is what the summary describes.
 
-	if m.IsIndex() {
-		selected, err := selectManifest(nil, m.Manifests)
+	if isIndex(desc.MediaType) {
+		selected, err := selectManifests(nil, m)
 		if err != nil {
 			return imagetypes.Summary{}, false, nil
 		}
-		child, err := client.GetManifest(ctx, repo, selected.Digest)
+		if len(selected) == 0 {
+			return imagetypes.Summary{}, false, nil
+		}
+		child, err := client.GetManifest(ctx, ref.Repository, selected[0].Digest)
 		if isNotFound(err) {
 			return imagetypes.Summary{}, false, nil
 		}
 		if err != nil {
 			return imagetypes.Summary{}, false, err
 		}
-		if m, err = readManifest(child); err != nil {
+		if m, err = readBlob[*oci.IndexOrManifest](child); err != nil {
 			return imagetypes.Summary{}, false, err
 		}
+		totalSize += selected[0].Size
 	}
 	if m.Config == nil {
 		return imagetypes.Summary{}, false, nil
 	}
-
-	var totalSize int64
+	totalSize += m.Config.Size
 	for _, layer := range m.Layers {
 		totalSize += layer.Size
 	}
 
-	img, err := image(ctx, client, repo, *m.Config)
+	img, err := image(ctx, client, ref.Repository, *m.Config)
 	if err != nil {
 		return imagetypes.Summary{}, false, err
 	}
@@ -105,16 +116,17 @@ func imageSummary(ctx context.Context, client oci.Interface, repo, name, tag str
 		created = img.Created.Unix()
 	}
 
+	ref.Repository = strings.TrimPrefix(ref.Repository, namespace+"/")
 	// The name an image pulled by digest is displayed under is the digest
 	// reference itself, since it has no tag.
-	ref := fmt.Sprintf("%s:%s", name, tag)
-	digestRef := fmt.Sprintf("%s@%s", name, desc.Digest)
-	if _, byDigest := digestForTag(tag); byDigest {
-		ref = digestRef
+	name := fmt.Sprintf("%s:%s", ref.Repository, ref.Tag)
+	digestRef := fmt.Sprintf("%s@%s", ref.Repository, desc.Digest)
+	if _, byDigest := digestForTag(ref.Tag); byDigest {
+		name = digestRef
 	}
 
 	return imagetypes.Summary{
-		RepoTags:    []string{ref},
+		RepoTags:    []string{name},
 		RepoDigests: []string{digestRef},
 		Created:     created,
 		// With a containerd-style store the image ID is the digest of what the

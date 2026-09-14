@@ -3,8 +3,9 @@ package image
 import (
 	"context"
 
-	"github.com/sysson/dink/core/types"
+	"github.com/docker/oci/ociref"
 	imagetypes "github.com/moby/moby/api/types/image"
+	"github.com/sysson/dink/core/types"
 )
 
 type Translator interface {
@@ -31,7 +32,7 @@ type importExportTranslator interface {
 }
 
 type registryTranslator interface {
-	PullImage(ctx context.Context, ref types.Reference, options types.ImagePullOptions) error
+	PullImage(ctx context.Context, ref ociref.Reference, options types.ImagePullOptions) error
 	PushImage()
 }
 

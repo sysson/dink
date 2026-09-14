@@ -27,12 +27,8 @@ func Authenticate(ctx context.Context, auth types.RegistryAuth) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	cfg, err := ociauth.Load(nil)
-	if err != nil {
-		return "", err
-	}
 	transport := ociauth.NewStdTransport(ociauth.StdTransportParams{
-		Config:    authConfigSource{host: host, auth: &auth, fallback: cfg},
+		Config:    authConfigSource{host: host, auth: &auth},
 		Transport: RegistryTransport(nil, nil),
 	})
 
@@ -138,12 +134,8 @@ func NewClient(host string, opts ClientOptions) (oci.Interface, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := ociauth.Load(nil)
-	if err != nil {
-		return nil, err
-	}
 	transport := ociauth.NewStdTransport(ociauth.StdTransportParams{
-		Config:    authConfigSource{host: host, auth: opts.Auth, fallback: cfg},
+		Config:    authConfigSource{host: host, auth: opts.Auth},
 		Transport: opts.Transport,
 	})
 	return ociclient.New(host, &ociclient.Options{
@@ -187,7 +179,6 @@ func isLoopback(host string) bool {
 type authConfigSource struct {
 	host     string
 	auth     *types.RegistryAuth
-	fallback ociauth.Config
 }
 
 func (s authConfigSource) EntryForRegistry(host string) (ociauth.ConfigEntry, error) {
@@ -198,9 +189,6 @@ func (s authConfigSource) EntryForRegistry(host string) (ociauth.ConfigEntry, er
 			Username:     s.auth.Username,
 			Password:     s.auth.Password,
 		}, nil
-	}
-	if s.fallback != nil {
-		return s.fallback.EntryForRegistry(host)
 	}
 	return ociauth.ConfigEntry{}, nil
 }

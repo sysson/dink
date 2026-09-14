@@ -5,8 +5,8 @@ import (
 
 	"github.com/docker/oci"
 	"github.com/docker/oci/ocidigest"
+	"github.com/docker/oci/ociref"
 	"github.com/sysson/dink/core/identity"
-	"github.com/sysson/dink/core/types"
 )
 
 // repositoryFor returns the internal repository path that a pulled image is
@@ -19,16 +19,20 @@ import (
 //
 // For example, with a tenant namespace "dev", `docker pull nginx:latest`
 // resolves to "dev/docker.io/library/nginx:latest".
-func repositoryFor(id identity.Identity, ref types.Reference) types.Reference {
+func repositoryFor(id identity.Identity, ref ociref.Reference) ociref.Reference {
 	var repo string
 	if ref.Host == "docker.io" {
 		repo = id.Namespace + "/" + strings.TrimPrefix(ref.Repository, "library/")
 	} else {
 		repo = id.Namespace + "/" + repositoryHost(ref.Host) + "/" + ref.Repository
 	}
-	return types.Reference{
+	tag := ref.Tag
+	if ref.Tag == "" && ref.Digest != "" {
+		tag = digestTag(oci.Digest(ref.Digest))
+	}
+	return ociref.Reference{
 		Repository: repo,
-		Tag:        ref.Tag,
+		Tag:        tag,
 		Digest:     ref.Digest,
 	}
 }
