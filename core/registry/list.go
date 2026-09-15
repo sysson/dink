@@ -25,7 +25,7 @@ func (r *RegistryService) Images(ctx context.Context, options types.ImageListOpt
 		return nil, err
 	}
 	is := make([]imagetypes.Summary, 0)
-	repos, err := oci.All(client.Repositories(ctx, ""))
+	repos, err := oci.All(client.Repositories(ctx, id.Namespace))
 	if err != nil {
 		return nil, err
 	}
