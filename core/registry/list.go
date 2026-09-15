@@ -25,7 +25,7 @@ func (r *RegistryService) Images(ctx context.Context, options types.ImageListOpt
 		return nil, err
 	}
 	is := make([]imagetypes.Summary, 0)
-	repos, err := oci.All(client.Repositories(ctx, id.Namespace))
+	repos, err := oci.All(client.Repositories(ctx, ""))
 	if err != nil {
 		return nil, err
 	}
@@ -33,7 +33,10 @@ func (r *RegistryService) Images(ctx context.Context, options types.ImageListOpt
 		if id.Namespace != "" && !strings.HasPrefix(repo, id.Namespace) {
 			continue
 		}
-		tags, err := oci.All(client.Tags(ctx, repo, nil))
+		tags, err := oci.All(client.Tags(ctx, repo, &oci.TagsParameters{
+			Limit: -1,
+		}))
+
 		if err != nil {
 			return nil, err
 		}
@@ -65,6 +68,7 @@ func (r *RegistryService) Images(ctx context.Context, options types.ImageListOpt
 // is not held locally, as is the case for the platforms of an index that were
 // never pulled.
 func imageSummary(ctx context.Context, client oci.Interface, namespace string, ref ociref.Reference, desc oci.Descriptor) (imagetypes.Summary, bool, error) {
+
 	var totalSize int64
 	totalSize = desc.Size
 	manifest, err := client.GetManifest(ctx, ref.Repository, desc.Digest)
@@ -89,6 +93,7 @@ func imageSummary(ctx context.Context, client oci.Interface, namespace string, r
 		}
 		child, err := client.GetManifest(ctx, ref.Repository, selected[0].Digest)
 		if isNotFound(err) {
+
 			return imagetypes.Summary{}, false, nil
 		}
 		if err != nil {

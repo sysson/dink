@@ -177,12 +177,12 @@ func isLoopback(host string) bool {
 // the local docker config for other hosts (e.g. when a pull crosses
 // registries).
 type authConfigSource struct {
-	host     string
-	auth     *types.RegistryAuth
+	host string
+	auth *types.RegistryAuth
 }
 
 func (s authConfigSource) EntryForRegistry(host string) (ociauth.ConfigEntry, error) {
-	if s.auth != nil && host == s.host {
+	if s.auth != nil {
 		return ociauth.ConfigEntry{
 			RefreshToken: s.auth.RefreshToken,
 			AccessToken:  s.auth.AccessToken,

@@ -65,3 +65,29 @@ func digestForTag(tag string) (oci.Digest, bool) {
 	}
 	return d, true
 }
+
+func idForRef(ref oci.Digest) string {
+	const maxLen = 12
+	s := ref.Encoded()
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen]
+}
+
+func dockerFriendlyName(ref ociref.Reference) string {
+	if ref.Host == "docker.io" {
+		return strings.TrimPrefix(ref.String(), "docker.io/library/")
+	}
+	return ref.String()
+}
+
+func tagOrDigest(ref ociref.Reference) string {
+	if ref.Tag != "" {
+		return ref.Tag
+	}
+	if ref.Digest != "" {
+		return ref.Digest.String()
+	}
+	return ""
+}
