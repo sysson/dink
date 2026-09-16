@@ -88,12 +88,11 @@ func imageSummary(ctx context.Context, client oci.Interface, namespace string, r
 		if err != nil {
 			return imagetypes.Summary{}, false, nil
 		}
-		if selected.platform.Digest == "" {
+		if selected.platformDigest == "" {
 			return imagetypes.Summary{}, false, nil
 		}
-		child, err := client.GetManifest(ctx, ref.Repository, selected.platform.Digest)
+		child, err := client.GetManifest(ctx, ref.Repository, selected.platformDigest)
 		if isNotFound(err) {
-
 			return imagetypes.Summary{}, false, nil
 		}
 		if err != nil {
@@ -102,7 +101,8 @@ func imageSummary(ctx context.Context, client oci.Interface, namespace string, r
 		if m, err = readBlob[*oci.IndexOrManifest](child); err != nil {
 			return imagetypes.Summary{}, false, err
 		}
-		totalSize += selected.platform.Size
+		totalSize += child.Descriptor().Size
+		_ = child.Close()
 	}
 	if m.Config == nil {
 		return imagetypes.Summary{}, false, nil

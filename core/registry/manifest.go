@@ -35,51 +35,38 @@ type manifestOptions struct {
 	platform   platforms.MatchComparer
 }
 
-func allDescriptors(ctx context.Context, client oci.Interface, ref ociref.Reference, platform platforms.MatchComparer) ([]oci.Descriptor, error) {
-	descriptor, err := getManifest(ctx, client, ref)
-	if err != nil {
-		return nil, err
-	}
+func allDescriptors(ctx context.Context, opts manifestOptions) ([]oci.Descriptor, error) {
 
 	var descriptors []oci.Descriptor
-	opts := manifestOptions{
-		client:     client,
-		ref:        ref,
-		platform:   platform,
-		descriptor: descriptor,
-	}
-
+	dgst := opts.descriptor.Digest
 	switch {
-	case isIndex(descriptor.MediaType):
+	case isIndex(opts.descriptor.MediaType):
 		index, err := walkIndexManifest(ctx, opts)
 		if err != nil {
 			return nil, err
 		}
 
-		opts.descriptor = index.platform
+		dgst = index.platformDigest
 
 		descriptors = append(descriptors, index.descriptors...)
-		descriptors = append(descriptors, index.platform)
 
-	case isManifest(descriptor.MediaType):
+	case isManifest(opts.descriptor.MediaType):
 		manifestDescriptors, err := walkManifest(ctx, opts)
 		if err != nil {
 			return nil, err
 		}
-
 		descriptors = append(descriptors, manifestDescriptors...)
 
 	default:
-		return nil, fmt.Errorf("unsupported media type: %s", descriptor.MediaType)
+		return nil, fmt.Errorf("unsupported media type: %s", opts.descriptor.MediaType)
 	}
 
-	refs, err := referrers(ctx, opts)
+	refs, err := referrers(ctx, opts, dgst)
 	if err != nil {
 		return nil, err
 	}
 	descriptors = append(descriptors, refs...)
 
-	descriptors = append(descriptors, descriptor)
 	return descriptors, nil
 }
 
@@ -88,7 +75,12 @@ func walkIndexManifest(ctx context.Context, opts manifestOptions) (*indexManifes
 		return nil, fmt.Errorf("expected index media type, got: %s", opts.descriptor.MediaType)
 	}
 
-	index, err := readBlob[oci.IndexOrManifest](bytes.NewReader(opts.descriptor.Data))
+	indexDescriptor, err := getManifest(ctx, opts.client, opts.ref)
+	if err != nil {
+		return nil, err
+	}
+
+	index, err := readBlob[oci.IndexOrManifest](bytes.NewReader(indexDescriptor.Data))
 	if err != nil {
 		return nil, err
 	}
@@ -98,13 +90,13 @@ func walkIndexManifest(ctx context.Context, opts manifestOptions) (*indexManifes
 		return nil, err
 	}
 
-	if indexManifest.platform.Digest == "" {
+	if indexManifest.platformDigest == "" {
 		return nil, fmt.Errorf("no manifests found in index for platform %v", opts.platform)
 	}
 
 	var descriptors []oci.Descriptor
 	var errs []error
-	for _, desc := range append([]oci.Descriptor{indexManifest.platform}, indexManifest.descriptors...) {
+	for _, desc := range indexManifest.descriptors {
 		opt := manifestOptions{
 			client:     opts.client,
 			ref:        opts.ref,
@@ -123,37 +115,28 @@ func walkIndexManifest(ctx context.Context, opts manifestOptions) (*indexManifes
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("errors occurred while walking manifests: %v", errors.Join(errs...))
 	}
-
-	descriptors = append(descriptors, indexManifest.descriptors...)
+	descriptors = append(descriptors, indexDescriptor)
 	indexManifest.descriptors = descriptors
 	return indexManifest, nil
 }
 
-func referrers(ctx context.Context, opts manifestOptions) ([]oci.Descriptor, error) {
-	referrers, err := oci.All(opts.client.Referrers(ctx, opts.ref.Repository, opts.ref.Digest, nil))
+func referrers(ctx context.Context, opts manifestOptions, digest oci.Digest) ([]oci.Descriptor, error) {
+	referrers, err := oci.All(opts.client.Referrers(ctx, opts.ref.Repository, digest, nil))
 	if err != nil {
 		return nil, err
 	}
 	var allreferrers []oci.Descriptor
 	for _, r := range referrers {
-		referrer, err := getManifest(ctx, opts.client, ociref.Reference{
-			Repository: opts.ref.Repository,
-			Digest:     r.Digest,
-		})
-		if err != nil {
-			return nil, err
-		}
 		descs, err := walkManifest(ctx, manifestOptions{
 			client:     opts.client,
 			ref:        opts.ref,
 			platform:   opts.platform,
-			descriptor: referrer,
+			descriptor: r,
 		})
 		if err != nil {
 			return nil, err
 		}
 		allreferrers = append(allreferrers, descs...)
-		allreferrers = append(allreferrers, referrer)
 	}
 	return allreferrers, nil
 }
@@ -166,13 +149,15 @@ func walkManifest(ctx context.Context, opts manifestOptions) ([]oci.Descriptor, 
 		return nil, ctx.Err()
 	}
 
-	descriptor, err := getManifest(ctx, opts.client, opts.ref)
+	ref := opts.ref
+	ref.Digest = opts.descriptor.Digest
+
+	descriptor, err := getManifest(ctx, opts.client, ref)
 	if err != nil {
 		return nil, err
 	}
 
-	opts.descriptor = descriptor
-	descriptors, err := manifestDescriptors(opts)
+	descriptors, err := manifestDescriptors(descriptor)
 	if err != nil {
 		return nil, err
 	}
@@ -180,10 +165,10 @@ func walkManifest(ctx context.Context, opts manifestOptions) ([]oci.Descriptor, 
 	return descriptors, nil
 }
 
-func manifestDescriptors(opts manifestOptions) ([]oci.Descriptor, error) {
+func manifestDescriptors(desc oci.Descriptor) ([]oci.Descriptor, error) {
 	var descriptors []oci.Descriptor
 
-	manifest, err := readBlob[oci.IndexOrManifest](bytes.NewReader(opts.descriptor.Data))
+	manifest, err := readBlob[oci.IndexOrManifest](bytes.NewReader(desc.Data))
 	if err != nil {
 		return nil, err
 	}
@@ -248,8 +233,8 @@ func pushManifest(ctx context.Context, client oci.Interface, ref ociref.Referenc
 }
 
 type indexManifest struct {
-	platform    oci.Descriptor
-	descriptors []oci.Descriptor
+	platformDigest oci.Digest
+	descriptors    []oci.Descriptor
 }
 
 func parseIndexManifest(p platforms.MatchComparer, index *oci.IndexOrManifest) (*indexManifest, error) {
@@ -273,11 +258,12 @@ func parseIndexManifest(p platforms.MatchComparer, index *oci.IndexOrManifest) (
 			Variant:      m.Platform.Variant,
 		}
 		if matcher.Match(plat) {
-			matches.platform = m
+			matches.platformDigest = m.Digest
+			matches.descriptors = append(matches.descriptors, m)
 			break
 		}
 	}
-	if matches.platform.Digest == "" {
+	if matches.platformDigest == "" {
 		return nil, fmt.Errorf("no manifest found for platform %s", matcherString(matcher))
 	}
 
@@ -292,7 +278,7 @@ func parseIndexManifest(p platforms.MatchComparer, index *oci.IndexOrManifest) (
 		if m.Annotations[AnnotationReferenceType] != AnnotationReferenceTypeAttestation {
 			continue
 		}
-		if m.Annotations[AnnotationReferenceDigest] != matches.platform.Digest.String() {
+		if m.Annotations[AnnotationReferenceDigest] != matches.platformDigest.String() {
 			continue
 		}
 		matches.descriptors = append(matches.descriptors, m)

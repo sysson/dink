@@ -69,12 +69,10 @@ func (r *RegistryService) PullImage(ctx context.Context, ref ociref.Reference, o
 		close(writesDone)
 	}()
 
-	pm := platformMatcher(options.Platforms)
-
 	p := &puller{
 		client:      client,
 		destination: internal,
-		platform:    pm,
+		platform:    platformMatcher(options.Platforms),
 		progress:    out,
 	}
 
@@ -141,13 +139,23 @@ func (p *puller) pullTag(ctx context.Context, ref ociref.Reference) (copied bool
 	if !ok {
 		return false, fmt.Errorf("missing identity in context")
 	}
+	var desc oci.Descriptor
 
-	if ref.Digest == "" {
-		desc, err := getTagDigest(ctx, p.client, ref)
+	if ref.Tag != "" {
+		tagDesc, err := checkTagDigest(ctx, p.client, ref)
 		if err != nil {
 			return false, err
 		}
-		ref.Digest = desc.Digest
+		ref.Digest = tagDesc.Digest
+		desc = tagDesc
+	} else if ref.Digest != "" {
+		manifest, err := p.client.ResolveManifest(ctx, ref.Repository, ref.Digest)
+		if err != nil {
+			return false, err
+		}
+		desc = manifest
+	} else {
+		return false, fmt.Errorf("either tag or digest must be specified")
 	}
 
 	dstRef := repositoryFor(id, ref)
@@ -170,7 +178,7 @@ func (p *puller) pullTag(ctx context.Context, ref ociref.Reference) (copied bool
 		return false, p.ensureTagged(ctx, ref, dstRef)
 	}
 
-	return p.pull(ctx, ref, dstRef)
+	return p.pull(ctx, ref, dstRef, desc)
 }
 
 func (p *puller) ensureTagged(ctx context.Context, ref ociref.Reference, dstRef ociref.Reference) error {
@@ -190,8 +198,13 @@ func (p *puller) ensureTagged(ctx context.Context, ref ociref.Reference, dstRef 
 	return pushManifest(ctx, p.destination, dstRef, manifest)
 }
 
-func (p *puller) pull(ctx context.Context, ref ociref.Reference, dstRef ociref.Reference) (bool, error) {
-	descriptors, err := allDescriptors(ctx, p.client, ref, p.platform)
+func (p *puller) pull(ctx context.Context, ref ociref.Reference, dstRef ociref.Reference, desc oci.Descriptor) (bool, error) {
+	descriptors, err := allDescriptors(ctx, manifestOptions{
+		client:     p.client,
+		ref:        ref,
+		descriptor: desc,
+		platform:   p.platform,
+	})
 	if err != nil {
 		return false, err
 	}
@@ -331,7 +344,7 @@ func (c *copier) copyBlob(ctx context.Context, desc oci.Descriptor) (bool, error
 	return true, nil
 }
 
-func getTagDigest(ctx context.Context, client oci.Interface, ref ociref.Reference) (oci.Descriptor, error) {
+func checkTagDigest(ctx context.Context, client oci.Interface, ref ociref.Reference) (oci.Descriptor, error) {
 	if ref.Tag == "" {
 		return oci.Descriptor{}, fmt.Errorf("tag must be specified")
 	}
@@ -346,7 +359,7 @@ func getTagDigest(ctx context.Context, client oci.Interface, ref ociref.Referenc
 }
 
 func isTagged(ctx context.Context, client oci.Interface, ref ociref.Reference) (bool, error) {
-	tag, err := contentExists(getTagDigest(ctx, client, ref))
+	tag, err := contentExists(checkTagDigest(ctx, client, ref))
 	if err != nil {
 		return false, err
 	}
