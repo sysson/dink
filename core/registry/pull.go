@@ -116,11 +116,11 @@ func (p *puller) pullRepo(ctx context.Context, ref ociref.Reference) error {
 		tags = []string{ref.Tag}
 	}
 
+	tagRef := ref
 	for _, tag := range tags {
-		r := ref
-		r.Tag = tag
+		tagRef.Tag = tag
 
-		ok, err := p.pullTag(ctx, r)
+		ok, err := p.pullTag(ctx, tagRef)
 		if err != nil {
 			return err
 		}
@@ -128,7 +128,7 @@ func (p *puller) pullRepo(ctx context.Context, ref ociref.Reference) error {
 			return ctx.Err()
 		}
 
-		p.writeStatus(dockerFriendlyName(r), ok)
+		p.writeStatus(dockerFriendlyName(tagRef), ok)
 	}
 
 	return nil
@@ -171,7 +171,7 @@ func (p *puller) pullTag(ctx context.Context, ref ociref.Reference) (copied bool
 		p.destination.ResolveManifest(ctx, dstRef.Repository, ref.Digest),
 	)
 	if err != nil {
-		return false, nil
+		return false, err
 	}
 
 	if existing != nil {
@@ -248,7 +248,7 @@ func (c *copier) copyBlobs(ctx context.Context, blobs <-chan oci.Descriptor) (bo
 	var (
 		wg     sync.WaitGroup
 		slots  = make(chan struct{}, maxConcurrentLayers)
-		errs   = make(chan error)
+		errs   = make(chan error, maxConcurrentLayers)
 		copied atomic.Bool
 	)
 
