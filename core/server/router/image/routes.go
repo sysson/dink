@@ -3,7 +3,6 @@ package image
 import (
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/containerd/platforms"
@@ -11,7 +10,9 @@ import (
 	"github.com/docker/oci/ociref"
 	"github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/client/pkg/versions"
+	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sysson/dink/core/server/router"
 	"github.com/sysson/dink/core/types"
 	"github.com/sysson/dink/core/version"
 	"github.com/sysson/syskit/httpx"
@@ -27,26 +28,17 @@ func (ir *imageRouter) getImagesJSON(w http.ResponseWriter, r *http.Request) err
 	version := version.FromContext(r.Context())
 	var sharedSize bool
 	if versions.GreaterThanOrEqualTo(version, "1.42") {
-		sharedSize, err = strconv.ParseBool(r.URL.Query().Get("shared-size"))
-		if err != nil {
-			sharedSize = false
-		}
+		sharedSize = types.ParseBool(r.URL.Query().Get("shared-size"), false)
 	}
 
 	var manifests bool
 	if versions.GreaterThanOrEqualTo(version, "1.47") {
-		manifests, err = strconv.ParseBool(r.URL.Query().Get("manifests"))
-		if err != nil {
-			manifests = false
-		}
+		manifests = types.ParseBool(r.URL.Query().Get("manifests"), false)
 	}
 
 	var idenity bool
 	if versions.GreaterThanOrEqualTo(version, "1.54") {
-		idenity, err = strconv.ParseBool(r.URL.Query().Get("idenity"))
-		if err != nil {
-			idenity = false
-		}
+		idenity = types.ParseBool(r.URL.Query().Get("idenity"), false)
 	}
 
 	images, err := ir.translator.Images(r.Context(), types.ImageListOptions{
@@ -173,5 +165,41 @@ func (ir *imageRouter) postImagesPrune(w http.ResponseWriter, r *http.Request) e
 }
 
 func (ir *imageRouter) deleteImages(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	name, ok := httpx.KeyFromContext[router.CtxKey, string](r.Context(), "name")
+	if !ok {
+		return httpx.BadRequest(errors.New("name parameter is required"))
+	}
+
+	if strings.TrimSpace(name) == "" {
+		return httpx.BadRequest(errors.New("name parameter is required"))
+	}
+
+	force := types.ParseBool(r.URL.Query().Get("force"), false)
+	prune := types.ParseBool(r.URL.Query().Get("prune"), false)
+
+	var p []ocispec.Platform
+
+	if versions.GreaterThanOrEqualTo(version.FromContext(r.Context()), "1.50") {
+		for k, v := range r.URL.Query() {
+			if strings.HasPrefix(k, "platform") {
+				for _, pp := range v {
+					sp, err := platforms.Parse(pp)
+					if err != nil {
+						return httpx.BadRequest(err)
+					}
+					p = append(p, sp)
+				}
+			}
+		}
+	}
+
+	list, err := ir.translator.ImageDelete(r.Context(), name, imagebackend.RemoveOptions{
+		Force:         force,
+		PruneChildren: prune,
+		Platforms:     p,
+	})
+	if err != nil {
+		return err
+	}
+	return httpx.WriteJSON(w, http.StatusOK, list)
 }

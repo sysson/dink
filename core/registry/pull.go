@@ -21,7 +21,7 @@ import (
 	"github.com/sysson/syskit/stream"
 )
 
-func (r *RegistryService) ImageDelete()  {}
+
 func (r *RegistryService) ImageHistory() {}
 
 func (r *RegistryService) GetImage()          {}

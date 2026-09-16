@@ -5,6 +5,7 @@ import (
 
 	"github.com/docker/oci/ociref"
 	imagetypes "github.com/moby/moby/api/types/image"
+	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	"github.com/sysson/dink/core/types"
 )
 
@@ -15,7 +16,7 @@ type Translator interface {
 }
 
 type imageTranslator interface {
-	ImageDelete()
+	ImageDelete(ctx context.Context, name string, options imagebackend.RemoveOptions) ([]imagetypes.DeleteResponse, error)
 	ImageHistory()
 	Images(ctx context.Context, options types.ImageListOptions) ([]imagetypes.Summary, error)
 	GetImage()
