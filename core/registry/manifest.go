@@ -28,20 +28,20 @@ func blobsFromDescriptors(desc []oci.Descriptor) chan oci.Descriptor {
 	return blobs
 }
 
-type manifestOptions struct {
+type manifest struct {
 	client     oci.Interface
 	ref        ociref.Reference
 	descriptor oci.Descriptor
 	platform   platforms.MatchComparer
 }
 
-func allDescriptors(ctx context.Context, opts manifestOptions) ([]oci.Descriptor, error) {
+func (m *manifest) AllDescriptors(ctx context.Context) ([]oci.Descriptor, error) {
 
 	var descriptors []oci.Descriptor
-	dgst := opts.descriptor.Digest
+	dgst := m.descriptor.Digest
 	switch {
-	case isIndex(opts.descriptor.MediaType):
-		index, err := walkIndexManifest(ctx, opts)
+	case isIndex(m.descriptor.MediaType):
+		index, err := m.walkIndexManifest(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -50,18 +50,18 @@ func allDescriptors(ctx context.Context, opts manifestOptions) ([]oci.Descriptor
 
 		descriptors = append(descriptors, index.descriptors...)
 
-	case isManifest(opts.descriptor.MediaType):
-		manifestDescriptors, err := walkManifest(ctx, opts)
+	case isManifest(m.descriptor.MediaType):
+		manifestDescriptors, err := m.walkManifest(ctx)
 		if err != nil {
 			return nil, err
 		}
 		descriptors = append(descriptors, manifestDescriptors...)
 
 	default:
-		return nil, fmt.Errorf("unsupported media type: %s", opts.descriptor.MediaType)
+		return nil, fmt.Errorf("unsupported media type: %s", m.descriptor.MediaType)
 	}
 
-	refs, err := referrers(ctx, opts, dgst)
+	refs, err := m.referrers(ctx, dgst)
 	if err != nil {
 		return nil, err
 	}
@@ -70,12 +70,12 @@ func allDescriptors(ctx context.Context, opts manifestOptions) ([]oci.Descriptor
 	return descriptors, nil
 }
 
-func walkIndexManifest(ctx context.Context, opts manifestOptions) (*indexManifest, error) {
-	if !isIndex(opts.descriptor.MediaType) {
-		return nil, fmt.Errorf("expected index media type, got: %s", opts.descriptor.MediaType)
+func (m *manifest) walkIndexManifest(ctx context.Context) (*indexManifest, error) {
+	if !isIndex(m.descriptor.MediaType) {
+		return nil, fmt.Errorf("expected index media type, got: %s", m.descriptor.MediaType)
 	}
 
-	indexDescriptor, err := getManifest(ctx, opts.client, opts.ref)
+	indexDescriptor, err := getManifest(ctx, m.client, m.ref)
 	if err != nil {
 		return nil, err
 	}
@@ -85,26 +85,26 @@ func walkIndexManifest(ctx context.Context, opts manifestOptions) (*indexManifes
 		return nil, err
 	}
 
-	indexManifest, err := parseIndexManifest(opts.platform, &index)
+	indexManifest, err := parseIndexManifest(m.platform, &index)
 	if err != nil {
 		return nil, err
 	}
 
 	if indexManifest.platformDigest == "" {
-		return nil, fmt.Errorf("no manifests found in index for platform %v", opts.platform)
+		return nil, fmt.Errorf("no manifests found in index for platform %v", m.platform)
 	}
 
 	var descriptors []oci.Descriptor
 	var errs []error
 	for _, desc := range indexManifest.descriptors {
-		opt := manifestOptions{
-			client:     opts.client,
-			ref:        opts.ref,
-			platform:   opts.platform,
+		childManifest := &manifest{
+			client:     m.client,
+			ref:        m.ref,
+			platform:   m.platform,
 			descriptor: desc,
 		}
 
-		manifestDescriptors, err := walkManifest(ctx, opt)
+		manifestDescriptors, err := childManifest.walkManifest(ctx)
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -120,19 +120,19 @@ func walkIndexManifest(ctx context.Context, opts manifestOptions) (*indexManifes
 	return indexManifest, nil
 }
 
-func referrers(ctx context.Context, opts manifestOptions, digest oci.Digest) ([]oci.Descriptor, error) {
-	referrers, err := oci.All(opts.client.Referrers(ctx, opts.ref.Repository, digest, nil))
+func (m *manifest) referrers(ctx context.Context, digest oci.Digest) ([]oci.Descriptor, error) {
+	referrers, err := oci.All(m.client.Referrers(ctx, m.ref.Repository, digest, nil))
 	if err != nil {
 		return nil, err
 	}
 	var allreferrers []oci.Descriptor
 	for _, r := range referrers {
-		descs, err := walkManifest(ctx, manifestOptions{
-			client:     opts.client,
-			ref:        opts.ref,
-			platform:   opts.platform,
+		descs, err := (&manifest{
+			client:     m.client,
+			ref:        m.ref,
+			platform:   m.platform,
 			descriptor: r,
-		})
+		}).walkManifest(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -141,18 +141,18 @@ func referrers(ctx context.Context, opts manifestOptions, digest oci.Digest) ([]
 	return allreferrers, nil
 }
 
-func walkManifest(ctx context.Context, opts manifestOptions) ([]oci.Descriptor, error) {
-	if !isManifest(opts.descriptor.MediaType) {
-		return nil, fmt.Errorf("unsupported media type: %s", opts.descriptor.MediaType)
+func (m *manifest) walkManifest(ctx context.Context) ([]oci.Descriptor, error) {
+	if !isManifest(m.descriptor.MediaType) {
+		return nil, fmt.Errorf("unsupported media type: %s", m.descriptor.MediaType)
 	}
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
 
-	ref := opts.ref
-	ref.Digest = opts.descriptor.Digest
+	ref := m.ref
+	ref.Digest = m.descriptor.Digest
 
-	descriptor, err := getManifest(ctx, opts.client, ref)
+	descriptor, err := getManifest(ctx, m.client, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -166,6 +166,9 @@ func walkManifest(ctx context.Context, opts manifestOptions) ([]oci.Descriptor, 
 }
 
 func manifestDescriptors(desc oci.Descriptor) ([]oci.Descriptor, error) {
+	if !isManifest(desc.MediaType) {
+		return nil, fmt.Errorf("expected a manifest, got %s", desc.MediaType)
+	}
 	var descriptors []oci.Descriptor
 
 	manifest, err := readBlob[oci.IndexOrManifest](bytes.NewReader(desc.Data))

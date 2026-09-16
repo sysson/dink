@@ -199,12 +199,13 @@ func (p *puller) ensureTagged(ctx context.Context, ref ociref.Reference, dstRef 
 }
 
 func (p *puller) pull(ctx context.Context, ref ociref.Reference, dstRef ociref.Reference, desc oci.Descriptor) (bool, error) {
-	descriptors, err := allDescriptors(ctx, manifestOptions{
+	m := &manifest{
 		client:     p.client,
 		ref:        ref,
 		descriptor: desc,
 		platform:   p.platform,
-	})
+	}
+	descriptors, err := m.AllDescriptors(ctx)
 	if err != nil {
 		return false, err
 	}
