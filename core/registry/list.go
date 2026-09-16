@@ -84,14 +84,14 @@ func imageSummary(ctx context.Context, client oci.Interface, namespace string, r
 	// resolves to for this platform is what the summary describes.
 
 	if isIndex(desc.MediaType) {
-		selected, err := selectManifests(nil, m)
+		selected, err := parseIndexManifest(nil, m)
 		if err != nil {
 			return imagetypes.Summary{}, false, nil
 		}
-		if len(selected) == 0 {
+		if selected.platform.Digest == "" {
 			return imagetypes.Summary{}, false, nil
 		}
-		child, err := client.GetManifest(ctx, ref.Repository, selected[0].Digest)
+		child, err := client.GetManifest(ctx, ref.Repository, selected.platform.Digest)
 		if isNotFound(err) {
 
 			return imagetypes.Summary{}, false, nil
@@ -102,7 +102,7 @@ func imageSummary(ctx context.Context, client oci.Interface, namespace string, r
 		if m, err = readBlob[*oci.IndexOrManifest](child); err != nil {
 			return imagetypes.Summary{}, false, err
 		}
-		totalSize += selected[0].Size
+		totalSize += selected.platform.Size
 	}
 	if m.Config == nil {
 		return imagetypes.Summary{}, false, nil

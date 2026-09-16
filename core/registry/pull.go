@@ -16,6 +16,8 @@ import (
 	"github.com/docker/oci/ociref"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/types"
+	"github.com/sysson/syskit/httpx"
+	"github.com/sysson/syskit/logx"
 	"github.com/sysson/syskit/stream"
 )
 
@@ -81,7 +83,17 @@ func (r *RegistryService) PullImage(ctx context.Context, ref ociref.Reference, o
 	_ = out.Close()
 	close(progressChan)
 	<-writesDone
-	return err
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if err != nil {
+		if isNotFound(err) {
+			return httpx.NotFound(err)
+		}
+		logx.G(ctx).WithError(err).Error("Pulling Image", "Ref", ref.String())
+		return err
+	}
+	return nil
 }
 
 type puller struct {
@@ -93,39 +105,38 @@ type puller struct {
 
 func (p *puller) pullRepo(ctx context.Context, ref ociref.Reference) error {
 
+	var tags []string
 	if ref.Tag == "" && ref.Digest == "" {
-		tags, err := oci.All(p.client.Tags(ctx, ref.Repository, &oci.TagsParameters{
+		all, err := oci.All(p.client.Tags(ctx, ref.Repository, &oci.TagsParameters{
 			Limit: -1,
 		}))
 		if err != nil {
 			return err
 		}
-		for _, tag := range tags {
-			ref.Tag = tag
-			ok, err := p.pullTag(ctx, ref)
-			if err != nil {
-				return err
-			}
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			p.writeStatus(dockerFriendlyName(ref), ok)
-		}
+		tags = all
 	} else {
-		ok, err := p.pullTag(ctx, ref)
+		tags = []string{ref.Tag}
+	}
+
+	for _, tag := range tags {
+		r := ref
+		r.Tag = tag
+
+		ok, err := p.pullTag(ctx, r)
 		if err != nil {
 			return err
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		p.writeStatus(dockerFriendlyName(ref), ok)
+
+		p.writeStatus(dockerFriendlyName(r), ok)
 	}
 
 	return nil
 }
 
-func (p *puller) pullTag(ctx context.Context, ref ociref.Reference) (ok bool, err error) {
+func (p *puller) pullTag(ctx context.Context, ref ociref.Reference) (copied bool, err error) {
 	id, ok := identity.FromContext(ctx)
 	if !ok {
 		return false, fmt.Errorf("missing identity in context")
@@ -148,31 +159,38 @@ func (p *puller) pullTag(ctx context.Context, ref ociref.Reference) (ok bool, er
 		}
 	}()
 
-	desc, err := contentExists(p.destination.ResolveManifest(ctx, dstRef.Repository, ref.Digest))
+	existing, err := contentExists(
+		p.destination.ResolveManifest(ctx, dstRef.Repository, ref.Digest),
+	)
 	if err != nil {
 		return false, nil
 	}
 
-	if desc != nil {
-		ok, err := isTagged(ctx, p.destination, dstRef)
-		if err != nil {
-			return false, err
-		}
-		if ok {
-			return false, nil
-		}
-		manifest, err := getManifest(ctx, p.client, ref)
-		if err != nil {
-			return false, err
-		}
-
-		err = pushManifest(ctx, p.destination, dstRef, manifest)
-		if err != nil {
-			return false, err
-		}
-		return false, nil
+	if existing != nil {
+		return false, p.ensureTagged(ctx, ref, dstRef)
 	}
 
+	return p.pull(ctx, ref, dstRef)
+}
+
+func (p *puller) ensureTagged(ctx context.Context, ref ociref.Reference, dstRef ociref.Reference) error {
+	tagged, err := isTagged(ctx, p.destination, dstRef)
+	if err != nil {
+		return err
+	}
+	if tagged {
+		return nil
+	}
+
+	manifest, err := getManifest(ctx, p.client, ref)
+	if err != nil {
+		return err
+	}
+
+	return pushManifest(ctx, p.destination, dstRef, manifest)
+}
+
+func (p *puller) pull(ctx context.Context, ref ociref.Reference, dstRef ociref.Reference) (bool, error) {
 	descriptors, err := allDescriptors(ctx, p.client, ref, p.platform)
 	if err != nil {
 		return false, err
@@ -186,16 +204,12 @@ func (p *puller) pullTag(ctx context.Context, ref ociref.Reference) (ok bool, er
 		out:         p.progress,
 	}
 
-	if ok, err = c.copyBlobs(ctx, blobsFromDescriptors(descriptors)); err != nil {
-		return false, err
-	}
-
-	err = pushManifests(ctx, p.destination, dstRef, descriptors)
+	ok, err := c.copyBlobs(ctx, blobsFromDescriptors(descriptors))
 	if err != nil {
 		return false, err
 	}
 
-	return ok, nil
+	return ok, pushManifests(ctx, p.destination, dstRef, descriptors)
 }
 
 func (p *puller) writeStatus(requestedTag string, layersDownloaded bool) {
@@ -218,10 +232,10 @@ func (c *copier) copyBlobs(ctx context.Context, blobs <-chan oci.Descriptor) (bo
 	const maxConcurrentLayers = 3
 
 	var (
-		wg      sync.WaitGroup
-		slots   = make(chan struct{}, maxConcurrentLayers)
-		errs    = make(chan error)
-		allSeen atomic.Bool
+		wg     sync.WaitGroup
+		slots  = make(chan struct{}, maxConcurrentLayers)
+		errs   = make(chan error)
+		copied atomic.Bool
 	)
 
 	stopAndReturn := func() (bool, error) {
@@ -230,7 +244,7 @@ func (c *copier) copyBlobs(ctx context.Context, blobs <-chan oci.Descriptor) (bo
 		if err := <-errs; err != nil {
 			return false, err
 		}
-		return allSeen.Load(), ctx.Err()
+		return copied.Load(), ctx.Err()
 	}
 
 	for layer := range blobs {
@@ -246,7 +260,7 @@ func (c *copier) copyBlobs(ctx context.Context, blobs <-chan oci.Descriptor) (bo
 			if ok, err := c.copyBlob(ctx, layer); err != nil {
 				errs <- err
 			} else if ok {
-				allSeen.Store(true)
+				copied.Store(true)
 			}
 		})
 	}
