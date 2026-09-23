@@ -1,10 +1,8 @@
 package router
 
 import (
-	"context"
 	"fmt"
 	"net/http"
-	"regexp"
 
 	"github.com/moby/moby/client/pkg/versions"
 	"github.com/sysson/dink/core/version"
@@ -93,46 +91,5 @@ func WithMinAPIVersion(minVersion string) RouteWrapper {
 				return r.Handler()(w, req)
 			},
 		}
-	}
-}
-
-type CtxKey string
-
-func RegexRoute(pattern string, handler httpx.HTTPErrorFunc) httpx.HTTPErrorFunc {
-	// Convert {name:.*} → (?P<name>.*)
-	rePattern := regexp.MustCompile(`\{(\w+):(.*?)\}`)
-	regex := rePattern.ReplaceAllStringFunc(pattern, func(m string) string {
-		parts := rePattern.FindStringSubmatch(m)
-		name := parts[1]
-		expr := parts[2]
-		return fmt.Sprintf("(?P<%s>%s)", name, expr)
-	})
-
-	// Anchor the regex to the full path
-	full := "^.*/" + regex + "$"
-	re := regexp.MustCompile(full)
-
-	return func(w http.ResponseWriter, r *http.Request) error {
-		m := re.FindStringSubmatch(r.URL.Path)
-		if m == nil {
-			_ = httpx.NotFound(fmt.Errorf("%s not found", r.URL.Path)).WriteJSON(w)
-			return nil
-		}
-
-		// Extract named params safely
-		params := map[string]string{}
-		for i, name := range re.SubexpNames() {
-			if i > 0 && name != "" {
-				params[name] = m[i]
-			}
-		}
-
-		// Inject into context
-		ctx := r.Context()
-		for k, v := range params {
-			ctx = context.WithValue(ctx, CtxKey(k), v)
-		}
-
-		return handler(w, r.WithContext(ctx))
 	}
 }

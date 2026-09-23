@@ -12,7 +12,6 @@ import (
 	"github.com/moby/moby/client/pkg/versions"
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/sysson/dink/core/server/router"
 	"github.com/sysson/dink/core/types"
 	"github.com/sysson/dink/core/version"
 	"github.com/sysson/syskit/httpx"
@@ -25,7 +24,7 @@ func (ir *imageRouter) getImagesJSON(w http.ResponseWriter, r *http.Request) err
 	if err != nil {
 		return httpx.BadRequest(err)
 	}
-	version := version.FromContext(r.Context())
+	version := version.VersionFromRequest(r)
 	var sharedSize bool
 	if versions.GreaterThanOrEqualTo(version, "1.42") {
 		sharedSize = types.ParseBool(r.URL.Query().Get("shared-size"), false)
@@ -93,7 +92,7 @@ func (ir *imageRouter) postImagesCreate(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 
-	v := version.FromContext(r.Context())
+	v := version.VersionFromRequest(r)
 	if versions.GreaterThanOrEqualTo(v, "1.32") {
 		if p := r.URL.Query().Get("platform"); p != "" {
 			sp, err := platforms.Parse(p)
@@ -165,10 +164,7 @@ func (ir *imageRouter) postImagesPrune(w http.ResponseWriter, r *http.Request) e
 }
 
 func (ir *imageRouter) deleteImages(w http.ResponseWriter, r *http.Request) error {
-	name, ok := httpx.KeyFromContext[router.CtxKey, string](r.Context(), "name")
-	if !ok {
-		return httpx.BadRequest(errors.New("name parameter is required"))
-	}
+	name := r.PathValue("name")
 
 	if strings.TrimSpace(name) == "" {
 		return httpx.BadRequest(errors.New("name parameter is required"))
@@ -179,7 +175,7 @@ func (ir *imageRouter) deleteImages(w http.ResponseWriter, r *http.Request) erro
 
 	var p []ocispec.Platform
 
-	if versions.GreaterThanOrEqualTo(version.FromContext(r.Context()), "1.50") {
+	if versions.GreaterThanOrEqualTo(version.VersionFromRequest(r), "1.50") {
 		for k, v := range r.URL.Query() {
 			if strings.HasPrefix(k, "platform") {
 				for _, pp := range v {
