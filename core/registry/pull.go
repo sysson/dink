@@ -21,7 +21,6 @@ import (
 	"github.com/sysson/syskit/stream"
 )
 
-
 func (r *RegistryService) ImageHistory() {}
 
 func (r *RegistryService) GetImage()          {}
@@ -59,11 +58,14 @@ func (r *RegistryService) PullImage(ctx context.Context, ref ociref.Reference, o
 	}
 
 	progressChan := make(chan stream.Progress, 100)
-	out := stream.ChanOutput(progressChan)
 	writesDone := make(chan struct{})
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	// Close delivers every queued message; cancelling ctx, which
+	// writeDistributionProgress does when the client stops reading, is what
+	// abandons a consumer that is no longer draining the channel.
+	out := stream.ChanOutputContext(ctx, progressChan)
 	go func() {
 		writeDistributionProgress(ctx, cancel, options.OutStream, progressChan)
 		close(writesDone)
@@ -175,10 +177,43 @@ func (p *puller) pullTag(ctx context.Context, ref ociref.Reference) (copied bool
 	}
 
 	if existing != nil {
-		return false, p.ensureTagged(ctx, ref, dstRef)
+		complete, err := p.hasPlatform(ctx, dstRef.Repository, *existing)
+		if err != nil {
+			return false, err
+		}
+		if complete {
+			return false, p.ensureTagged(ctx, ref, dstRef)
+		}
 	}
 
 	return p.pull(ctx, ref, dstRef, desc)
+}
+
+// hasPlatform reports whether a stored image can be used for the requested
+// platform. A stored index may lack the manifests of platforms that were never
+// pulled, so the matching child must exist as well.
+func (p *puller) hasPlatform(ctx context.Context, repository string, existing oci.Descriptor) (bool, error) {
+	if !isIndex(existing.MediaType) {
+		return true, nil
+	}
+	stored, err := getManifest(ctx, p.destination, ociref.Reference{Repository: repository, Digest: existing.Digest})
+	if err != nil {
+		return false, err
+	}
+	index, err := readBlob[oci.IndexOrManifest](bytes.NewReader(stored.Data))
+	if err != nil {
+		return false, err
+	}
+	selected, err := parseIndexManifest(p.platform, &index)
+	if err != nil || selected.platformDigest == "" {
+		// Let the pull report the missing platform.
+		return false, nil
+	}
+	child, err := contentExists(p.destination.ResolveManifest(ctx, repository, selected.platformDigest))
+	if err != nil {
+		return false, err
+	}
+	return child != nil, nil
 }
 
 func (p *puller) ensureTagged(ctx context.Context, ref ociref.Reference, dstRef ociref.Reference) error {

@@ -1,9 +1,11 @@
 ---
-# Internal OCI registry for the dink system namespace.
+# Internal OCI registry for the dink system namespace. Port 5000 is the OCI
+# distribution API; port 5001 is the internal RegistryService API that only dink
+# (authenticated by its client certificate subject) may call.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: dinki-distribution-data
+  name: dinki-data
   namespace: dink-system
   labels:
     app.kubernetes.io/name: dinki
@@ -25,6 +27,10 @@ metadata:
     app.kubernetes.io/component: registry
 spec:
   replicas: 1
+  # The bbolt metadata file on the ReadWriteOnce volume is exclusively locked,
+  # so a new pod cannot start until the old one has stopped.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: dinki
@@ -44,15 +50,16 @@ spec:
           type: RuntimeDefault
       containers:
         - name: dinki
-          image: registry:3
+          image: ghcr.io/sysson/dinki
           imagePullPolicy: IfNotPresent
           args:
-            - /etc/distribution/config.yml
+            - --config
+            - /etc/dinki/config.json
           ports:
             - name: registry
               containerPort: 5000
               protocol: TCP
-            - name: debug
+            - name: api
               containerPort: 5001
               protocol: TCP
           securityContext:
@@ -63,18 +70,18 @@ spec:
               drop: ["ALL"]
           livenessProbe:
             httpGet:
-              path: /debug/health
-              port: debug
-              scheme: HTTP
+              path: /v2/
+              port: registry
+              scheme: HTTPS
             initialDelaySeconds: 3
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
           readinessProbe:
             httpGet:
-              path: /debug/health
-              port: debug
-              scheme: HTTP
+              path: /v2/
+              port: registry
+              scheme: HTTPS
             initialDelaySeconds: 3
             periodSeconds: 10
             timeoutSeconds: 5
@@ -90,18 +97,18 @@ spec:
               memory: 2Gi
           volumeMounts:
             - name: data
-              mountPath: /var/lib/registry
+              mountPath: /var/lib/dinki
             - name: config
-              mountPath: /etc/distribution/config.yml
-              subPath: config.yml
+              mountPath: /etc/dinki/config.json
+              subPath: config.json
               readOnly: true
             - name: tls
-              mountPath: /etc/distribution/tls
+              mountPath: /etc/dinki/tls
               readOnly: true
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: dinki-distribution-data
+            claimName: dinki-data
         - name: config
           configMap:
             name: dinki-config
@@ -114,6 +121,8 @@ spec:
                 path: tls.crt
               - key: tls.key
                 path: tls.key
+              - key: ca.crt
+                path: ca.crt
 ---
 apiVersion: v1
 kind: Service
@@ -131,3 +140,6 @@ spec:
     - name: registry
       port: 5000
       targetPort: registry
+    - name: api
+      port: 5001
+      targetPort: api

@@ -1,0 +1,139 @@
+syntax = "proto3";
+
+package sdk.registry.v1;
+
+option go_package = "github.com/sysson/dink/sdk/registry/v1;registry";
+
+// RegistryService is dinki's internal API. dink translates Docker API
+// requests into these calls and never makes OCI requests itself: dinki talks
+// to upstream registries and to its own storage, and streams results back.
+// The API is served on a separate listener authenticated with mutual TLS;
+// dinki trusts the caller-supplied identity.
+service RegistryService {
+  // Login verifies credentials against a registry. Nothing is persisted.
+  rpc Login(LoginRequest) returns (LoginResponse);
+  // Pull copies an image from its upstream registry into dinki, streaming
+  // Docker JSON-stream progress messages.
+  rpc Pull(PullRequest) returns (stream PullResponse);
+  // ListImages lists the images in the caller's namespace.
+  rpc ListImages(ListImagesRequest) returns (ListImagesResponse);
+  // RemoveImage untags an image and, when nothing else uses it, removes its
+  // manifests and blobs from the repository. Garbage collection reclaims
+  // content that is no longer referenced anywhere.
+  rpc RemoveImage(RemoveImageRequest) returns (RemoveImageResponse);
+  // Query executes a read-only GraphQL document against dinki metadata.
+  rpc Query(QueryRequest) returns (QueryResponse);
+}
+
+// Identity is the tenant a request is made for.
+message Identity {
+  string namespace = 1;
+  string organization = 2;
+  string common_name = 3;
+  bool anonymous = 4;
+}
+
+// RegistryAuth is the credentials from a Docker client's X-Registry-Auth.
+message RegistryAuth {
+  string username = 1;
+  string password = 2;
+  string identity_token = 3;
+  string registry_token = 4;
+  string server_address = 5;
+}
+
+message Platform {
+  string os = 1;
+  string architecture = 2;
+  string variant = 3;
+  string os_version = 4;
+  repeated string os_features = 5;
+}
+
+message HeaderValues {
+  repeated string values = 1;
+}
+
+message LoginRequest {
+  RegistryAuth auth = 1;
+}
+
+message LoginResponse {
+  string identity_token = 1;
+}
+
+// Reference names an image in an upstream registry. With neither tag nor
+// digest, every tag in the repository is pulled.
+message Reference {
+  string host = 1;
+  string repository = 2;
+  string tag = 3;
+  string digest = 4;
+}
+
+message PullRequest {
+  Identity identity = 1;
+  Reference reference = 2;
+  RegistryAuth auth = 3;
+  // Headers to send upstream, from the Docker client's X-Meta-* headers.
+  map<string, HeaderValues> meta_headers = 4;
+  repeated Platform platforms = 5;
+}
+
+message PullResponse {
+  // One Docker JSON-stream progress message.
+  bytes message = 1;
+}
+
+message ListImagesRequest {
+  Identity identity = 1;
+}
+
+message Descriptor {
+  string media_type = 1;
+  string digest = 2;
+  int64 size = 3;
+  Platform platform = 4;
+}
+
+message ImageSummary {
+  string id = 1;
+  repeated string repo_tags = 2;
+  repeated string repo_digests = 3;
+  int64 created = 4;
+  int64 size = 5;
+  // What the image reference resolves to.
+  Descriptor target = 6;
+}
+
+message ListImagesResponse {
+  repeated ImageSummary images = 1;
+}
+
+message RemoveImageRequest {
+  Identity identity = 1;
+  // The image name as given to docker rmi, relative to the namespace.
+  string name = 2;
+  repeated Platform platforms = 3;
+}
+
+message RemoveImageRecord {
+  string untagged = 1;
+  string deleted = 2;
+}
+
+message RemoveImageResponse {
+  repeated RemoveImageRecord records = 1;
+}
+
+message QueryRequest {
+  string query = 1;
+  string operation_name = 2;
+  // JSON-encoded variables object.
+  bytes variables = 3;
+}
+
+message QueryResponse {
+  // The JSON-encoded GraphQL response ({"data": ..., "errors": ...}).
+  bytes response = 1;
+}

@@ -1,0 +1,382 @@
+package api_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/docker/oci"
+	"github.com/docker/oci/ocidigest"
+	"github.com/docker/oci/ocimem"
+	"github.com/docker/oci/ociref"
+	"github.com/docker/oci/ociserver"
+	"github.com/moby/moby/v2/daemon/server/imagebackend"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sysson/dink/core/identity"
+	"github.com/sysson/dink/core/registry"
+	"github.com/sysson/dink/core/registry/api"
+	apiserver "github.com/sysson/dink/core/registry/api/server"
+	"github.com/sysson/dink/core/registry/backend/blobstore"
+	"github.com/sysson/dink/core/registry/backend/kv/memkv"
+	"github.com/sysson/dink/core/registry/backend/kvmeta"
+	"github.com/sysson/dink/core/registry/ocibackend"
+	"github.com/sysson/dink/core/registry/query"
+	"github.com/sysson/dink/core/types"
+	"github.com/sysson/syskit/httpx"
+)
+
+const (
+	manifestType = "application/vnd.oci.image.manifest.v1+json"
+	configType   = "application/vnd.oci.image.config.v1+json"
+	layerType    = "application/vnd.oci.image.layer.v1.tar+gzip"
+)
+
+type upstream struct {
+	t        *testing.T
+	registry *ocimem.Registry
+	host     string
+}
+
+func newUpstream(t *testing.T) *upstream {
+	t.Helper()
+	mem := ocimem.New()
+	handler, err := ociserver.New(mem, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	u, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &upstream{t: t, registry: mem, host: u.Host}
+}
+
+func (u *upstream) blob(repo, mediaType string, data []byte) oci.Descriptor {
+	u.t.Helper()
+	desc := oci.Descriptor{MediaType: mediaType, Digest: ocidigest.FromBytes(data), Size: int64(len(data))}
+	if _, err := u.registry.PushBlob(context.Background(), repo, desc, bytes.NewReader(data)); err != nil {
+		u.t.Fatal(err)
+	}
+	return desc
+}
+
+func (u *upstream) image(repo, tag string, layers ...oci.Descriptor) oci.Descriptor {
+	u.t.Helper()
+	config := u.blob(repo, configType, []byte(`{"architecture":"amd64","os":"linux","created":"2024-01-02T03:04:05Z","rootfs":{"type":"layers","diff_ids":[]},"config":{},"history":[{"created_by":"`+tag+`"}]}`))
+	data, err := json.Marshal(map[string]any{
+		"schemaVersion": 2,
+		"mediaType":     manifestType,
+		"config":        config,
+		"layers":        layers,
+	})
+	if err != nil {
+		u.t.Fatal(err)
+	}
+	desc, err := u.registry.PushManifest(context.Background(), repo, data, manifestType, &oci.PushManifestParameters{Tags: []string{tag}})
+	if err != nil {
+		u.t.Fatal(err)
+	}
+	return desc
+}
+
+func newAPI(t *testing.T) *api.Client {
+	t.Helper()
+	ctx := context.Background()
+	content, err := blobstore.Open(ctx, "mem://")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = content.Close() })
+	metadata, err := kvmeta.New(ctx, memkv.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = metadata.Close() })
+	local, err := ocibackend.New(content, metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queries, err := query.New(metadata, content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := apiserver.New(registry.New(local, queries), queries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, handler := server.Handler()
+	mux := http.NewServeMux()
+	mux.Handle(path, handler)
+	httpServer := httptest.NewServer(mux)
+	t.Cleanup(httpServer.Close)
+	return api.NewClient(httpServer.Client(), httpServer.URL)
+}
+
+func TestPullListQueryRemove(t *testing.T) {
+	up := newUpstream(t)
+	shared := up.blob("app", layerType, []byte("shared layer"))
+	onlyV1 := up.blob("app", layerType, []byte("v1 layer"))
+	v1 := up.image("app", "v1", shared, onlyV1)
+	v2 := up.image("app", "v2", shared)
+
+	client := newAPI(t)
+	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant", Organization: "tenant", CommonName: "alice"})
+
+	for _, tag := range []string{"v1", "v2"} {
+		var progress bytes.Buffer
+		ref := ociref.Reference{Host: up.host, Repository: "app", Tag: tag}
+		if err := client.PullImage(ctx, ref, types.ImagePullOptions{OutStream: &progress}); err != nil {
+			t.Fatalf("PullImage(%s) error = %v", tag, err)
+		}
+		if !strings.Contains(progress.String(), "Digest: sha256:") {
+			t.Fatalf("pull %s progress = %q, want digest status", tag, progress.String())
+		}
+	}
+
+	display := strings.ReplaceAll(up.host, ":", "-") + "/app"
+	images, err := client.Images(ctx, types.ImageListOptions{})
+	if err != nil {
+		t.Fatalf("Images() error = %v", err)
+	}
+	var tags []string
+	for _, image := range images {
+		tags = append(tags, image.RepoTags...)
+	}
+	slices.Sort(tags)
+	if want := []string{display + ":v1", display + ":v2"}; !slices.Equal(tags, want) {
+		t.Fatalf("image tags = %v, want %v", tags, want)
+	}
+
+	other := identity.NewContext(context.Background(), identity.Identity{Namespace: "other"})
+	if images, err := client.Images(other, types.ImageListOptions{}); err != nil || len(images) != 0 {
+		t.Fatalf("other namespace Images() = %v, %v; want none", images, err)
+	}
+
+	raw, err := client.Query(ctx, `query($repo: String!) { repository(name: $repo) { tags { name } } }`, "", map[string]any{"repo": "tenant/" + display})
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if !strings.Contains(string(raw), `"v1"`) || !strings.Contains(string(raw), `"v2"`) {
+		t.Fatalf("Query() = %s, want both tags", raw)
+	}
+	raw, err = client.Query(ctx, `query($repo: String!, $n: Int) { repository(name: $repo) { tags(first: $n) { name } } }`, "", map[string]any{"repo": "tenant/" + display, "n": 1})
+	if err != nil || !strings.Contains(string(raw), `"v1"`) || strings.Contains(string(raw), `"v2"`) {
+		t.Fatalf("Query(first: 1) = %s, %v; want only v1", raw, err)
+	}
+
+	records, err := client.ImageDelete(ctx, up.host+"/app:v1", imagebackend.RemoveOptions{})
+	if err != nil {
+		t.Fatalf("ImageDelete() error = %v", err)
+	}
+	var untagged, deleted []string
+	for _, record := range records {
+		if record.Untagged != "" {
+			untagged = append(untagged, record.Untagged)
+		}
+		if record.Deleted != "" {
+			deleted = append(deleted, record.Deleted)
+		}
+	}
+	if want := []string{display + ":v1"}; !slices.Equal(untagged, want) {
+		t.Fatalf("untagged = %v, want %v", untagged, want)
+	}
+	for _, digest := range []oci.Digest{v1.Digest, onlyV1.Digest} {
+		if !slices.Contains(deleted, string(digest)) {
+			t.Fatalf("deleted = %v, want %s", deleted, digest)
+		}
+	}
+	for _, digest := range []oci.Digest{shared.Digest, v2.Digest} {
+		if slices.Contains(deleted, string(digest)) {
+			t.Fatalf("deleted = %v, must keep %s", deleted, digest)
+		}
+	}
+
+	images, err = client.Images(ctx, types.ImageListOptions{})
+	if err != nil || len(images) != 1 || images[0].RepoTags[0] != display+":v2" {
+		t.Fatalf("Images() after remove = %v, %v; want only v2", images, err)
+	}
+
+	_, err = client.ImageDelete(ctx, up.host+"/app:v1", imagebackend.RemoveOptions{})
+	if status := statusCode(err); status != http.StatusNotFound {
+		t.Fatalf("second ImageDelete() error = %v (status %d), want 404", err, status)
+	}
+}
+
+func TestPullNotFoundKeepsStatus(t *testing.T) {
+	up := newUpstream(t)
+	client := newAPI(t)
+	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
+	err := client.PullImage(ctx, ociref.Reference{Host: up.host, Repository: "missing", Tag: "latest"}, types.ImagePullOptions{})
+	if status := statusCode(err); status != http.StatusNotFound {
+		t.Fatalf("PullImage() error = %v (status %d), want 404", err, status)
+	}
+}
+
+func TestMissingIdentityIsRejectedByClient(t *testing.T) {
+	client := newAPI(t)
+	if _, err := client.Images(context.Background(), types.ImageListOptions{}); err == nil {
+		t.Fatal("Images() without identity succeeded")
+	}
+}
+
+func TestUnavailableClient(t *testing.T) {
+	want := errors.New("no dinki")
+	client := api.Unavailable(want)
+	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
+	if _, err := client.Images(ctx, types.ImageListOptions{}); !errors.Is(err, want) {
+		t.Fatalf("Images() error = %v, want %v", err, want)
+	}
+	if _, err := client.Authenticate(ctx, types.RegistryAuth{}); !errors.Is(err, want) {
+		t.Fatalf("Authenticate() error = %v, want %v", err, want)
+	}
+}
+
+func TestConnectErrorRoundTrip(t *testing.T) {
+	for _, status := range []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusConflict} {
+		err := api.FromConnectError(api.ToConnectError(httpx.NewHTTPError(status, errors.New("boom"))))
+		if got := statusCode(err); got != status {
+			t.Fatalf("round trip of %d = %d (%v)", status, got, err)
+		}
+		if !strings.Contains(err.Error(), "boom") {
+			t.Fatalf("round trip lost message: %v", err)
+		}
+	}
+}
+
+func statusCode(err error) int {
+	if httpErr, ok := errors.AsType[*httpx.HTTPError](err); ok {
+		return httpErr.StatusCode
+	}
+	return 0
+}
+
+func (u *upstream) platformImage(repo, arch string, layers ...oci.Descriptor) oci.Descriptor {
+	u.t.Helper()
+	config := u.blob(repo, configType, []byte(`{"architecture":"`+arch+`","os":"linux","rootfs":{"type":"layers","diff_ids":[]},"config":{}}`))
+	data, err := json.Marshal(map[string]any{"schemaVersion": 2, "mediaType": manifestType, "config": config, "layers": layers})
+	if err != nil {
+		u.t.Fatal(err)
+	}
+	desc, err := u.registry.PushManifest(context.Background(), repo, data, manifestType, nil)
+	if err != nil {
+		u.t.Fatal(err)
+	}
+	desc.Platform = &oci.Platform{OS: "linux", Architecture: arch}
+	desc.Data = nil
+	return desc
+}
+
+func (u *upstream) index(repo, tag string, manifests ...oci.Descriptor) oci.Descriptor {
+	u.t.Helper()
+	data, err := json.Marshal(map[string]any{"schemaVersion": 2, "mediaType": oci.MediaTypeImageIndex, "manifests": manifests})
+	if err != nil {
+		u.t.Fatal(err)
+	}
+	desc, err := u.registry.PushManifest(context.Background(), repo, data, oci.MediaTypeImageIndex, &oci.PushManifestParameters{Tags: []string{tag}})
+	if err != nil {
+		u.t.Fatal(err)
+	}
+	return desc
+}
+
+func TestPullSinglePlatformOfIndex(t *testing.T) {
+	up := newUpstream(t)
+	shared := up.blob("multi", layerType, []byte("shared"))
+	amd64Layer := up.blob("multi", layerType, []byte("amd64 only"))
+	s390xLayer := up.blob("multi", layerType, []byte("s390x only"))
+	amd64 := up.platformImage("multi", "amd64", shared, amd64Layer)
+	s390x := up.platformImage("multi", "s390x", shared, s390xLayer)
+	index := up.index("multi", "latest", amd64, s390x)
+
+	client := newAPI(t)
+	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
+	ref := ociref.Reference{Host: up.host, Repository: "multi", Tag: "latest"}
+	pull := func(arch string) string {
+		t.Helper()
+		var progress bytes.Buffer
+		options := types.ImagePullOptions{OutStream: &progress, Platforms: []ocispec.Platform{{OS: "linux", Architecture: arch}}}
+		if err := client.PullImage(ctx, ref, options); err != nil {
+			t.Fatalf("PullImage(%s) error = %v", arch, err)
+		}
+		return progress.String()
+	}
+	repo := "tenant/" + strings.ReplaceAll(up.host, ":", "-") + "/multi"
+	children := func() map[string]bool {
+		t.Helper()
+		var data struct {
+			Data struct {
+				Image struct {
+					Digest    string `json:"digest"`
+					Manifests []struct {
+						Digest   string          `json:"digest"`
+						Manifest json.RawMessage `json:"manifest"`
+					} `json:"manifests"`
+				} `json:"image"`
+			} `json:"data"`
+		}
+		raw, err := client.Query(ctx, `query($repo: String!) { image(repository: $repo, reference: "latest") { digest manifests { digest manifest { digest } } } }`, "", map[string]any{"repo": repo})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(raw, &data); err != nil {
+			t.Fatal(err)
+		}
+		if data.Data.Image.Digest != string(index.Digest) {
+			t.Fatalf("stored index digest = %s, want upstream %s", data.Data.Image.Digest, index.Digest)
+		}
+		present := map[string]bool{}
+		for _, child := range data.Data.Image.Manifests {
+			present[child.Digest] = string(child.Manifest) != "null"
+		}
+		return present
+	}
+
+	if progress := pull("s390x"); !strings.Contains(progress, "Downloaded newer image") {
+		t.Fatalf("first pull progress = %q", progress)
+	}
+	if present := children(); !present[string(s390x.Digest)] || present[string(amd64.Digest)] {
+		t.Fatalf("children after s390x pull = %v, want only s390x", present)
+	}
+	images, err := client.Images(ctx, types.ImageListOptions{})
+	if err != nil || len(images) != 1 || images[0].ID != string(index.Digest) {
+		t.Fatalf("Images() = %v, %v; want the index", images, err)
+	}
+	if platform := images[0].Descriptor.Platform; platform == nil || platform.Architecture != "s390x" {
+		t.Fatalf("image platform = %v, want s390x", platform)
+	}
+
+	if progress := pull("s390x"); !strings.Contains(progress, "Image is up to date") {
+		t.Fatalf("repeated pull progress = %q", progress)
+	}
+	if progress := pull("amd64"); !strings.Contains(progress, "Downloaded newer image") {
+		t.Fatalf("second platform pull progress = %q", progress)
+	}
+	if present := children(); !present[string(s390x.Digest)] || !present[string(amd64.Digest)] {
+		t.Fatalf("children after amd64 pull = %v, want both", present)
+	}
+
+	records, err := client.ImageDelete(ctx, up.host+"/multi:latest", imagebackend.RemoveOptions{})
+	if err != nil {
+		t.Fatalf("ImageDelete() error = %v", err)
+	}
+	var deleted []string
+	for _, record := range records {
+		if record.Deleted != "" {
+			deleted = append(deleted, record.Deleted)
+		}
+	}
+	for _, digest := range []oci.Digest{index.Digest, amd64.Digest, s390x.Digest, shared.Digest, amd64Layer.Digest, s390xLayer.Digest} {
+		if !slices.Contains(deleted, string(digest)) {
+			t.Fatalf("deleted = %v, want %s", deleted, digest)
+		}
+	}
+}

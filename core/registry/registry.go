@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/99designs/gqlgen/graphql"
 	"github.com/docker/oci"
 	"github.com/docker/oci/ociauth"
 	"github.com/docker/oci/ociclient"
@@ -55,21 +56,31 @@ func Authenticate(ctx context.Context, auth types.RegistryAuth) (string, error) 
 	return "", nil
 }
 
+// Querier executes GraphQL documents against the registry metadata. It is
+// satisfied by [github.com/sysson/dink/core/registry/query.Service].
+type Querier interface {
+	Exec(ctx context.Context, document, operationName string, variables map[string]any) *graphql.Response
+}
+
 type RegistryService struct {
 	// internal is the client for dink's own registry. Its credentials are
 	// dink's and never change, so one client is shared for the process.
 	internal oci.Interface
+	// queries resolves GraphQL documents against internal's metadata.
+	queries Querier
 	// internalErr is why that client could not be built. It is reported
 	// only to the endpoints that need the registry; the rest still work.
 	internalErr error
 }
 
-// New returns an image service backed by internal.
-func New(internal oci.Interface) *RegistryService {
+// New returns an image service backed by dinki's local registry and its
+// metadata query service. It runs inside dinki: pulls fetch from upstream
+// registries and write straight into local storage.
+func New(internal oci.Interface, queries Querier) *RegistryService {
 	if internal == nil {
 		return Unavailable(fmt.Errorf("registry client is not set"))
 	}
-	return &RegistryService{internal: internal}
+	return &RegistryService{internal: internal, queries: queries}
 }
 
 // Unavailable returns an image service whose registry-backed endpoints report

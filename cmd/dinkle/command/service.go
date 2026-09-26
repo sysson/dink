@@ -149,7 +149,8 @@ func issueServerCert(ca *pki.Authority, opts *serverOptions) (pki.KeyPair, error
 	server, err := ca.Issue(
 		pki.WithCommonName(fmt.Sprintf("%s.%s.svc", opts.serviceName, opts.systemNamespace)),
 		pki.WithOrganization(opts.systemNamespace),
-		pki.WithExtKeyUsage([]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}),
+		// ClientAuth lets dink present this certificate to dinki's internal API.
+		pki.WithExtKeyUsage([]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}),
 		pki.WithDNSNames(dnsNames),
 		pki.WithIPAddresses(ips),
 	)

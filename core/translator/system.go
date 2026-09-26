@@ -5,7 +5,6 @@ import (
 	"runtime"
 
 	"github.com/moby/moby/api/types/system"
-	"github.com/sysson/dink/core/registry"
 	"github.com/sysson/dink/core/types"
 	"github.com/sysson/dink/core/version"
 )
@@ -57,7 +56,7 @@ func (d *Docker) UnsubscribeFromEvents() {
 }
 
 func (d *Docker) AuthenticateToRegistry(ctx context.Context, auth types.RegistryAuth) (string, error) {
-	return registry.Authenticate(ctx, auth)
+	return d.registry.Authenticate(ctx, auth)
 }
 
 func (s *Swarm) Info() {

@@ -7,6 +7,7 @@
 allow_k8s_contexts('dink-dev')
 
 DINK='ghcr.io/sysson/dink'
+DINKI='ghcr.io/sysson/dinki'
 
 # The TLS Secrets are prerequisites for both Deployments.
 local_resource(
@@ -23,9 +24,16 @@ custom_build(
     skips_local_docker=True,
 )
 
+custom_build(
+    DINKI,
+    'make load REF=$EXPECTED_REF TARGET=dinki',
+    deps=['Dockerfile', 'cmd/dinki', 'core', 'pkg', 'sdk', 'go.mod', 'go.sum'],
+    skips_local_docker=True,
+)
+
 # configMapGenerator reads config.json, but kustomize() does not report it as a dep.
 watch_file('deploy/config.json')
-watch_file('deploy/registry-config.yml')
+watch_file('deploy/dinki-config.json')
 
 k8s_yaml(kustomize('deploy'))
 
@@ -38,7 +46,7 @@ k8s_resource(
 
 k8s_resource(
     'dinki',
-    port_forwards='5000:5000',
+    port_forwards=['5000:5000', '5001:5001'],
     resource_deps=['certificates'],
     labels=['registry'],
 )

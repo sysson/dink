@@ -53,9 +53,14 @@ type BuildKit struct {
 	URL string `json:"url,omitempty"`
 }
 
+// Registry is how dink reaches dinki's internal RegistryService API. dink
+// makes no OCI requests itself. CAFile defaults to TLS.ClientCAFile and the
+// client key pair defaults to TLS.CertFile/KeyFile.
 type Registry struct {
-	URL    string `json:"url,omitempty"`
-	CAFile string `json:"caFile,omitempty"`
+	URL      string `json:"url,omitempty"`
+	CAFile   string `json:"caFile,omitempty"`
+	CertFile string `json:"certFile,omitempty"`
+	KeyFile  string `json:"keyFile,omitempty"`
 }
 
 type Config struct {
@@ -106,7 +111,7 @@ func Default() *Config {
 			PluginDir: "/var/lib/dink/plugins",
 		},
 		Registry: Registry{
-			URL: "https://dinki.dink-system.svc.cluster.local:5000",
+			URL: "https://dinki.dink-system.svc.cluster.local:5001",
 		},
 	}
 }
@@ -207,7 +212,14 @@ func (a *Auth) Validate() error {
 }
 
 func (r *Registry) Validate() error {
-	return validateURL(r.URL, "registryURL", "http", "https")
+	errs := []error{}
+	if err := validateURL(r.URL, "registryURL", "http", "https"); err != nil {
+		errs = append(errs, err)
+	}
+	if (r.CertFile == "") != (r.KeyFile == "") {
+		errs = append(errs, errors.New("registryCertFile and registryKeyFile must be set together"))
+	}
+	return errors.Join(errs...)
 }
 
 func (b *BuildKit) Validate() error {

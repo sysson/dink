@@ -150,17 +150,29 @@ func (o *options) addFlags(flags *[]cli.Flag) {
 		},
 		&cli.StringFlag{
 			Name:        "registryURL",
-			Usage:       "OCI registry endpoint address",
+			Usage:       "dinki internal registry API address",
 			DefaultText: o.defaults.Registry.URL,
 			Sources:     cli.EnvVars(types.DefaultEnvPrefix + "_REGISTRY_URL"),
 			Destination: &o.cfg.Registry.URL,
 		},
 		&cli.StringFlag{
 			Name:        "registryCAFile",
-			Usage:       "Path to CA bundle PEM for the internal OCI registry; defaults to clientCAFile",
+			Usage:       "Path to CA bundle PEM for the dinki registry API; defaults to clientCAFile",
 			DefaultText: o.defaults.Registry.CAFile,
 			Sources:     cli.EnvVars(types.DefaultEnvPrefix+"_REGISTRY_CAFILE", types.DefaultEnvPrefix+"_REGISTRY_CA_FILE"),
 			Destination: &o.cfg.Registry.CAFile,
+		},
+		&cli.StringFlag{
+			Name:        "registryCertFile",
+			Usage:       "Client certificate PEM presented to the dinki registry API; defaults to tlsCertFile",
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix+"_REGISTRY_CERTFILE", types.DefaultEnvPrefix+"_REGISTRY_CERT_FILE"),
+			Destination: &o.cfg.Registry.CertFile,
+		},
+		&cli.StringFlag{
+			Name:        "registryKeyFile",
+			Usage:       "Client private key PEM for the dinki registry API; defaults to tlsKeyFile",
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix+"_REGISTRY_KEYFILE", types.DefaultEnvPrefix+"_REGISTRY_KEY_FILE"),
+			Destination: &o.cfg.Registry.KeyFile,
 		},
 	}...)
 }
