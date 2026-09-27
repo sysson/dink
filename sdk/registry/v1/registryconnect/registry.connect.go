@@ -40,6 +40,15 @@ const (
 	// RegistryServiceListImagesProcedure is the fully-qualified name of the RegistryService's
 	// ListImages RPC.
 	RegistryServiceListImagesProcedure = "/sdk.registry.v1.RegistryService/ListImages"
+	// RegistryServiceInspectImageProcedure is the fully-qualified name of the RegistryService's
+	// InspectImage RPC.
+	RegistryServiceInspectImageProcedure = "/sdk.registry.v1.RegistryService/InspectImage"
+	// RegistryServiceImageHistoryProcedure is the fully-qualified name of the RegistryService's
+	// ImageHistory RPC.
+	RegistryServiceImageHistoryProcedure = "/sdk.registry.v1.RegistryService/ImageHistory"
+	// RegistryServiceImageAttestationsProcedure is the fully-qualified name of the RegistryService's
+	// ImageAttestations RPC.
+	RegistryServiceImageAttestationsProcedure = "/sdk.registry.v1.RegistryService/ImageAttestations"
 	// RegistryServiceRemoveImageProcedure is the fully-qualified name of the RegistryService's
 	// RemoveImage RPC.
 	RegistryServiceRemoveImageProcedure = "/sdk.registry.v1.RegistryService/RemoveImage"
@@ -56,6 +65,12 @@ type RegistryServiceClient interface {
 	Pull(context.Context, *v1.PullRequest) (*connect.ServerStreamForClient[v1.PullResponse], error)
 	// ListImages lists the images in the caller's namespace.
 	ListImages(context.Context, *v1.ListImagesRequest) (*v1.ListImagesResponse, error)
+	// InspectImage describes one image in the caller's namespace.
+	InspectImage(context.Context, *v1.InspectImageRequest) (*v1.InspectImageResponse, error)
+	// ImageHistory returns the layers an image was built from.
+	ImageHistory(context.Context, *v1.ImageHistoryRequest) (*v1.ImageHistoryResponse, error)
+	// ImageAttestations returns the in-toto statements attached to an image.
+	ImageAttestations(context.Context, *v1.ImageAttestationsRequest) (*v1.ImageAttestationsResponse, error)
 	// RemoveImage untags an image and, when nothing else uses it, removes its
 	// manifests and blobs from the repository. Garbage collection reclaims
 	// content that is no longer referenced anywhere.
@@ -93,6 +108,24 @@ func NewRegistryServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(registryServiceMethods.ByName("ListImages")),
 			connect.WithClientOptions(opts...),
 		),
+		inspectImage: connect.NewClient[v1.InspectImageRequest, v1.InspectImageResponse](
+			httpClient,
+			baseURL+RegistryServiceInspectImageProcedure,
+			connect.WithSchema(registryServiceMethods.ByName("InspectImage")),
+			connect.WithClientOptions(opts...),
+		),
+		imageHistory: connect.NewClient[v1.ImageHistoryRequest, v1.ImageHistoryResponse](
+			httpClient,
+			baseURL+RegistryServiceImageHistoryProcedure,
+			connect.WithSchema(registryServiceMethods.ByName("ImageHistory")),
+			connect.WithClientOptions(opts...),
+		),
+		imageAttestations: connect.NewClient[v1.ImageAttestationsRequest, v1.ImageAttestationsResponse](
+			httpClient,
+			baseURL+RegistryServiceImageAttestationsProcedure,
+			connect.WithSchema(registryServiceMethods.ByName("ImageAttestations")),
+			connect.WithClientOptions(opts...),
+		),
 		removeImage: connect.NewClient[v1.RemoveImageRequest, v1.RemoveImageResponse](
 			httpClient,
 			baseURL+RegistryServiceRemoveImageProcedure,
@@ -110,11 +143,14 @@ func NewRegistryServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 
 // registryServiceClient implements RegistryServiceClient.
 type registryServiceClient struct {
-	login       *connect.Client[v1.LoginRequest, v1.LoginResponse]
-	pull        *connect.Client[v1.PullRequest, v1.PullResponse]
-	listImages  *connect.Client[v1.ListImagesRequest, v1.ListImagesResponse]
-	removeImage *connect.Client[v1.RemoveImageRequest, v1.RemoveImageResponse]
-	query       *connect.Client[v1.QueryRequest, v1.QueryResponse]
+	login             *connect.Client[v1.LoginRequest, v1.LoginResponse]
+	pull              *connect.Client[v1.PullRequest, v1.PullResponse]
+	listImages        *connect.Client[v1.ListImagesRequest, v1.ListImagesResponse]
+	inspectImage      *connect.Client[v1.InspectImageRequest, v1.InspectImageResponse]
+	imageHistory      *connect.Client[v1.ImageHistoryRequest, v1.ImageHistoryResponse]
+	imageAttestations *connect.Client[v1.ImageAttestationsRequest, v1.ImageAttestationsResponse]
+	removeImage       *connect.Client[v1.RemoveImageRequest, v1.RemoveImageResponse]
+	query             *connect.Client[v1.QueryRequest, v1.QueryResponse]
 }
 
 // Login calls sdk.registry.v1.RegistryService.Login.
@@ -134,6 +170,33 @@ func (c *registryServiceClient) Pull(ctx context.Context, req *v1.PullRequest) (
 // ListImages calls sdk.registry.v1.RegistryService.ListImages.
 func (c *registryServiceClient) ListImages(ctx context.Context, req *v1.ListImagesRequest) (*v1.ListImagesResponse, error) {
 	response, err := c.listImages.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// InspectImage calls sdk.registry.v1.RegistryService.InspectImage.
+func (c *registryServiceClient) InspectImage(ctx context.Context, req *v1.InspectImageRequest) (*v1.InspectImageResponse, error) {
+	response, err := c.inspectImage.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// ImageHistory calls sdk.registry.v1.RegistryService.ImageHistory.
+func (c *registryServiceClient) ImageHistory(ctx context.Context, req *v1.ImageHistoryRequest) (*v1.ImageHistoryResponse, error) {
+	response, err := c.imageHistory.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// ImageAttestations calls sdk.registry.v1.RegistryService.ImageAttestations.
+func (c *registryServiceClient) ImageAttestations(ctx context.Context, req *v1.ImageAttestationsRequest) (*v1.ImageAttestationsResponse, error) {
+	response, err := c.imageAttestations.CallUnary(ctx, connect.NewRequest(req))
 	if response != nil {
 		return response.Msg, err
 	}
@@ -167,6 +230,12 @@ type RegistryServiceHandler interface {
 	Pull(context.Context, *v1.PullRequest, *connect.ServerStream[v1.PullResponse]) error
 	// ListImages lists the images in the caller's namespace.
 	ListImages(context.Context, *v1.ListImagesRequest) (*v1.ListImagesResponse, error)
+	// InspectImage describes one image in the caller's namespace.
+	InspectImage(context.Context, *v1.InspectImageRequest) (*v1.InspectImageResponse, error)
+	// ImageHistory returns the layers an image was built from.
+	ImageHistory(context.Context, *v1.ImageHistoryRequest) (*v1.ImageHistoryResponse, error)
+	// ImageAttestations returns the in-toto statements attached to an image.
+	ImageAttestations(context.Context, *v1.ImageAttestationsRequest) (*v1.ImageAttestationsResponse, error)
 	// RemoveImage untags an image and, when nothing else uses it, removes its
 	// manifests and blobs from the repository. Garbage collection reclaims
 	// content that is no longer referenced anywhere.
@@ -200,6 +269,24 @@ func NewRegistryServiceHandler(svc RegistryServiceHandler, opts ...connect.Handl
 		connect.WithSchema(registryServiceMethods.ByName("ListImages")),
 		connect.WithHandlerOptions(opts...),
 	)
+	registryServiceInspectImageHandler := connect.NewUnaryHandlerSimple(
+		RegistryServiceInspectImageProcedure,
+		svc.InspectImage,
+		connect.WithSchema(registryServiceMethods.ByName("InspectImage")),
+		connect.WithHandlerOptions(opts...),
+	)
+	registryServiceImageHistoryHandler := connect.NewUnaryHandlerSimple(
+		RegistryServiceImageHistoryProcedure,
+		svc.ImageHistory,
+		connect.WithSchema(registryServiceMethods.ByName("ImageHistory")),
+		connect.WithHandlerOptions(opts...),
+	)
+	registryServiceImageAttestationsHandler := connect.NewUnaryHandlerSimple(
+		RegistryServiceImageAttestationsProcedure,
+		svc.ImageAttestations,
+		connect.WithSchema(registryServiceMethods.ByName("ImageAttestations")),
+		connect.WithHandlerOptions(opts...),
+	)
 	registryServiceRemoveImageHandler := connect.NewUnaryHandlerSimple(
 		RegistryServiceRemoveImageProcedure,
 		svc.RemoveImage,
@@ -220,6 +307,12 @@ func NewRegistryServiceHandler(svc RegistryServiceHandler, opts ...connect.Handl
 			registryServicePullHandler.ServeHTTP(w, r)
 		case RegistryServiceListImagesProcedure:
 			registryServiceListImagesHandler.ServeHTTP(w, r)
+		case RegistryServiceInspectImageProcedure:
+			registryServiceInspectImageHandler.ServeHTTP(w, r)
+		case RegistryServiceImageHistoryProcedure:
+			registryServiceImageHistoryHandler.ServeHTTP(w, r)
+		case RegistryServiceImageAttestationsProcedure:
+			registryServiceImageAttestationsHandler.ServeHTTP(w, r)
 		case RegistryServiceRemoveImageProcedure:
 			registryServiceRemoveImageHandler.ServeHTTP(w, r)
 		case RegistryServiceQueryProcedure:
@@ -243,6 +336,18 @@ func (UnimplementedRegistryServiceHandler) Pull(context.Context, *v1.PullRequest
 
 func (UnimplementedRegistryServiceHandler) ListImages(context.Context, *v1.ListImagesRequest) (*v1.ListImagesResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sdk.registry.v1.RegistryService.ListImages is not implemented"))
+}
+
+func (UnimplementedRegistryServiceHandler) InspectImage(context.Context, *v1.InspectImageRequest) (*v1.InspectImageResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sdk.registry.v1.RegistryService.InspectImage is not implemented"))
+}
+
+func (UnimplementedRegistryServiceHandler) ImageHistory(context.Context, *v1.ImageHistoryRequest) (*v1.ImageHistoryResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sdk.registry.v1.RegistryService.ImageHistory is not implemented"))
+}
+
+func (UnimplementedRegistryServiceHandler) ImageAttestations(context.Context, *v1.ImageAttestationsRequest) (*v1.ImageAttestationsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sdk.registry.v1.RegistryService.ImageAttestations is not implemented"))
 }
 
 func (UnimplementedRegistryServiceHandler) RemoveImage(context.Context, *v1.RemoveImageRequest) (*v1.RemoveImageResponse, error) {

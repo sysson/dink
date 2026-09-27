@@ -124,18 +124,21 @@ type blobRecord struct {
 }
 
 func (s *Store) EnsureRepository(ctx context.Context, name string) error {
+	return s.kv.Update(ctx, func(tx kv.Txn) error {
+		return s.ensureRepository(ctx, tx, name)
+	})
+}
+
+func (s *Store) ensureRepository(ctx context.Context, tx kv.Txn, name string) error {
 	if !ociref.IsValidRepository(name) {
 		return oci.ErrNameInvalid
 	}
-	now := s.now()
-	return s.kv.Update(ctx, func(tx kv.Txn) error {
-		if _, err := tx.Get(ctx, kv.Key(nsRepo, name)); err == nil {
-			return nil
-		} else if !errors.Is(err, kv.ErrNotFound) {
-			return err
-		}
-		return putJSON(tx, kv.Key(nsRepo, name), repoRecord{CreatedAt: now})
-	})
+	if _, err := tx.Get(ctx, kv.Key(nsRepo, name)); err == nil {
+		return nil
+	} else if !errors.Is(err, kv.ErrNotFound) {
+		return err
+	}
+	return putJSON(tx, kv.Key(nsRepo, name), repoRecord{CreatedAt: s.now()})
 }
 
 func (s *Store) Repositories(ctx context.Context, after string, limit int) ([]string, error) {
@@ -379,7 +382,7 @@ func (s *Store) ReserveContent(ctx context.Context, name string, desc oci.Descri
 	}
 	reservation := backend.ContentReservation{ID: id, Repository: name, Descriptor: desc, ReservedAt: reservedAt}
 	err = s.kv.Update(ctx, func(tx kv.Txn) error {
-		if err := requireRepository(ctx, tx, name); err != nil {
+		if err := s.ensureRepository(ctx, tx, name); err != nil {
 			return err
 		}
 		if _, err := tx.Get(ctx, kv.Key(nsGCClaim, string(desc.Digest))); err == nil {
@@ -569,8 +572,10 @@ func (s *Store) ReleaseReservation(ctx context.Context, reservation backend.Cont
 		if err != nil {
 			return err
 		}
-		_, err = enqueueIfUnreachable(ctx, tx, reserved.Descriptor.Digest)
-		return err
+		if _, err := enqueueIfUnreachable(ctx, tx, reserved.Descriptor.Digest); err != nil {
+			return err
+		}
+		return s.pruneRepositoryIfEmpty(ctx, tx, reserved.Repository)
 	})
 }
 
@@ -618,7 +623,10 @@ func (s *Store) DeleteBlob(ctx context.Context, name string, digest oci.Digest) 
 		if queued {
 			result.GarbageCandidates = append(result.GarbageCandidates, digest)
 		}
-		return err
+		if err != nil {
+			return err
+		}
+		return s.pruneRepositoryIfEmpty(ctx, tx, name)
 	})
 	return result, err
 }
@@ -671,7 +679,7 @@ func (s *Store) DeleteManifest(ctx context.Context, name string, digest oci.Dige
 				result.GarbageCandidates = append(result.GarbageCandidates, candidate)
 			}
 		}
-		return nil
+		return s.pruneRepositoryIfEmpty(ctx, tx, name)
 	})
 	return result, err
 }
@@ -681,7 +689,7 @@ func (s *Store) CreateUpload(ctx context.Context, session backend.UploadSession)
 		return oci.ErrNameInvalid
 	}
 	return s.kv.Update(ctx, func(tx kv.Txn) error {
-		if err := requireRepository(ctx, tx, session.Repository); err != nil {
+		if err := s.ensureRepository(ctx, tx, session.Repository); err != nil {
 			return err
 		}
 		if _, err := tx.Get(ctx, kv.Key(nsUpload, string(session.ID))); err == nil {
@@ -746,7 +754,10 @@ func (s *Store) DeleteUpload(ctx context.Context, name string, id backend.Upload
 		if err := tx.Delete(kv.Key(nsUpload, string(id))); err != nil {
 			return err
 		}
-		return tx.Delete(kv.Key(nsUploadTime, timeKey(session.StartedAt), string(id)))
+		if err := tx.Delete(kv.Key(nsUploadTime, timeKey(session.StartedAt), string(id))); err != nil {
+			return err
+		}
+		return s.pruneRepositoryIfEmpty(ctx, tx, name)
 	})
 }
 
@@ -821,6 +832,55 @@ func requireRepository(ctx context.Context, r kv.Reader, name string) error {
 		return notFound(err, oci.ErrNameUnknown)
 	}
 	return nil
+}
+
+func (s *Store) pruneRepositoryIfEmpty(ctx context.Context, tx kv.Txn, name string) error {
+	repositoryKey := kv.Key(nsRepo, name)
+	if _, err := tx.Get(ctx, repositoryKey); errors.Is(err, kv.ErrNotFound) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	for _, namespace := range []string{nsTag, nsTagRef, nsManifest, nsBlob, nsReferrer} {
+		found, err := exists(ctx, tx, kv.Prefix(namespace, name))
+		if err != nil {
+			return err
+		}
+		if found {
+			return nil
+		}
+	}
+	for _, namespace := range []string{nsUpload, nsReservation} {
+		found := false
+		err := tx.Scan(ctx, kv.Prefix(namespace), "", func(_ string, value []byte) (bool, error) {
+			var repository string
+			if namespace == nsUpload {
+				var session backend.UploadSession
+				if err := json.Unmarshal(value, &session); err != nil {
+					return false, fmt.Errorf("decoding registry upload metadata: %w", err)
+				}
+				repository = session.Repository
+			} else {
+				var reservation backend.ContentReservation
+				if err := json.Unmarshal(value, &reservation); err != nil {
+					return false, fmt.Errorf("decoding registry reservation metadata: %w", err)
+				}
+				repository = reservation.Repository
+			}
+			if repository == name {
+				found = true
+				return false, nil
+			}
+			return true, nil
+		})
+		if err != nil {
+			return err
+		}
+		if found {
+			return nil
+		}
+	}
+	return tx.Delete(repositoryKey)
 }
 
 func readManifest(ctx context.Context, r kv.Reader, name string, digest oci.Digest) (backend.ManifestRecord, error) {

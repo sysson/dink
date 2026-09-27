@@ -21,18 +21,14 @@ import (
 	"github.com/sysson/syskit/stream"
 )
 
-func (r *RegistryService) ImageHistory() {}
-
-func (r *RegistryService) GetImage()          {}
-func (r *RegistryService) ImageInspect()      {}
-func (r *RegistryService) ImageAttestations() {}
-func (r *RegistryService) TagImage()          {}
-func (r *RegistryService) ImagePrune()        {}
-func (r *RegistryService) LoadImage()         {}
-func (r *RegistryService) ImportImage()       {}
-func (r *RegistryService) ExportImage()       {}
-func (r *RegistryService) PushImage()         {}
-func (r *RegistryService) Search()            {}
+func (r *RegistryService) GetImage()    {}
+func (r *RegistryService) TagImage()    {}
+func (r *RegistryService) ImagePrune()  {}
+func (r *RegistryService) LoadImage()   {}
+func (r *RegistryService) ImportImage() {}
+func (r *RegistryService) ExportImage() {}
+func (r *RegistryService) PushImage()   {}
+func (r *RegistryService) Search()      {}
 
 // PullImage pulls the image identified by ref from its source registry into
 // the internal registry, namespaced by the identity present in ctx, and

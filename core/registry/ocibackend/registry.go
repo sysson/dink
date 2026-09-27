@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"iter"
-	"log/slog"
 	"time"
 
 	"github.com/docker/oci"
@@ -17,6 +16,7 @@ import (
 	"github.com/docker/oci/ociref"
 	"github.com/sysson/dink/core/registry/backend"
 	"github.com/sysson/dink/core/registry/backend/blobstore"
+	"github.com/sysson/syskit/logx"
 )
 
 type Registry struct {
@@ -66,13 +66,13 @@ func (r *Registry) RunGarbageCollector(ctx context.Context, interval time.Durati
 	defer ticker.Stop()
 	for {
 		if err := r.CollectGarbage(ctx); err != nil && ctx.Err() == nil {
-			slog.ErrorContext(ctx, "collecting unreferenced registry content", "error", err)
+			logx.G(ctx).WithError(err).Error("collecting unreferenced registry content")
 		}
 		if err := r.CleanupExpiredUploads(ctx, time.Now().Add(-24*time.Hour)); err != nil && ctx.Err() == nil {
-			slog.ErrorContext(ctx, "cleaning expired registry uploads", "error", err)
+			logx.G(ctx).WithError(err).Error("cleaning expired registry uploads")
 		}
 		if err := r.CleanupExpiredReservations(ctx, time.Now().Add(-24*time.Hour)); err != nil && ctx.Err() == nil {
-			slog.ErrorContext(ctx, "cleaning expired registry content reservations", "error", err)
+			logx.G(ctx).WithError(err).Error("cleaning expired registry content reservations")
 		}
 		select {
 		case <-ctx.Done():
@@ -688,7 +688,7 @@ func (w *uploadWriter) Commit(digest oci.Digest) (oci.Descriptor, error) {
 		w.registry.metadata.DeleteUpload(context.WithoutCancel(w.ctx), w.repository, w.id),
 	)
 	if cleanupErr != nil {
-		slog.ErrorContext(w.ctx, "cleaning completed blob upload", "repository", w.repository, "upload", w.id, "error", cleanupErr)
+		logx.G(w.ctx).WithError(cleanupErr).Error("cleaning completed blob upload", "repository", w.repository, "upload", w.id)
 	}
 	return desc, nil
 }

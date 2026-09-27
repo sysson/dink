@@ -2,6 +2,10 @@
     "log": {
         "level": "info"
     },
+    "accessLog": {
+        "enabled": true,
+        "level": "info"
+    },
     "server": {
         "port": "5000"
     },

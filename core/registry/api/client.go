@@ -10,6 +10,7 @@ import (
 	"github.com/docker/oci/ociref"
 	imagetypes "github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/types"
 	registryv1 "github.com/sysson/dink/sdk/registry/v1"
@@ -127,6 +128,72 @@ func (c *Client) ImageDelete(ctx context.Context, name string, options imageback
 		records = append(records, imagetypes.DeleteResponse{Untagged: record.GetUntagged(), Deleted: record.GetDeleted()})
 	}
 	return records, nil
+}
+
+// ImageInspect describes name in the caller's namespace.
+func (c *Client) ImageInspect(ctx context.Context, name string, options imagebackend.ImageInspectOpts) (*imagebackend.InspectData, error) {
+	id, err := c.requestIdentity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	response, err := c.rpc.InspectImage(ctx, &registryv1.InspectImageRequest{
+		Identity:  id,
+		Name:      name,
+		Platform:  OptionalPlatformToProto(options.Platform),
+		Manifests: options.Manifests,
+	})
+	if err != nil {
+		return nil, FromConnectError(err)
+	}
+	data := &imagebackend.InspectData{}
+	if err := json.Unmarshal(response.GetImage(), data); err != nil {
+		return nil, fmt.Errorf("decoding image inspect response: %w", err)
+	}
+	return data, nil
+}
+
+// ImageHistory returns the layers name was built from, newest first.
+func (c *Client) ImageHistory(ctx context.Context, name string, platform *ocispec.Platform) ([]imagetypes.HistoryResponseItem, error) {
+	id, err := c.requestIdentity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	response, err := c.rpc.ImageHistory(ctx, &registryv1.ImageHistoryRequest{
+		Identity: id,
+		Name:     name,
+		Platform: OptionalPlatformToProto(platform),
+	})
+	if err != nil {
+		return nil, FromConnectError(err)
+	}
+	var history []imagetypes.HistoryResponseItem
+	if err := json.Unmarshal(response.GetHistory(), &history); err != nil {
+		return nil, fmt.Errorf("decoding image history response: %w", err)
+	}
+	return history, nil
+}
+
+// ImageAttestations returns the in-toto statements attached to name.
+func (c *Client) ImageAttestations(ctx context.Context, name string, options imagebackend.AttestationOpts) ([]imagetypes.AttestationStatement, error) {
+	id, err := c.requestIdentity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	response, err := c.rpc.ImageAttestations(ctx, &registryv1.ImageAttestationsRequest{
+		Identity:         id,
+		Name:             name,
+		Platform:         OptionalPlatformToProto(options.Platform),
+		PredicateTypes:   options.PredicateTypes,
+		IncludeStatement: options.IncludeStatement,
+	})
+	if err != nil {
+		return nil, FromConnectError(err)
+	}
+	var statements []imagetypes.AttestationStatement
+	if err := json.Unmarshal(response.GetStatements(), &statements); err != nil {
+		return nil, fmt.Errorf("decoding image attestations response: %w", err)
+	}
+	return statements, nil
 }
 
 // Query executes a GraphQL document against dinki metadata and returns the

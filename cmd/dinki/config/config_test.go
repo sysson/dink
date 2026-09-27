@@ -11,6 +11,7 @@ func TestLoadMergesFileWithDefaults(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{
 		"server": {"port": "5002"},
 		"tls": {"disabled": true},
+		"api": {"disabled": true},
 		"storage": {"mem": {}},
 		"metadata": {"etcd": {"endpoints": ["etcd-0:2379"], "prefix": "/dinki"}}
 	}`), 0o600); err != nil {
@@ -26,6 +27,9 @@ func TestLoadMergesFileWithDefaults(t *testing.T) {
 	}
 	if cfg.Log.Level != "info" {
 		t.Fatalf("log level = %q, want inherited default info", cfg.Log.Level)
+	}
+	if !cfg.AccessLog.Enabled || cfg.AccessLog.Level != "error" {
+		t.Fatalf("access log = %+v, want inherited default enabled at error level", cfg.AccessLog)
 	}
 	if cfg.Storage.File != nil || cfg.Storage.Mem == nil {
 		t.Fatalf("storage = %+v, want only mem replacing the default file driver", cfg.Storage)
@@ -50,6 +54,9 @@ func TestDefaultUsesPersistentBackends(t *testing.T) {
 	if cfg.Metadata.BBolt == nil || cfg.Metadata.BBolt.Path != "/var/lib/dinki/metadata.db" {
 		t.Fatalf("metadata = %+v, want bbolt-backed default", cfg.Metadata)
 	}
+	if !cfg.AccessLog.Enabled {
+		t.Fatal("access logging is disabled by default")
+	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("default config is invalid: %v", err)
 	}
@@ -65,12 +72,16 @@ func TestValidateAPI(t *testing.T) {
 		"same address":     {mutate: func(c *Config) { c.API.Port = c.Server.Port }, wantErr: true},
 		"missing CA":       {mutate: func(c *Config) { c.API.ClientCAFile = "" }, wantErr: true},
 		"missing subject":  {mutate: func(c *Config) { c.API.ClientOrganization = ""; c.API.ClientCommonName = "" }, wantErr: true},
-		"plaintext without CA": {mutate: func(c *Config) {
+		"plaintext api": {mutate: func(c *Config) {
 			c.TLS.Disabled = true
 			c.API.ClientCAFile = ""
 			c.API.ClientOrganization = ""
 			c.API.ClientCommonName = ""
-		}},
+		}, wantErr: true},
+		"graphql without api": {mutate: func(c *Config) {
+			c.API.Disabled = true
+			c.GraphQL.Enabled = true
+		}, wantErr: true},
 		"bad port": {mutate: func(c *Config) { c.API.Port = "not-a-port" }, wantErr: true},
 	}
 	for name, test := range tests {

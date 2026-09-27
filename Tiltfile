@@ -5,6 +5,7 @@
 #   tilt down        # tear everything down
 
 allow_k8s_contexts('dink-dev')
+update_settings(max_parallel_updates=1)
 
 DINK='ghcr.io/sysson/dink'
 DINKI='ghcr.io/sysson/dinki'

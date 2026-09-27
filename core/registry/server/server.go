@@ -12,6 +12,7 @@ import (
 
 	"github.com/docker/oci"
 	"github.com/docker/oci/ociserver"
+	"github.com/sysson/syskit/logx"
 )
 
 // GraphQLPath is where the optional GraphQL metadata query endpoint is served.
@@ -20,18 +21,9 @@ const GraphQLPath = "/v2/_dinki/ext/graphql"
 type Handler struct {
 	backend oci.Interface
 	api     http.Handler
-	graphql http.Handler
 }
 
-// Option configures a Handler.
-type Option func(*Handler)
-
-// WithGraphQL serves handler at GraphQLPath.
-func WithGraphQL(handler http.Handler) Option {
-	return func(h *Handler) { h.graphql = handler }
-}
-
-func New(backend oci.Interface, options ...Option) (*Handler, error) {
+func New(backend oci.Interface) (http.Handler, error) {
 	if backend == nil {
 		return nil, fmt.Errorf("OCI backend is required")
 	}
@@ -42,19 +34,11 @@ func New(backend oci.Interface, options ...Option) (*Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating OCI protocol server: %w", err)
 	}
-	h := &Handler{backend: backend, api: api}
-	for _, option := range options {
-		option(h)
-	}
-	return h, nil
+	return &Handler{backend: backend, api: api}, nil
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
-	if h.graphql != nil && r.URL.Path == GraphQLPath {
-		h.graphql.ServeHTTP(w, r)
-		return
-	}
 	if r.Method == http.MethodGet && r.URL.Path == "/v2/_catalog" {
 		h.catalog(w, r)
 		return
@@ -79,17 +63,17 @@ func (h *Handler) catalog(w http.ResponseWriter, r *http.Request) {
 	}
 	items, hasMore, err := collectPage(r.Context(), h.backend.Repositories(r.Context(), r.URL.Query().Get("last")), limit)
 	if err != nil {
-		slog.ErrorContext(r.Context(), "listing registry repositories", "error", err)
+		logx.G(r.Context()).WithError(err).Error("listing registry repositories")
 		writeError(w, http.StatusInternalServerError, "SERVER_ERROR", "unable to list repositories")
 		return
 	}
 
-	h.writePage(w, "/v2/_catalog", limit, items, hasMore, struct {
+	h.writePage(r.Context(), w, "/v2/_catalog", limit, items, hasMore, struct {
 		Repositories []string `json:"repositories"`
 	}{Repositories: items})
 }
 
-func (h *Handler) writePage(w http.ResponseWriter, path string, limit int, items []string, hasMore bool, body any) {
+func (h *Handler) writePage(ctx context.Context, w http.ResponseWriter, path string, limit int, items []string, hasMore bool, body any) {
 	w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
 	w.Header().Set("Content-Type", "application/json")
 	if hasMore {
@@ -99,7 +83,7 @@ func (h *Handler) writePage(w http.ResponseWriter, path string, limit int, items
 		w.Header().Set("Link", "<"+path+"?"+query.Encode()+">; rel=\"next\"")
 	}
 	if err := json.NewEncoder(w).Encode(body); err != nil {
-		slog.Error("writing registry listing response", "error", err)
+		logx.G(ctx).WithError(err).Error("writing registry listing response")
 	}
 }
 

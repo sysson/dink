@@ -53,7 +53,10 @@ func TestBlobDeleteAndGarbageCollection(t *testing.T) {
 	if _, err := contentStore.Size(ctx, digest); !errors.Is(err, blobstore.ErrObjectUnknown) {
 		t.Fatalf("content size error = %v, want ErrObjectUnknown", err)
 	}
-	if _, err := registry.ResolveBlob(ctx, "team/app", digest); !errors.Is(err, oci.ErrBlobUnknown) {
-		t.Fatalf("ResolveBlob error = %v, want ErrBlobUnknown", err)
+	if repositories, err := metadataStore.Repositories(ctx, "", 10); err != nil || len(repositories) != 0 {
+		t.Fatalf("repositories after deleting final blob = %v, %v; want none", repositories, err)
+	}
+	if _, err := registry.ResolveBlob(ctx, "team/app", digest); !errors.Is(err, oci.ErrNameUnknown) {
+		t.Fatalf("ResolveBlob error = %v, want ErrNameUnknown", err)
 	}
 }

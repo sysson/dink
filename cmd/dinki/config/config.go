@@ -17,17 +17,23 @@ import (
 const DefaultFile = "/etc/dinki/config.json"
 
 type Config struct {
-	Log      Log              `json:"log"`
-	Server   Server           `json:"server"`
-	TLS      TLS              `json:"tls"`
-	Storage  blobstore.Config `json:"storage"`
-	Metadata drivers.Config   `json:"metadata"`
-	GraphQL  GraphQL          `json:"graphql"`
-	API      API              `json:"api"`
+	Log       Log              `json:"log"`
+	AccessLog AccessLog        `json:"accessLog"`
+	Server    Server           `json:"server"`
+	TLS       TLS              `json:"tls"`
+	Storage   blobstore.Config `json:"storage"`
+	Metadata  drivers.Config   `json:"metadata"`
+	GraphQL   GraphQL          `json:"graphql"`
+	API       API              `json:"api"`
 }
 
 type Log struct {
 	Level string `json:"level"`
+}
+
+type AccessLog struct {
+	Enabled bool   `json:"enabled"`
+	Level   string `json:"level"`
 }
 
 type Server struct {
@@ -42,8 +48,8 @@ type TLS struct {
 	MinTLSVersion string `json:"minTLSVersion"`
 }
 
-// GraphQL controls the metadata query endpoint on the public registry
-// listener at /v2/_dinki/ext/graphql. The internal API always has it.
+// GraphQL controls the metadata query endpoint on the client-authenticated
+// internal API listener at /v2/_dinki/ext/graphql.
 type GraphQL struct {
 	Enabled bool `json:"enabled"`
 }
@@ -64,7 +70,8 @@ type API struct {
 
 func Default() Config {
 	return Config{
-		Log: Log{Level: "info"},
+		Log:       Log{Level: "info"},
+		AccessLog: AccessLog{Enabled: true, Level: "error"},
 		Server: Server{
 			Port: "5000",
 		},
@@ -107,6 +114,9 @@ func (c Config) Validate() error {
 	if c.Log.Level == "" {
 		errs = append(errs, errors.New("log.level must not be empty"))
 	}
+	if c.AccessLog.Level == "" {
+		errs = append(errs, errors.New("accessLog.level must not be empty"))
+	}
 	if _, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(c.Server.Host, c.Server.Port)); err != nil {
 		errs = append(errs, fmt.Errorf("server address: %w", err))
 	}
@@ -127,14 +137,18 @@ func (c Config) Validate() error {
 	if err := c.Metadata.Validate(); err != nil {
 		errs = append(errs, fmt.Errorf("metadata: %w", err))
 	}
+	if c.GraphQL.Enabled && c.API.Disabled {
+		errs = append(errs, errors.New("graphql requires the client-authenticated api listener"))
+	}
 	if !c.API.Disabled {
 		if _, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(c.API.Host, c.API.Port)); err != nil {
 			errs = append(errs, fmt.Errorf("api address: %w", err))
 		}
-		if !c.TLS.Disabled && c.API.ClientCAFile == "" {
+		if c.TLS.Disabled {
+			errs = append(errs, errors.New("api requires TLS to enforce client certificate authentication"))
+		} else if c.API.ClientCAFile == "" {
 			errs = append(errs, errors.New("api.clientCAFile must not be empty when TLS is enabled"))
-		}
-		if !c.TLS.Disabled && c.API.ClientOrganization == "" && c.API.ClientCommonName == "" {
+		} else if c.API.ClientOrganization == "" && c.API.ClientCommonName == "" {
 			errs = append(errs, errors.New("api.clientOrganization or api.clientCommonName must be set when TLS is enabled"))
 		}
 		if c.API.Host == c.Server.Host && c.API.Port == c.Server.Port {

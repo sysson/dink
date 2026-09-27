@@ -293,27 +293,14 @@ func TestBlobUploadRejectsDigestMismatch(t *testing.T) {
 	}
 }
 
-func TestGraphQLRouteIsOptional(t *testing.T) {
-	queries := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("graphql"))
-	})
-	enabled, err := New(ocimem.New(), WithGraphQL(queries))
+func TestGraphQLRouteIsNotServedByRegistry(t *testing.T) {
+	handler, err := New(ocimem.New())
 	if err != nil {
 		t.Fatal(err)
 	}
 	recorder := httptest.NewRecorder()
-	enabled.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, GraphQLPath, nil))
-	if recorder.Body.String() != "graphql" {
-		t.Fatalf("enabled body = %q", recorder.Body.String())
-	}
-
-	disabled, err := New(ocimem.New())
-	if err != nil {
-		t.Fatal(err)
-	}
-	recorder = httptest.NewRecorder()
-	disabled.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, GraphQLPath, nil))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, GraphQLPath, nil))
 	if recorder.Body.String() == "graphql" || recorder.Code == http.StatusOK {
-		t.Fatalf("disabled status = %d body = %q", recorder.Code, recorder.Body.String())
+		t.Fatalf("status = %d body = %q, want no GraphQL response", recorder.Code, recorder.Body.String())
 	}
 }

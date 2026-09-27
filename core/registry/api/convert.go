@@ -12,7 +12,7 @@ import (
 	"github.com/docker/oci/ocidigest"
 	"github.com/docker/oci/ociref"
 	imagetypes "github.com/moby/moby/api/types/image"
-	godigest "github.com/opencontainers/go-digest"
+	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/types"
@@ -100,6 +100,24 @@ func PlatformFromProto(platform *registryv1.Platform) ocispec.Platform {
 	}
 }
 
+// OptionalPlatformToProto keeps "no platform requested" distinct from a
+// zero platform, which selects the daemon's default.
+func OptionalPlatformToProto(platform *ocispec.Platform) *registryv1.Platform {
+	if platform == nil {
+		return nil
+	}
+	return PlatformToProto(*platform)
+}
+
+// OptionalPlatformFromProto is the inverse of OptionalPlatformToProto.
+func OptionalPlatformFromProto(platform *registryv1.Platform) *ocispec.Platform {
+	if platform == nil {
+		return nil
+	}
+	result := PlatformFromProto(platform)
+	return &result
+}
+
 func PlatformsToProto(platforms []ocispec.Platform) []*registryv1.Platform {
 	result := make([]*registryv1.Platform, len(platforms))
 	for i, platform := range platforms {
@@ -173,7 +191,7 @@ func SummaryFromProto(summary *registryv1.ImageSummary) imagetypes.Summary {
 	if descriptor := summary.GetTarget(); descriptor != nil {
 		result.Descriptor = &ocispec.Descriptor{
 			MediaType: descriptor.GetMediaType(),
-			Digest:    godigest.Digest(descriptor.GetDigest()),
+			Digest:    digest.Digest(descriptor.GetDigest()),
 			Size:      descriptor.GetSize(),
 		}
 		if descriptor.GetPlatform() != nil {

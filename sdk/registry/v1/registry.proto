@@ -17,6 +17,12 @@ service RegistryService {
   rpc Pull(PullRequest) returns (stream PullResponse);
   // ListImages lists the images in the caller's namespace.
   rpc ListImages(ListImagesRequest) returns (ListImagesResponse);
+  // InspectImage describes one image in the caller's namespace.
+  rpc InspectImage(InspectImageRequest) returns (InspectImageResponse);
+  // ImageHistory returns the layers an image was built from.
+  rpc ImageHistory(ImageHistoryRequest) returns (ImageHistoryResponse);
+  // ImageAttestations returns the in-toto statements attached to an image.
+  rpc ImageAttestations(ImageAttestationsRequest) returns (ImageAttestationsResponse);
   // RemoveImage untags an image and, when nothing else uses it, removes its
   // manifests and blobs from the repository. Garbage collection reclaims
   // content that is no longer referenced anywhere.
@@ -108,6 +114,51 @@ message ImageSummary {
 
 message ListImagesResponse {
   repeated ImageSummary images = 1;
+}
+
+// The inspection responses below carry the Docker API document verbatim as
+// JSON rather than mirroring its shape in proto: dink passes them straight
+// through to the Docker client, and the shapes are large and owned by moby.
+
+message InspectImageRequest {
+  Identity identity = 1;
+  // The image name as given to docker inspect, relative to the namespace. A
+  // tag, a digest reference or a full or truncated image ID.
+  string name = 2;
+  Platform platform = 3;
+  // Include the per-manifest breakdown of a multi-platform image.
+  bool manifests = 4;
+}
+
+message InspectImageResponse {
+  // The JSON-encoded image inspect document.
+  bytes image = 1;
+}
+
+message ImageHistoryRequest {
+  Identity identity = 1;
+  string name = 2;
+  Platform platform = 3;
+}
+
+message ImageHistoryResponse {
+  // The JSON-encoded array of history items, newest first.
+  bytes history = 1;
+}
+
+message ImageAttestationsRequest {
+  Identity identity = 1;
+  string name = 2;
+  Platform platform = 3;
+  // In-toto predicate types to return; empty returns every statement.
+  repeated string predicate_types = 4;
+  // Read the statement bodies out of storage and return them.
+  bool include_statement = 5;
+}
+
+message ImageAttestationsResponse {
+  // The JSON-encoded array of attestation statements.
+  bytes statements = 1;
 }
 
 message RemoveImageRequest {

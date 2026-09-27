@@ -14,6 +14,15 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
+// Annotations docker sets on the index child that carries an image's
+// attestation statements, naming the image manifest they are for.
+const (
+	AnnotationReferenceType   = "vnd.docker.reference.type"
+	AnnotationReferenceDigest = "vnd.docker.reference.digest"
+
+	AnnotationReferenceTypeAttestation = "attestation-manifest"
+)
+
 func blobsFromDescriptors(desc []oci.Descriptor) chan oci.Descriptor {
 	blobs := make(chan oci.Descriptor, len(desc))
 	go func() {
@@ -270,12 +279,6 @@ func parseIndexManifest(p platforms.MatchComparer, index *oci.IndexOrManifest) (
 		return nil, fmt.Errorf("no manifest found for platform %s", matcherString(matcher))
 	}
 
-	const (
-		AnnotationReferenceType   = "vnd.docker.reference.type"
-		AnnotationReferenceDigest = "vnd.docker.reference.digest"
-
-		AnnotationReferenceTypeAttestation = "attestation-manifest"
-	)
 	//now match docker annotations
 	for _, m := range index.Manifests {
 		if m.Annotations[AnnotationReferenceType] != AnnotationReferenceTypeAttestation {

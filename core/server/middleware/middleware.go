@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httplog/v3"
@@ -35,7 +36,7 @@ func Logging(ctx context.Context, out io.Writer, level string) Middleware {
 		Schema:        httplog.SchemaOTEL,
 		RecoverPanics: true,
 		Skip: func(req *http.Request, respStatus int) bool {
-			return respStatus == 404 || respStatus == 405
+			return strings.HasPrefix(req.UserAgent(), "kube-probe/") || respStatus == 404 || respStatus == 405
 		},
 		LogRequestHeaders:  []string{"Origin"},
 		LogResponseHeaders: []string{},
@@ -50,11 +51,16 @@ func Logging(ctx context.Context, out io.Writer, level string) Middleware {
 		},
 	})
 	return func(next http.Handler) http.Handler {
-		wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		return requestLogger(ContextLogger()(next))
+	}
+}
+
+func ContextLogger() Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			logger := logx.G(r.Context()).With("request.id", middleware.GetReqID(r.Context()))
 			r = r.WithContext(logx.WithLogger(r.Context(), logger))
 			next.ServeHTTP(w, r)
 		})
-		return requestLogger(wrapped)
 	}
 }

@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/docker/oci"
-	"github.com/docker/oci/ociref"
 	imagetypes "github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	ocidigest "github.com/opencontainers/go-digest"
@@ -47,11 +47,22 @@ type querySized struct {
 	Size   int64  `json:"size"`
 }
 
+// queryDescriptor is querySized with the fields only inspect and
+// attestations ask for; they stay empty for queries that omit them.
+type queryDescriptor struct {
+	Digest      string            `json:"digest"`
+	Size        int64             `json:"size"`
+	MediaType   string            `json:"mediaType"`
+	Annotations []queryAnnotation `json:"annotations"`
+}
+
 type queryImageConfig struct {
 	Created      *time.Time `json:"created"`
 	OS           *string    `json:"os"`
 	Architecture *string    `json:"architecture"`
 	Variant      *string    `json:"variant"`
+	// Raw is the verbatim config JSON, requested only by inspect.
+	Raw string `json:"raw"`
 }
 
 type queryImage struct {
@@ -59,8 +70,16 @@ type queryImage struct {
 	MediaType   string            `json:"mediaType"`
 	Size        int64             `json:"size"`
 	Config      *querySized       `json:"config"`
-	Layers      []querySized      `json:"layers"`
+	Layers      []queryDescriptor `json:"layers"`
 	ImageConfig *queryImageConfig `json:"imageConfig"`
+}
+
+// queryImageTree is a manifest together with the index children and tags
+// that describe the image a reference resolves to.
+type queryImageTree struct {
+	queryImage
+	Tags      []string          `json:"tags"`
+	Manifests []queryIndexChild `json:"manifests"`
 }
 
 type queryIndexChild struct {
@@ -78,15 +97,36 @@ type queryAnnotation struct {
 }
 
 type queryTag struct {
-	Name     string `json:"name"`
-	Manifest *struct {
-		queryImage
-		Manifests []queryIndexChild `json:"manifests"`
-	} `json:"manifest"`
+	Name     string          `json:"name"`
+	Manifest *queryImageTree `json:"manifest"`
 }
 
 const imageFields = `digest mediaType size config { digest size } layers { digest size }
 	imageConfig { created os architecture variant }`
+
+// inspectFields adds what inspect, history and attestations read on top of
+// [imageFields]: the raw config JSON and the layer media types and
+// annotations that identify in-toto statements.
+const inspectFields = `digest mediaType size config { digest size }
+	layers { digest size mediaType annotations { key value } }
+	imageConfig { created os architecture variant raw }`
+
+// imageTreeQuery resolves a reference to a manifest and, for an index, the
+// children it selects between.
+func imageTreeQuery(fields string) string {
+	return `query($repo: String!, $ref: String!) {
+		image(repository: $repo, reference: $ref) {
+			` + fields + `
+			tags
+			manifests {
+				digest mediaType size
+				platform { os architecture variant osVersion osFeatures }
+				annotations { key value }
+				manifest { ` + fields + ` }
+			}
+		}
+	}`
+}
 
 var listTagsQuery = `query($repo: String!, $after: String) {
 	repository(name: $repo) {
@@ -316,28 +356,21 @@ type closureEntry struct {
 
 // ImageDelete untags name and, when no other tag or manifest in the
 // repository still uses the image, removes the image's manifests and blobs
-// from the repository. Removal only updates metadata; registry garbage
+// from the repository. name may be a tag, a digest reference or a full or
+// truncated image ID. Removal only updates metadata; registry garbage
 // collection deletes content once nothing references it anywhere. Deleted
 // records list the digests whose content no longer has any user.
 func (r *RegistryService) ImageDelete(ctx context.Context, name string, options imagebackend.RemoveOptions) ([]imagetypes.DeleteResponse, error) {
 	if len(options.Platforms) > 0 {
 		return nil, httpx.BadRequest(errors.New("removing individual platforms is not supported"))
 	}
-	id, ok := identity.FromContext(ctx)
-	if !ok {
-		return nil, fmt.Errorf("missing identity in context")
-	}
 	local, err := r.client()
 	if err != nil {
 		return nil, err
 	}
-	parsed, err := ociref.ParseRelative(name)
+	resolved, err := r.resolveImage(ctx, name)
 	if err != nil {
-		return nil, httpx.BadRequest(err)
-	}
-	ref := repositoryFor(id, parsed)
-	if ref.Tag == "" {
-		ref.Tag = "latest"
+		return nil, err
 	}
 
 	var data struct {
@@ -347,7 +380,7 @@ func (r *RegistryService) ImageDelete(ctx context.Context, name string, options 
 			Closure []closureEntry `json:"closure"`
 		} `json:"image"`
 	}
-	if err := r.Query(ctx, removeImageQuery, map[string]any{"repo": ref.Repository, "ref": ref.Tag}, &data); err != nil {
+	if err := r.Query(ctx, removeImageQuery, map[string]any{"repo": resolved.repository, "ref": resolved.digest.String()}, &data); err != nil {
 		return nil, err
 	}
 	if data.Image == nil {
@@ -355,19 +388,31 @@ func (r *RegistryService) ImageDelete(ctx context.Context, name string, options 
 	}
 	image := data.Image
 
-	display := strings.TrimPrefix(ref.Repository, id.Namespace+"/")
-	untagged := display + ":" + ref.Tag
-	if _, byDigest := digestForTag(ref.Tag); byDigest {
-		untagged = display + "@" + image.Digest
+	// A tagged name removes just that tag. An ID or digest names the image
+	// itself, which docker only removes unforced while a single tag holds it.
+	remove := []string{resolved.tag}
+	if resolved.tag == "" {
+		remove = image.Tags
+		if len(remove) > 1 && !options.Force {
+			return nil, httpx.Conflict(fmt.Errorf("unable to delete %s (must be forced) - image is referenced in multiple tags", name))
+		}
 	}
-	if err := local.DeleteTag(ctx, ref.Repository, ref.Tag); err != nil {
-		return nil, fmt.Errorf("untagging %s: %w", untagged, err)
+
+	records := make([]imagetypes.DeleteResponse, 0, len(remove))
+	for _, tag := range remove {
+		untagged := resolved.display() + ":" + tag
+		if _, byDigest := digestForTag(tag); byDigest {
+			untagged = resolved.display() + "@" + image.Digest
+		}
+		if err := local.DeleteTag(ctx, resolved.repository, tag); err != nil {
+			return records, fmt.Errorf("untagging %s: %w", untagged, err)
+		}
+		records = append(records, imagetypes.DeleteResponse{Untagged: untagged})
 	}
-	records := []imagetypes.DeleteResponse{{Untagged: untagged}}
 
 	remaining := 0
 	for _, tag := range image.Tags {
-		if tag != ref.Tag {
+		if !slices.Contains(remove, tag) {
 			remaining++
 		}
 	}
@@ -385,12 +430,12 @@ func (r *RegistryService) ImageDelete(ctx context.Context, name string, options 
 			}
 			digest := oci.Digest(entry.Digest)
 			if pass {
-				err = local.DeleteManifest(ctx, ref.Repository, digest)
+				err = local.DeleteManifest(ctx, resolved.repository, digest)
 			} else {
-				err = local.DeleteBlob(ctx, ref.Repository, digest)
+				err = local.DeleteBlob(ctx, resolved.repository, digest)
 			}
 			if err != nil && !isNotFound(err) {
-				return records, fmt.Errorf("removing %s from %s: %w", digest, ref.Repository, err)
+				return records, fmt.Errorf("removing %s from %s: %w", digest, resolved.repository, err)
 			}
 			deleted = append(deleted, entry)
 		}

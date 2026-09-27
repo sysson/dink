@@ -126,6 +126,61 @@ func (s *Server) RemoveImage(ctx context.Context, request *registryv1.RemoveImag
 	return response, nil
 }
 
+func (s *Server) InspectImage(ctx context.Context, request *registryv1.InspectImageRequest) (*registryv1.InspectImageResponse, error) {
+	ctx, err := withIdentity(ctx, request.GetIdentity())
+	if err != nil {
+		return nil, err
+	}
+	data, err := s.images.ImageInspect(ctx, request.GetName(), imagebackend.ImageInspectOpts{
+		Manifests: request.GetManifests(),
+		Platform:  api.OptionalPlatformFromProto(request.GetPlatform()),
+	})
+	if err != nil {
+		return nil, api.ToConnectError(err)
+	}
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return &registryv1.InspectImageResponse{Image: encoded}, nil
+}
+
+func (s *Server) ImageHistory(ctx context.Context, request *registryv1.ImageHistoryRequest) (*registryv1.ImageHistoryResponse, error) {
+	ctx, err := withIdentity(ctx, request.GetIdentity())
+	if err != nil {
+		return nil, err
+	}
+	history, err := s.images.ImageHistory(ctx, request.GetName(), api.OptionalPlatformFromProto(request.GetPlatform()))
+	if err != nil {
+		return nil, api.ToConnectError(err)
+	}
+	encoded, err := json.Marshal(history)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return &registryv1.ImageHistoryResponse{History: encoded}, nil
+}
+
+func (s *Server) ImageAttestations(ctx context.Context, request *registryv1.ImageAttestationsRequest) (*registryv1.ImageAttestationsResponse, error) {
+	ctx, err := withIdentity(ctx, request.GetIdentity())
+	if err != nil {
+		return nil, err
+	}
+	statements, err := s.images.ImageAttestations(ctx, request.GetName(), imagebackend.AttestationOpts{
+		Platform:         api.OptionalPlatformFromProto(request.GetPlatform()),
+		PredicateTypes:   request.GetPredicateTypes(),
+		IncludeStatement: request.GetIncludeStatement(),
+	})
+	if err != nil {
+		return nil, api.ToConnectError(err)
+	}
+	encoded, err := json.Marshal(statements)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return &registryv1.ImageAttestationsResponse{Statements: encoded}, nil
+}
+
 func (s *Server) Query(ctx context.Context, request *registryv1.QueryRequest) (*registryv1.QueryResponse, error) {
 	var variables map[string]any
 	if len(request.GetVariables()) > 0 {

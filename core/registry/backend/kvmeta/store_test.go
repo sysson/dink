@@ -44,6 +44,7 @@ func runSuite(t *testing.T, open func(*testing.T) kv.Store) {
 		return store
 	}
 	t.Run("GarbageClaimFencing", func(t *testing.T) { testGarbageClaim(t, newStore(t)) })
+	t.Run("EmptyRepositoryPruning", func(t *testing.T) { testEmptyRepositoryPruning(t, newStore(t)) })
 	t.Run("ImageGraphIndexes", func(t *testing.T) { testImageGraph(t, newStore(t)) })
 	t.Run("ExpiryOrdering", func(t *testing.T) { testExpiry(t, newStore(t)) })
 	t.Run("IndexWithMissingChildren", func(t *testing.T) { testIndexMissingChildren(t, newStore(t)) })
@@ -53,6 +54,70 @@ type fixture struct {
 	t     *testing.T
 	store *kvmeta.Store
 	ctx   context.Context
+}
+
+func testEmptyRepositoryPruning(t *testing.T, store *kvmeta.Store) {
+	ctx := context.Background()
+	f := fixture{t: t, store: store, ctx: ctx}
+	uploadBlob := f.blob("with-upload", "upload-content")
+	if err := store.CreateUpload(ctx, backend.UploadSession{ID: "upload", Repository: "with-upload", StartedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	reservedBlob := f.blob("with-reservation", "reserved-content")
+	reservation, err := store.ReserveContent(ctx, "with-reservation", oci.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    ocidigest.FromBytes([]byte("reserved")),
+		Size:      int64(len("reserved")),
+	}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob := f.blob("with-blob", "content")
+	manifest := f.manifest("with-manifest", "manifest", backend.ManifestRecord{Tags: []string{"latest"}})
+
+	if _, err := store.DeleteBlob(ctx, "with-upload", uploadBlob.Digest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DeleteBlob(ctx, "with-reservation", reservedBlob.Digest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DeleteBlob(ctx, "with-blob", blob.Digest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DeleteManifest(ctx, "with-manifest", manifest.Digest); err != nil {
+		t.Fatal(err)
+	}
+	repositories, err := store.Repositories(ctx, "", 10)
+	if err != nil || !slices.Equal(repositories, []string{"with-reservation", "with-upload"}) {
+		t.Fatalf("repositories with active state = %v, %v; want reservation and upload repositories", repositories, err)
+	}
+
+	if err := store.DeleteUpload(ctx, "with-upload", "upload"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReleaseReservation(ctx, reservation); err != nil {
+		t.Fatal(err)
+	}
+	repositories, err = store.Repositories(ctx, "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repositories) != 0 {
+		t.Fatalf("repositories after deleting final content = %v, want none", repositories)
+	}
+
+	desc := oci.Descriptor{MediaType: "application/octet-stream", Digest: ocidigest.FromBytes([]byte("recreated")), Size: int64(len("recreated"))}
+	reservation, err = store.ReserveContent(ctx, "recreated", desc, time.Now())
+	if err != nil {
+		t.Fatalf("ReserveContent recreates repository: %v", err)
+	}
+	if err := store.ReleaseReservation(ctx, reservation); err != nil {
+		t.Fatal(err)
+	}
+	repositories, err = store.Repositories(ctx, "", 10)
+	if err != nil || len(repositories) != 0 {
+		t.Fatalf("repositories after releasing recreated reservation = %v, %v; want none", repositories, err)
+	}
 }
 
 func (f fixture) blob(repo, content string) oci.Descriptor {

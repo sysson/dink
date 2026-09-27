@@ -189,7 +189,8 @@ func persistentHandler(t *testing.T, ctx context.Context, dir string) (*Handler,
 		_ = metadata.Close()
 		t.Fatal(err)
 	}
-	return handler, func() error {
+	h := handler.(*Handler)
+	return h, func() error {
 		return errors.Join(metadata.Close(), content.Close())
 	}
 }

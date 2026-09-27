@@ -14,14 +14,16 @@ import (
 	"slices"
 	"time"
 
-	dinkiconfig "github.com/sysson/dink/cmd/dinki/config"
+	"github.com/sysson/dink/cmd/dinki/config"
 	"github.com/sysson/dink/core/registry"
-	registryapi "github.com/sysson/dink/core/registry/api/server"
+	api "github.com/sysson/dink/core/registry/api/server"
 	"github.com/sysson/dink/core/registry/backend/blobstore"
 	"github.com/sysson/dink/core/registry/backend/kvmeta"
 	"github.com/sysson/dink/core/registry/ocibackend"
 	"github.com/sysson/dink/core/registry/query"
-	registryserver "github.com/sysson/dink/core/registry/server"
+	"github.com/sysson/dink/core/registry/server"
+	"github.com/sysson/dink/core/server/middleware"
+	"github.com/sysson/syskit/logx"
 	"github.com/urfave/cli/v3"
 )
 
@@ -40,13 +42,13 @@ func New(stdout, stderr io.Writer) Runner {
 			&cli.StringFlag{
 				Name:        "config",
 				Usage:       "Path to the dinki configuration file",
-				Value:       dinkiconfig.DefaultFile,
+				Value:       config.DefaultFile,
 				Sources:     cli.EnvVars("DINKI_CONFIG"),
 				Destination: &configFile,
 			},
 		},
 		Action: func(ctx context.Context, _ *cli.Command) error {
-			cfg, err := dinkiconfig.Load(configFile)
+			cfg, err := config.Load(configFile)
 			if err != nil {
 				return err
 			}
@@ -56,12 +58,14 @@ func New(stdout, stderr io.Writer) Runner {
 	return command
 }
 
-func serve(ctx context.Context, cfg dinkiconfig.Config, stderr io.Writer) error {
+func serve(ctx context.Context, cfg config.Config, stderr io.Writer) error {
 	level := new(slog.LevelVar)
 	if err := level.UnmarshalText([]byte(cfg.Log.Level)); err != nil {
 		return fmt.Errorf("log.level: %w", err)
 	}
-	slog.SetDefault(slog.New(slog.NewJSONHandler(stderr, &slog.HandlerOptions{Level: level})))
+	logger := slog.New(slog.NewJSONHandler(stderr, &slog.HandlerOptions{Level: level}))
+	slog.SetDefault(logger)
+	logx.SetDefault(logger)
 
 	backend, err := newBackend(ctx, cfg)
 	if err != nil {
@@ -88,14 +92,11 @@ func serve(ctx context.Context, cfg dinkiconfig.Config, stderr io.Writer) error 
 	if err != nil {
 		return err
 	}
-	var options []registryserver.Option
-	if cfg.GraphQL.Enabled {
-		options = append(options, registryserver.WithGraphQL(queries))
-	}
-	handler, err := registryserver.New(backend.registry, options...)
+	handler, err := server.New(backend.registry)
 	if err != nil {
 		return err
 	}
+	handler = requestMiddleware(ctx, cfg, stderr, handler)
 
 	servers := []*listenerServer{}
 	registryTLS, err := serverTLSConfig(cfg, nil)
@@ -109,13 +110,16 @@ func serve(ctx context.Context, cfg dinkiconfig.Config, stderr io.Writer) error 
 		handler: handler,
 	})
 	if !cfg.API.Disabled {
-		apiServer, err := registryapi.New(registry.New(backend.registry, queries), queries)
+		apiServer, err := api.New(registry.New(backend.registry, queries), queries)
 		if err != nil {
 			return err
 		}
 		path, apiHandler := apiServer.Handler()
 		mux := http.NewServeMux()
 		mux.Handle(path, apiHandler)
+		if cfg.GraphQL.Enabled {
+			mux.Handle(server.GraphQLPath, queries)
+		}
 		apiTLS, err := serverTLSConfig(cfg, &cfg.API)
 		if err != nil {
 			return err
@@ -123,14 +127,24 @@ func serve(ctx context.Context, cfg dinkiconfig.Config, stderr io.Writer) error 
 		if apiTLS == nil {
 			slog.WarnContext(ctx, "internal registry API is served without TLS or client authentication")
 		}
+		internalHandler := requestMiddleware(ctx, cfg, stderr, mux)
 		servers = append(servers, &listenerServer{
 			name:    "internal registry API",
 			address: net.JoinHostPort(cfg.API.Host, cfg.API.Port),
 			tls:     apiTLS,
-			handler: mux,
+			handler: internalHandler,
 		})
 	}
 	return serveAll(ctx, cfg, servers)
+}
+
+func requestMiddleware(ctx context.Context, cfg config.Config, stderr io.Writer, handler http.Handler) http.Handler {
+	if cfg.AccessLog.Enabled {
+		handler = middleware.Logging(ctx, stderr, cfg.AccessLog.Level)(handler)
+	} else {
+		handler = middleware.ContextLogger()(handler)
+	}
+	return middleware.RequestID()(handler)
 }
 
 type listenerServer struct {
@@ -145,7 +159,7 @@ type listenerServer struct {
 // certificates.
 // serverTLSConfig builds a listener TLS config. With api set it also requires a
 // client certificate from api.ClientCAFile whose subject names dink.
-func serverTLSConfig(cfg dinkiconfig.Config, api *dinkiconfig.API) (*tls.Config, error) {
+func serverTLSConfig(cfg config.Config, api *config.API) (*tls.Config, error) {
 	if cfg.TLS.Disabled {
 		return nil, nil
 	}
@@ -153,7 +167,7 @@ func serverTLSConfig(cfg dinkiconfig.Config, api *dinkiconfig.API) (*tls.Config,
 	if err != nil {
 		return nil, fmt.Errorf("loading registry TLS key pair: %w", err)
 	}
-	minVersion, err := dinkiconfig.TLSVersion(cfg.TLS.MinTLSVersion)
+	minVersion, err := config.TLSVersion(cfg.TLS.MinTLSVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +192,7 @@ func serverTLSConfig(cfg dinkiconfig.Config, api *dinkiconfig.API) (*tls.Config,
 	return config, nil
 }
 
-func serveAll(ctx context.Context, cfg dinkiconfig.Config, servers []*listenerServer) error {
+func serveAll(ctx context.Context, cfg config.Config, servers []*listenerServer) error {
 	type served struct {
 		name string
 		err  error
@@ -248,7 +262,7 @@ func (b *registryBackend) Close() error {
 
 // newBackend opens the blob driver selected by storage and the kv metadata
 // driver selected by metadata.
-func newBackend(ctx context.Context, cfg dinkiconfig.Config) (*registryBackend, error) {
+func newBackend(ctx context.Context, cfg config.Config) (*registryBackend, error) {
 	content, err := blobstore.OpenConfig(ctx, cfg.Storage)
 	if err != nil {
 		return nil, fmt.Errorf("opening blob storage: %w", err)
