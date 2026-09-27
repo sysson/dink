@@ -4,26 +4,19 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/sysson/dink/cmd/dinki/command"
 )
 
 func main() {
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	stdOut := os.Stdout
-	stdErr := os.Stderr
-
-	r, err := command.New(stdOut, stdErr)
-	if err != nil {
-		_, _ = fmt.Fprintf(stdErr, "error: %v\n", err)
+	runner := command.New(os.Stdout, os.Stderr)
+	if err := runner.Run(ctx, os.Args); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
-
-	if err := r.Run(ctx, os.Args[0:]); err != nil {
-		_, _ = fmt.Fprintf(stdErr, "error: %v\n", err)
-		os.Exit(1)
-	}
-
-	os.Exit(0)
 }

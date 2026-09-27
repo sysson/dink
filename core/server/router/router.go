@@ -81,10 +81,7 @@ func WithMinAPIVersion(minVersion string) RouteWrapper {
 			method: r.Method(),
 			path:   r.Path(),
 			handler: func(w http.ResponseWriter, req *http.Request) error {
-				v, ok := httpx.KeyFromContext[version.APIVersion, string](req.Context(), version.APIVersion{})
-				if !ok {
-					return httpx.BadRequest(fmt.Errorf("API version not specified"))
-				}
+				v := version.VersionFromRequest(req)
 				if versions.LessThan(v, minVersion) {
 					return httpx.BadRequest(fmt.Errorf("API version %s is not supported. Minimum supported version is %s", v, minVersion))
 				}

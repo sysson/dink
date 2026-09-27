@@ -1,8 +1,8 @@
 package registry
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,98 +10,293 @@ import (
 
 	"github.com/containerd/platforms"
 	"github.com/docker/oci"
+	"github.com/docker/oci/ociref"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-// fetchedManifest is a manifest read from the source registry, together with
-// the descriptors decoded from its contents.
-type fetchedManifest struct {
-	desc     oci.Descriptor
-	contents []byte
-	// config is the config blob descriptor of an image manifest.
-	config *oci.Descriptor
-	// layers are the layer blob descriptors of an image manifest.
-	layers []oci.Descriptor
-	// manifests are the child descriptors of an index, carrying the platform
-	// each child was built for. It is empty for an image manifest.
-	manifests []oci.Descriptor
+// Annotations docker sets on the index child that carries an image's
+// attestation statements, naming the image manifest they are for.
+const (
+	AnnotationReferenceType   = "vnd.docker.reference.type"
+	AnnotationReferenceDigest = "vnd.docker.reference.digest"
+
+	AnnotationReferenceTypeAttestation = "attestation-manifest"
+)
+
+func blobsFromDescriptors(desc []oci.Descriptor) chan oci.Descriptor {
+	blobs := make(chan oci.Descriptor, len(desc))
+	go func() {
+		defer close(blobs)
+		for _, m := range desc {
+			if isIndex(m.MediaType) || isManifest(m.MediaType) {
+				continue
+			}
+			blobs <- m
+		}
+	}()
+	return blobs
 }
 
-// isIndex reports whether the manifest is an image index rather than a single
-// image manifest.
-func (m fetchedManifest) isIndex() bool { return len(m.manifests) > 0 }
-
-type childManifest struct {
+type manifest struct {
+	client     oci.Interface
+	ref        ociref.Reference
 	descriptor oci.Descriptor
-	tags       []string
+	platform   platforms.MatchComparer
 }
 
-type childManifests []childManifest
+func (m *manifest) AllDescriptors(ctx context.Context) ([]oci.Descriptor, error) {
 
-// childManifestsForPlatform returns the manifests to copy for a tagged image
-// index: the selected platform manifest (tagged) plus any attestation
-// manifests that reference it.
-func childManifestsForPlatform(manifests []oci.Descriptor, selected oci.Descriptor, tags []string) childManifests {
-	children := childManifests{{descriptor: selected, tags: tags}}
-	for _, m := range manifests {
-		if m.Annotations["vnd.docker.reference.type"] != "attestation-manifest" {
-			continue
+	var descriptors []oci.Descriptor
+	dgst := m.descriptor.Digest
+	switch {
+	case isIndex(m.descriptor.MediaType):
+		index, err := m.walkIndexManifest(ctx)
+		if err != nil {
+			return nil, err
 		}
-		if m.Annotations["vnd.docker.reference.digest"] != selected.Digest.String() {
-			continue
+
+		dgst = index.platformDigest
+
+		descriptors = append(descriptors, index.descriptors...)
+
+	case isManifest(m.descriptor.MediaType):
+		manifestDescriptors, err := m.walkManifest(ctx)
+		if err != nil {
+			return nil, err
 		}
-		children = append(children, childManifest{descriptor: m})
+		descriptors = append(descriptors, manifestDescriptors...)
+
+	default:
+		return nil, fmt.Errorf("unsupported media type: %s", m.descriptor.MediaType)
 	}
-	return children
+
+	refs, err := m.referrers(ctx, dgst)
+	if err != nil {
+		return nil, err
+	}
+	descriptors = append(descriptors, refs...)
+
+	return descriptors, nil
 }
 
-// allChildManifests returns every manifest referenced by an index, untagged,
-// so that the index can be reproduced verbatim in the destination.
-func allChildManifests(manifests []oci.Descriptor) childManifests {
-	children := make(childManifests, 0, len(manifests))
-	for _, m := range manifests {
-		children = append(children, childManifest{descriptor: m})
+func (m *manifest) walkIndexManifest(ctx context.Context) (*indexManifest, error) {
+	if !isIndex(m.descriptor.MediaType) {
+		return nil, fmt.Errorf("expected index media type, got: %s", m.descriptor.MediaType)
 	}
-	return children
+
+	indexDescriptor, err := getManifest(ctx, m.client, m.ref)
+	if err != nil {
+		return nil, err
+	}
+
+	index, err := readBlob[oci.IndexOrManifest](bytes.NewReader(indexDescriptor.Data))
+	if err != nil {
+		return nil, err
+	}
+
+	indexManifest, err := parseIndexManifest(m.platform, &index)
+	if err != nil {
+		return nil, err
+	}
+
+	if indexManifest.platformDigest == "" {
+		return nil, fmt.Errorf("no manifests found in index for platform %v", m.platform)
+	}
+
+	var descriptors []oci.Descriptor
+	var errs []error
+	for _, desc := range indexManifest.descriptors {
+		childManifest := &manifest{
+			client:     m.client,
+			ref:        m.ref,
+			platform:   m.platform,
+			descriptor: desc,
+		}
+
+		manifestDescriptors, err := childManifest.walkManifest(ctx)
+		if err != nil {
+			errs = append(errs, err)
+		}
+
+		descriptors = append(descriptors, manifestDescriptors...)
+	}
+
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("errors occurred while walking manifests: %v", errors.Join(errs...))
+	}
+	descriptors = append(descriptors, indexDescriptor)
+	indexManifest.descriptors = descriptors
+	return indexManifest, nil
 }
 
-// selectManifest picks the child manifest matching the configured platform
-// from an image index, defaulting to the current runtime platform.
-func selectManifest(p platforms.MatchComparer, manifests []oci.Descriptor) (oci.Descriptor, error) {
+func (m *manifest) referrers(ctx context.Context, digest oci.Digest) ([]oci.Descriptor, error) {
+	referrers, err := oci.All(m.client.Referrers(ctx, m.ref.Repository, digest, nil))
+	if err != nil {
+		return nil, err
+	}
+	var allreferrers []oci.Descriptor
+	for _, r := range referrers {
+		descs, err := (&manifest{
+			client:     m.client,
+			ref:        m.ref,
+			platform:   m.platform,
+			descriptor: r,
+		}).walkManifest(ctx)
+		if err != nil {
+			return nil, err
+		}
+		allreferrers = append(allreferrers, descs...)
+	}
+	return allreferrers, nil
+}
+
+func (m *manifest) walkManifest(ctx context.Context) ([]oci.Descriptor, error) {
+	if !isManifest(m.descriptor.MediaType) {
+		return nil, fmt.Errorf("unsupported media type: %s", m.descriptor.MediaType)
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	ref := m.ref
+	ref.Digest = m.descriptor.Digest
+
+	descriptor, err := getManifest(ctx, m.client, ref)
+	if err != nil {
+		return nil, err
+	}
+
+	descriptors, err := manifestDescriptors(descriptor)
+	if err != nil {
+		return nil, err
+	}
+	descriptors = append(descriptors, descriptor)
+	return descriptors, nil
+}
+
+func manifestDescriptors(desc oci.Descriptor) ([]oci.Descriptor, error) {
+	if !isManifest(desc.MediaType) {
+		return nil, fmt.Errorf("expected a manifest, got %s", desc.MediaType)
+	}
+	var descriptors []oci.Descriptor
+
+	manifest, err := readBlob[oci.IndexOrManifest](bytes.NewReader(desc.Data))
+	if err != nil {
+		return nil, err
+	}
+	descriptors = append(descriptors, manifest.Layers...)
+
+	if manifest.Config != nil {
+		descriptors = append(descriptors, *manifest.Config)
+	}
+
+	return descriptors, nil
+}
+
+func getManifest(ctx context.Context, client oci.Interface, ref ociref.Reference) (oci.Descriptor, error) {
+	blob, err := client.GetManifest(ctx, ref.Repository, ref.Digest)
+	if err != nil {
+		return oci.Descriptor{}, err
+	}
+	defer func() {
+		_ = blob.Close()
+	}()
+	desc := blob.Descriptor()
+	if len(desc.Data) == 0 {
+		desc.Data, err = io.ReadAll(blob)
+		if err != nil {
+			return oci.Descriptor{}, err
+		}
+	}
+	return desc, nil
+}
+
+func pushManifests(ctx context.Context, client oci.Interface, ref ociref.Reference, descriptors []oci.Descriptor) error {
+	for _, desc := range descriptors {
+		if isIndex(desc.MediaType) || isManifest(desc.MediaType) {
+			refToPush := ref
+			if ref.Digest != desc.Digest {
+				refToPush.Tag = ""
+			}
+			if err := pushManifest(ctx, client, refToPush, desc); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func pushManifest(ctx context.Context, client oci.Interface, ref ociref.Reference, desc oci.Descriptor) error {
+	if len(desc.Data) == 0 {
+		return fmt.Errorf("manifest data is empty")
+	}
+	var tags []string
+	if ref.Tag != "" {
+		tags = append(tags, ref.Tag)
+	}
+	_, err := client.PushManifest(ctx, ref.Repository, desc.Data, desc.MediaType, &oci.PushManifestParameters{
+		Digest: desc.Digest,
+		Tags:   tags,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to push manifest %s: %w", desc.Digest, err)
+	}
+	return nil
+}
+
+type indexManifest struct {
+	platformDigest oci.Digest
+	descriptors    []oci.Descriptor
+}
+
+func parseIndexManifest(p platforms.MatchComparer, index *oci.IndexOrManifest) (*indexManifest, error) {
 	matcher := p
 	if matcher == nil {
 		matcher = platforms.Default()
 	}
-	for _, m := range manifests {
+	if ok := isIndex(index.MediaType); !ok {
+		return nil, fmt.Errorf("not an index")
+	}
+	matches := &indexManifest{}
+	for _, m := range index.Manifests {
 		if m.Platform == nil {
 			continue
 		}
-		if matcher.Match(ociPlatformToSpec(*m.Platform)) {
-			return m, nil
+		plat := ocispec.Platform{
+			Architecture: m.Platform.Architecture,
+			OS:           m.Platform.OS,
+			OSVersion:    m.Platform.OSVersion,
+			OSFeatures:   m.Platform.OSFeatures,
+			Variant:      m.Platform.Variant,
+		}
+		if matcher.Match(plat) {
+			matches.platformDigest = m.Digest
+			matches.descriptors = append(matches.descriptors, m)
+			break
 		}
 	}
-	return oci.Descriptor{}, fmt.Errorf("no manifest found for platform %s", matcherString(matcher))
+	if matches.platformDigest == "" {
+		return nil, fmt.Errorf("no manifest found for platform %s", matcherString(matcher))
+	}
+
+	//now match docker annotations
+	for _, m := range index.Manifests {
+		if m.Annotations[AnnotationReferenceType] != AnnotationReferenceTypeAttestation {
+			continue
+		}
+		if m.Annotations[AnnotationReferenceDigest] != matches.platformDigest.String() {
+			continue
+		}
+		matches.descriptors = append(matches.descriptors, m)
+	}
+	return matches, nil
 }
 
-// platformMatcher returns a matcher for the first requested platform, or nil
-// to use the runtime default.
 func platformMatcher(pls []ocispec.Platform) platforms.MatchComparer {
 	if len(pls) == 0 {
 		return nil
 	}
 	return platforms.Only(pls[0])
-}
-
-// ociPlatformToSpec converts an oci.Platform to the OCI image-spec platform
-// used by platform matchers.
-func ociPlatformToSpec(p oci.Platform) ocispec.Platform {
-	return ocispec.Platform{
-		Architecture: p.Architecture,
-		OS:           p.OS,
-		OSVersion:    p.OSVersion,
-		OSFeatures:   p.OSFeatures,
-		Variant:      p.Variant,
-	}
 }
 
 func matcherString(m platforms.MatchComparer) string {
@@ -111,122 +306,18 @@ func matcherString(m platforms.MatchComparer) string {
 	return fmt.Sprintf("%v", m)
 }
 
-// resolveManifest resolves the tag or digest in req to a concrete manifest in
-// the source registry, and returns it along with the tags to apply to the copy
-// in the destination repository.
-func (c *Copier) resolveManifest(ctx context.Context, req CopyRequest) (fetchedManifest, []string, error) {
-	var (
-		reader oci.BlobReader
-		tags   = req.DstTags
-		err    error
-	)
-	if req.SrcDigest != "" {
-		reader, err = c.Src.GetManifest(ctx, req.SrcRepo, req.SrcDigest)
-	} else {
-		srcTag := req.SrcTag
-		if srcTag == "" {
-			srcTag = "latest"
-		}
-		if len(tags) == 0 {
-			tags = []string{srcTag}
-		}
-		reader, err = c.Src.GetTag(ctx, req.SrcRepo, srcTag)
-	}
-	if err != nil {
-		return fetchedManifest{}, nil, err
-	}
-	m, err := readManifest(reader)
-	if err != nil {
-		return fetchedManifest{}, nil, err
-	}
-	return m, tags, nil
+func isIndex(mediaType string) bool {
+	return mediaType == oci.MediaTypeImageIndex || mediaType == oci.MediaTypeDockerManifestList
 }
 
-// fetchManifest reads the manifest with the given digest from the source
-// registry.
-func (c *Copier) fetchManifest(ctx context.Context, repo string, digest oci.Digest) (fetchedManifest, error) {
-	reader, err := c.Src.GetManifest(ctx, repo, digest)
-	if err != nil {
-		return fetchedManifest{}, fmt.Errorf("get manifest %s: %w", digest, err)
-	}
-	return readManifest(reader)
+func isManifest(mediaType string) bool {
+	return mediaType == oci.MediaTypeImageManifest || mediaType == oci.MediaTypeDockerManifest
 }
 
-// readManifest reads a manifest and decodes the descriptors a copy needs from
-// it: the config and layer blobs of an image manifest, or the child manifests
-// and their platforms for an index.
-func readManifest(reader oci.BlobReader) (m fetchedManifest, err error) {
-	defer func() {
-		if closeErr := reader.Close(); closeErr != nil {
-			err = errors.Join(err, closeErr)
-		}
-	}()
-
-	m.desc = reader.Descriptor()
-	m.contents, err = io.ReadAll(reader)
-	if err != nil {
-		return fetchedManifest{}, fmt.Errorf("read manifest %s: %w", m.desc.Digest, err)
-	}
-	var decoded oci.IndexOrManifest
-	if err := json.Unmarshal(m.contents, &decoded); err != nil {
-		return fetchedManifest{}, fmt.Errorf("decode manifest %s: %w", m.desc.Digest, err)
-	}
-	m.config = decoded.Config
-	m.layers = decoded.Layers
-	m.manifests = decoded.Manifests
-	return m, nil
+func isImageLayer(mediaType string) bool {
+	return mediaType == ocispec.MediaTypeImageLayer || mediaType == ocispec.MediaTypeImageLayerGzip || mediaType == ocispec.MediaTypeImageLayerZstd
 }
 
-// copyManifest copies m and everything it references: its child manifests,
-// then its config blob, then its layer blobs, and finally the manifest itself,
-// so that the manifest only becomes resolvable once its content is present.
-func (c *Copier) copyManifest(ctx context.Context, repos repoPair, m fetchedManifest, tags []string) error {
-	children := childManifests{{descriptor: m.desc, tags: tags}}
-	switch {
-	case m.isIndex() && len(tags) > 0:
-		selected, err := selectManifest(c.Platform, m.manifests)
-		if err != nil {
-			return err
-		}
-		children = childManifestsForPlatform(m.manifests, selected, tags)
-	case m.isIndex():
-		children = allChildManifests(m.manifests)
-	}
-
-	for _, child := range children {
-		if child.descriptor.Digest == m.desc.Digest {
-			continue
-		}
-		childManifest, err := c.fetchManifest(ctx, repos.SrcRepo, child.descriptor.Digest)
-		if err != nil {
-			return err
-		}
-		if err := c.copyManifest(ctx, repos, childManifest, child.tags); err != nil {
-			return err
-		}
-	}
-	// A tagged index is flattened: the selected child carries the tag, so the
-	// index itself is dropped. An untagged index is preserved in full, since
-	// dropping platforms would change its bytes and so its digest.
-	if m.isIndex() && len(tags) > 0 {
-		return nil
-	}
-
-	if m.config != nil {
-		config := blobCopy{desc: *m.config, completeStatus: "Download complete", report: false}
-		if err := c.copyBlob(ctx, repos, config); err != nil {
-			return err
-		}
-	}
-	if err := c.copyLayers(ctx, repos, m.layers); err != nil {
-		return err
-	}
-
-	if _, err := c.Dst.PushManifest(ctx, repos.DstRepo, m.contents, m.desc.MediaType, &oci.PushManifestParameters{
-		Digest: m.desc.Digest,
-		Tags:   tags,
-	}); err != nil {
-		return fmt.Errorf("push manifest %s: %w", m.desc.Digest, err)
-	}
-	return nil
+func isConfig(mediaType string) bool {
+	return mediaType == ocispec.MediaTypeImageConfig
 }

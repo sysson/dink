@@ -2,18 +2,42 @@ package network
 
 import (
 	"net/http"
+
+	networktypes "github.com/moby/moby/api/types/network"
+	"github.com/sysson/dink/core/types"
+	"github.com/sysson/syskit/httpx"
 )
 
 func (nr *networkRouter) getNetworksList(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	filters, err := types.FromJSON(r.URL.Query().Get("filters"))
+	if err != nil {
+		return httpx.BadRequest(err)
+	}
+	items, err := nr.translator.GetNetworkSummaries(r.Context(), filters)
+	if err != nil {
+		return err
+	}
+	return httpx.WriteJSON(w, http.StatusOK, items)
 }
 
 func (nr *networkRouter) getNetwork(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	result, err := nr.translator.GetNetwork(r.Context(), r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	return httpx.WriteJSON(w, http.StatusOK, result)
 }
 
 func (nr *networkRouter) postNetworkCreate(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	var request networktypes.CreateRequest
+	if err := httpx.ParseJSON(r, &request); err != nil {
+		return httpx.BadRequest(err)
+	}
+	result, err := nr.translator.CreateNetwork(r.Context(), request)
+	if err != nil {
+		return err
+	}
+	return httpx.WriteJSON(w, http.StatusCreated, result)
 }
 
 func (nr *networkRouter) postNetworkConnect(w http.ResponseWriter, r *http.Request) error {
@@ -25,9 +49,21 @@ func (nr *networkRouter) postNetworkDisconnect(w http.ResponseWriter, r *http.Re
 }
 
 func (nr *networkRouter) postNetworkPrune(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	filters, err := types.FromJSON(r.URL.Query().Get("filters"))
+	if err != nil {
+		return httpx.BadRequest(err)
+	}
+	result, err := nr.translator.NetworkPrune(r.Context(), filters)
+	if err != nil {
+		return err
+	}
+	return httpx.WriteJSON(w, http.StatusOK, result)
 }
 
 func (nr *networkRouter) deleteNetwork(w http.ResponseWriter, r *http.Request) error {
+	if err := nr.translator.DeleteNetwork(r.Context(), r.PathValue("id")); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
 	return nil
 }

@@ -1,9 +1,9 @@
 {
     "log": {
-        "level": "error"
+        "level": "info"
     },
     "accessLog": {
-        "level": "error"
+        "level": "info"
     },
     "kubernetes": {
         "systemNamespace": "dink-system",

@@ -1,7 +1,6 @@
 package version
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"runtime"
@@ -69,6 +68,8 @@ func Middleware(serverVersion, defaultAPIVersion, minAPIVersion string) middlewa
 			apiVersion := r.PathValue("version")
 			if apiVersion == "" {
 				apiVersion = defaultAPIVersion
+			} else {
+				next = http.StripPrefix("/v"+apiVersion, next)
 			}
 			if versions.LessThan(apiVersion, minAPIVersion) {
 				http.Error(w, fmt.Sprintf("API version %s is not supported. Minimum supported version is %s", apiVersion, minAPIVersion), http.StatusBadRequest)
@@ -78,16 +79,15 @@ func Middleware(serverVersion, defaultAPIVersion, minAPIVersion string) middlewa
 				http.Error(w, fmt.Sprintf("API version %s is not supported. Maximum supported version is %s", apiVersion, defaultAPIVersion), http.StatusBadRequest)
 				return
 			}
-			r = r.WithContext(context.WithValue(r.Context(), APIVersion{}, apiVersion))
 			next.ServeHTTP(w, r)
 		})
 	}
 }
 
-func FromContext(ctx context.Context) string {
-	ver, ok := ctx.Value(APIVersion{}).(string)
-	if !ok || ver == "" {
-		return v.APIVersion
+func VersionFromRequest(r *http.Request) string {
+	v := r.PathValue("version")
+	if v == "" {
+		return Get().APIVersion
 	}
-	return ver
+	return v
 }

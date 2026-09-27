@@ -11,11 +11,19 @@ import (
 )
 
 // PullOptions configures an image pull.
-type PullOptions struct {
+type ImagePullOptions struct {
 	Auth        *RegistryAuth
 	MetaHeaders map[string][]string
 	OutStream   io.Writer
 	Platforms   []ocispec.Platform
+}
+
+type ImageListOptions struct {
+	All        bool
+	Filters    Args
+	SharedSize bool
+	Manifests  bool
+	Identity   bool
 }
 
 // RegistryAuth holds registry credentials supplied by a Docker-compatible API client.

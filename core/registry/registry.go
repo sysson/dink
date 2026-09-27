@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/99designs/gqlgen/graphql"
 	"github.com/docker/oci"
 	"github.com/docker/oci/ociauth"
 	"github.com/docker/oci/ociclient"
@@ -27,12 +28,8 @@ func Authenticate(ctx context.Context, auth types.RegistryAuth) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	cfg, err := ociauth.Load(nil)
-	if err != nil {
-		return "", err
-	}
 	transport := ociauth.NewStdTransport(ociauth.StdTransportParams{
-		Config:    authConfigSource{host: host, auth: &auth, fallback: cfg},
+		Config:    authConfigSource{host: host, auth: &auth},
 		Transport: RegistryTransport(nil, nil),
 	})
 
@@ -59,21 +56,31 @@ func Authenticate(ctx context.Context, auth types.RegistryAuth) (string, error) 
 	return "", nil
 }
 
+// Querier executes GraphQL documents against the registry metadata. It is
+// satisfied by [github.com/sysson/dink/core/registry/query.Service].
+type Querier interface {
+	Exec(ctx context.Context, document, operationName string, variables map[string]any) *graphql.Response
+}
+
 type RegistryService struct {
 	// internal is the client for dink's own registry. Its credentials are
 	// dink's and never change, so one client is shared for the process.
 	internal oci.Interface
+	// queries resolves GraphQL documents against internal's metadata.
+	queries Querier
 	// internalErr is why that client could not be built. It is reported
 	// only to the endpoints that need the registry; the rest still work.
 	internalErr error
 }
 
-// New returns an image service backed by internal.
-func New(internal oci.Interface) *RegistryService {
+// New returns an image service backed by dinki's local registry and its
+// metadata query service. It runs inside dinki: pulls fetch from upstream
+// registries and write straight into local storage.
+func New(internal oci.Interface, queries Querier) *RegistryService {
 	if internal == nil {
 		return Unavailable(fmt.Errorf("registry client is not set"))
 	}
-	return &RegistryService{internal: internal}
+	return &RegistryService{internal: internal, queries: queries}
 }
 
 // Unavailable returns an image service whose registry-backed endpoints report
@@ -138,12 +145,8 @@ func NewClient(host string, opts ClientOptions) (oci.Interface, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := ociauth.Load(nil)
-	if err != nil {
-		return nil, err
-	}
 	transport := ociauth.NewStdTransport(ociauth.StdTransportParams{
-		Config:    authConfigSource{host: host, auth: opts.Auth, fallback: cfg},
+		Config:    authConfigSource{host: host, auth: opts.Auth},
 		Transport: opts.Transport,
 	})
 	return ociclient.New(host, &ociclient.Options{
@@ -185,22 +188,18 @@ func isLoopback(host string) bool {
 // the local docker config for other hosts (e.g. when a pull crosses
 // registries).
 type authConfigSource struct {
-	host     string
-	auth     *types.RegistryAuth
-	fallback ociauth.Config
+	host string
+	auth *types.RegistryAuth
 }
 
 func (s authConfigSource) EntryForRegistry(host string) (ociauth.ConfigEntry, error) {
-	if s.auth != nil && host == s.host {
+	if s.auth != nil {
 		return ociauth.ConfigEntry{
 			RefreshToken: s.auth.RefreshToken,
 			AccessToken:  s.auth.AccessToken,
 			Username:     s.auth.Username,
 			Password:     s.auth.Password,
 		}, nil
-	}
-	if s.fallback != nil {
-		return s.fallback.EntryForRegistry(host)
 	}
 	return ociauth.ConfigEntry{}, nil
 }

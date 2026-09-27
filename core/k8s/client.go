@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -14,6 +15,7 @@ import (
 
 type KubeClient struct {
 	kubernetes.Interface
+	Dynamic          dynamic.Interface
 	metricsAvailable bool
 	metricsv1.MetricsV1Interface
 	restConfig *rest.Config
@@ -48,6 +50,10 @@ func New(ctx context.Context, kubePath string) (*KubeClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unable to create Kubernetes client: %w", err)
 	}
+	dynamicClient, err := dynamic.NewForConfig(restConfig)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create Kubernetes dynamic client: %w", err)
+	}
 
 	if _, err := client.Discovery().ServerVersion(); err != nil {
 		return nil, fmt.Errorf("unable to reach Kubernetes API server: %w", err)
@@ -60,6 +66,7 @@ func New(ctx context.Context, kubePath string) (*KubeClient, error) {
 
 	return &KubeClient{
 		Interface:          client,
+		Dynamic:            dynamicClient,
 		metricsAvailable:   metricsClient != nil,
 		MetricsV1Interface: metricsClient.MetricsV1(),
 		restConfig:         restConfig,

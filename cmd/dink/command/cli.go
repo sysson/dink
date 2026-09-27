@@ -3,22 +3,18 @@ package command
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"net"
 	"net/http"
-	"os"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/sysson/dink/core/auth"
 	"github.com/sysson/dink/core/config"
 	"github.com/sysson/dink/core/identity"
-	"github.com/sysson/dink/core/registry"
 	"github.com/sysson/dink/core/server"
 	"github.com/sysson/dink/core/server/middleware"
 	"github.com/sysson/dink/core/translator"
@@ -91,60 +87,26 @@ func newTLSConfig(cfg *config.Config) (*tls.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	caFiles, err := config.LoadFiles(cfg.TLS.ClientCAFile, cfg.TLS.CertFile, cfg.TLS.KeyFile)
+	if cfg.TLS.ClientCAFile != "" {
+		caFiles, err := config.LoadFiles(cfg.TLS.ClientCAFile, cfg.TLS.CertFile, cfg.TLS.KeyFile)
+		if err != nil {
+			return nil, err
+		}
+		return tlsconfig.ServerTLSConfig(
+			tlsconfig.WithCA(caFiles[0]),
+			tlsconfig.WithKeyPair(caFiles[1], caFiles[2]),
+			tlsconfig.WithMinVersion(tlsVersion),
+			tlsconfig.WithClientAuth(tls.RequireAndVerifyClientCert),
+		)
+	}
+	files, err := config.LoadFiles(cfg.TLS.CertFile, cfg.TLS.KeyFile)
 	if err != nil {
 		return nil, err
 	}
 	return tlsconfig.ServerTLSConfig(
-		tlsconfig.WithCA(caFiles[0]),
-		tlsconfig.WithKeyPair(caFiles[1], caFiles[2]),
+		tlsconfig.WithKeyPair(files[0], files[1]),
 		tlsconfig.WithMinVersion(tlsVersion),
 	)
-}
-
-func newRegistryService(cfg *config.Config) *registry.RegistryService {
-	transport, err := newRegistryTransport(cfg)
-	if err != nil {
-		return registry.Unavailable(fmt.Errorf("registry transport for %q: %w", cfg.Registry.URL, err))
-	}
-	internal, err := registry.NewClient(cfg.Registry.URL, registry.ClientOptions{Transport: transport})
-	if err != nil {
-		return registry.Unavailable(fmt.Errorf("registry client for %q: %w", cfg.Registry.URL, err))
-	}
-	return registry.New(internal)
-}
-
-func newRegistryTransport(cfg *config.Config) (http.RoundTripper, error) {
-	if strings.HasPrefix(cfg.Registry.URL, "http://") {
-		return nil, nil
-	}
-
-	caFile := cfg.Registry.CAFile
-	if caFile == "" {
-		caFile = cfg.TLS.ClientCAFile
-	}
-	if caFile == "" {
-		return nil, nil
-	}
-
-	caPEM, err := os.ReadFile(caFile)
-	if err != nil {
-		return nil, err
-	}
-	roots, err := x509.SystemCertPool()
-	if err != nil {
-		roots = x509.NewCertPool()
-	}
-	if !roots.AppendCertsFromPEM(caPEM) {
-		return nil, fmt.Errorf("no certificates found in %s", caFile)
-	}
-
-	tlsConfig := &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		RootCAs:    roots,
-	}
-	transport := registry.RegistryTransport(tlsConfig, nil)
-	return transport, nil
 }
 
 func (c *dinkCLI) start(ctx context.Context) (retErr error) {
@@ -165,7 +127,7 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 	if err != nil {
 		return fmt.Errorf("unable to load listeners: %w", err)
 	}
-	translator, err := translator.New(ctx, c.cfg.Kubernetes.SystemNamespace)
+	translator, err := translator.New(ctx, c.cfg)
 	if err != nil {
 		return fmt.Errorf("unable to create Kubernetes client: %w", err)
 	}
@@ -239,8 +201,7 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 		Ensurer:          translator,
 	}))
 	server.Use(auth.Middleware(authChain))
-	rs := newRegistryService(c.cfg)
-	router := buildRouters(translator, rs)
+	router := buildRouters(translator)
 	gs := grpc.NewServer()
 
 	proto := new(http.Protocols)

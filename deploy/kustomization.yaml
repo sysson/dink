@@ -18,3 +18,11 @@ configMapGenerator:
     options:
       labels:
         app.kubernetes.io/name: dink
+  - name: dinki-config
+    namespace: dink-system
+    files:
+      - config.json=dinki-config.json
+    options:
+      labels:
+        app.kubernetes.io/name: dinki
+        app.kubernetes.io/component: registry
