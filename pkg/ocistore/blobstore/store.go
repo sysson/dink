@@ -13,7 +13,7 @@ import (
 	"sync"
 
 	"github.com/docker/oci"
-	"github.com/sysson/dink/core/registry/backend"
+	"github.com/sysson/dink/pkg/ocistore/backend"
 	"gocloud.dev/blob"
 	_ "gocloud.dev/blob/azureblob"
 	_ "gocloud.dev/blob/fileblob"

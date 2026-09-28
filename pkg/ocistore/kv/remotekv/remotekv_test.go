@@ -5,10 +5,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sysson/dink/core/registry/backend/kv"
-	"github.com/sysson/dink/core/registry/backend/kv/kvtest"
-	"github.com/sysson/dink/core/registry/backend/kv/memkv"
-	"github.com/sysson/dink/core/registry/backend/kv/remotekv"
+	"github.com/sysson/dink/pkg/ocistore/kv"
+	"github.com/sysson/dink/pkg/ocistore/kv/kvtest"
+	"github.com/sysson/dink/pkg/ocistore/kv/memkv"
+	"github.com/sysson/dink/pkg/ocistore/kv/remotekv"
 )
 
 // fakeBackend emulates a remote service: reads are not transactional, and

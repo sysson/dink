@@ -28,7 +28,6 @@
         "enabled": false
     },
     "api": {
-        "port": "5001",
         "clientCAFile": "/etc/dinki/tls/ca.crt",
         "clientOrganization": "dink-system",
         "clientCommonName": "dink.dink-system.svc"

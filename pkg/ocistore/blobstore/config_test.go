@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sysson/dink/core/registry/backend/blobstore"
+	"github.com/sysson/dink/pkg/ocistore/blobstore"
 )
 
 func TestConfigURL(t *testing.T) {

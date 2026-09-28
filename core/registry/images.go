@@ -16,141 +16,194 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/types"
+	"github.com/sysson/dink/pkg/ocistore"
+	"github.com/sysson/dink/pkg/ocistore/backend"
 	"github.com/sysson/syskit/httpx"
 )
 
-const queryPage = 1000
+const indexPage = 1000
 
-// Query executes a GraphQL document against the registry metadata and
-// decodes its data into out.
-func (r *RegistryService) Query(ctx context.Context, document string, variables map[string]any, out any) error {
-	if r.queries == nil {
-		return errors.New("registry metadata queries are not available")
-	}
-	response := r.queries.Exec(ctx, document, "", variables)
-	if len(response.Errors) > 0 {
-		return fmt.Errorf("metadata query: %w", response.Errors[0])
-	}
-	return json.Unmarshal(response.Data, out)
+type storedPlatform struct {
+	OS           string
+	Architecture string
+	Variant      *string
+	OSVersion    *string
+	OSFeatures   []string
 }
 
-type queryPlatform struct {
-	OS           string   `json:"os"`
-	Architecture string   `json:"architecture"`
-	Variant      *string  `json:"variant"`
-	OSVersion    *string  `json:"osVersion"`
-	OSFeatures   []string `json:"osFeatures"`
+type storedSized struct {
+	Digest string
+	Size   int64
 }
 
-type querySized struct {
-	Digest string `json:"digest"`
-	Size   int64  `json:"size"`
+type storedDescriptor struct {
+	Digest      string
+	Size        int64
+	MediaType   string
+	Annotations []storedAnnotation
 }
 
-// queryDescriptor is querySized with the fields only inspect and
-// attestations ask for; they stay empty for queries that omit them.
-type queryDescriptor struct {
-	Digest      string            `json:"digest"`
-	Size        int64             `json:"size"`
-	MediaType   string            `json:"mediaType"`
-	Annotations []queryAnnotation `json:"annotations"`
+type storedImageConfig struct {
+	Created      *time.Time
+	OS           string
+	Architecture string
+	Variant      string
+	// Raw is the verbatim config JSON.
+	Raw string
 }
 
-type queryImageConfig struct {
-	Created      *time.Time `json:"created"`
-	OS           *string    `json:"os"`
-	Architecture *string    `json:"architecture"`
-	Variant      *string    `json:"variant"`
-	// Raw is the verbatim config JSON, requested only by inspect.
-	Raw string `json:"raw"`
+type storedImage struct {
+	Digest      string
+	MediaType   string
+	Size        int64
+	Config      *storedSized
+	Layers      []storedDescriptor
+	ImageConfig *storedImageConfig
 }
 
-type queryImage struct {
-	Digest      string            `json:"digest"`
-	MediaType   string            `json:"mediaType"`
-	Size        int64             `json:"size"`
-	Config      *querySized       `json:"config"`
-	Layers      []queryDescriptor `json:"layers"`
-	ImageConfig *queryImageConfig `json:"imageConfig"`
-}
-
-// queryImageTree is a manifest together with the index children and tags
+// storedImageTree is a manifest together with the index children and tags
 // that describe the image a reference resolves to.
-type queryImageTree struct {
-	queryImage
-	Tags      []string          `json:"tags"`
-	Manifests []queryIndexChild `json:"manifests"`
+type storedImageTree struct {
+	storedImage
+	Tags      []string
+	Manifests []storedIndexChild
 }
 
-type queryIndexChild struct {
-	Digest      string            `json:"digest"`
-	MediaType   string            `json:"mediaType"`
-	Size        int64             `json:"size"`
-	Platform    *queryPlatform    `json:"platform"`
-	Annotations []queryAnnotation `json:"annotations"`
-	Manifest    *queryImage       `json:"manifest"`
+type storedIndexChild struct {
+	Digest      string
+	MediaType   string
+	Size        int64
+	Platform    *storedPlatform
+	Annotations []storedAnnotation
+	// Manifest is nil when the child was not pulled.
+	Manifest *storedImage
 }
 
-type queryAnnotation struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
+type storedAnnotation struct {
+	Key   string
+	Value string
 }
 
-type queryTag struct {
-	Name     string          `json:"name"`
-	Manifest *queryImageTree `json:"manifest"`
-}
-
-const imageFields = `digest mediaType size config { digest size } layers { digest size }
-	imageConfig { created os architecture variant }`
-
-// inspectFields adds what inspect, history and attestations read on top of
-// [imageFields]: the raw config JSON and the layer media types and
-// annotations that identify in-toto statements.
-const inspectFields = `digest mediaType size config { digest size }
-	layers { digest size mediaType annotations { key value } }
-	imageConfig { created os architecture variant raw }`
-
-// imageTreeQuery resolves a reference to a manifest and, for an index, the
-// children it selects between.
-func imageTreeQuery(fields string) string {
-	return `query($repo: String!, $ref: String!) {
-		image(repository: $repo, reference: $ref) {
-			` + fields + `
-			tags
-			manifests {
-				digest mediaType size
-				platform { os architecture variant osVersion osFeatures }
-				annotations { key value }
-				manifest { ` + fields + ` }
-			}
-		}
-	}`
-}
-
-var listTagsQuery = `query($repo: String!, $after: String) {
-	repository(name: $repo) {
-		tags(first: ` + fmt.Sprint(queryPage) + `, after: $after) {
-			name
-			manifest {
-				` + imageFields + `
-				manifests {
-					digest mediaType size
-					platform { os architecture variant osVersion osFeatures }
-					annotations { key value }
-					manifest { ` + imageFields + ` }
-				}
-			}
-		}
+// manifest reads the manifest digest names in repository, reporting whether
+// it is stored.
+func (r *RegistryService) manifest(ctx context.Context, repository string, digest oci.Digest) (backend.ManifestRecord, bool, error) {
+	record, err := r.index.Manifest(ctx, repository, digest)
+	if isNotFound(err) || errors.Is(err, oci.ErrNameInvalid) {
+		return backend.ManifestRecord{}, false, nil
 	}
-}`
+	return record, err == nil, err
+}
 
-var listRepositoriesQuery = `query($after: String) {
-	repositories(first: ` + fmt.Sprint(queryPage) + `, after: $after) { name }
-}`
+// imageTree loads the manifest digest names in repository and, for an index,
+// its children. It returns nil when the manifest is not stored.
+func (r *RegistryService) imageTree(ctx context.Context, repository string, digest oci.Digest) (*storedImageTree, error) {
+	record, found, err := r.manifest(ctx, repository, digest)
+	if err != nil || !found {
+		return nil, err
+	}
+	image, err := r.storedImage(ctx, record)
+	if err != nil {
+		return nil, err
+	}
+	tree := &storedImageTree{storedImage: *image, Tags: record.Tags}
+	for _, child := range record.Manifests {
+		entry := storedIndexChild{
+			Digest:      string(child.Digest),
+			MediaType:   child.MediaType,
+			Size:        child.Size,
+			Platform:    platformOf(child.Platform),
+			Annotations: annotationList(child.Annotations),
+		}
+		childRecord, found, err := r.manifest(ctx, repository, child.Digest)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			if entry.Manifest, err = r.storedImage(ctx, childRecord); err != nil {
+				return nil, err
+			}
+		}
+		tree.Manifests = append(tree.Manifests, entry)
+	}
+	return tree, nil
+}
+
+func (r *RegistryService) storedImage(ctx context.Context, record backend.ManifestRecord) (*storedImage, error) {
+	image := &storedImage{
+		Digest:    string(record.Descriptor.Digest),
+		MediaType: record.Descriptor.MediaType,
+		Size:      record.Descriptor.Size,
+	}
+	for _, layer := range record.Layers {
+		image.Layers = append(image.Layers, storedDescriptor{
+			Digest:      string(layer.Digest),
+			Size:        layer.Size,
+			MediaType:   layer.MediaType,
+			Annotations: annotationList(layer.Annotations),
+		})
+	}
+	if record.Config == nil {
+		return image, nil
+	}
+	image.Config = &storedSized{Digest: string(record.Config.Digest), Size: record.Config.Size}
+	raw, err := r.index.ImageConfig(ctx, *record.Config)
+	if err != nil || raw == nil {
+		return image, err
+	}
+	var config struct {
+		Created      *time.Time `json:"created"`
+		OS           string     `json:"os"`
+		Architecture string     `json:"architecture"`
+		Variant      string     `json:"variant"`
+	}
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return nil, fmt.Errorf("decoding image config %s: %w", record.Config.Digest, err)
+	}
+	if config.Created != nil && config.Created.IsZero() {
+		config.Created = nil
+	}
+	image.ImageConfig = &storedImageConfig{
+		Created:      config.Created,
+		OS:           config.OS,
+		Architecture: config.Architecture,
+		Variant:      config.Variant,
+		Raw:          string(raw),
+	}
+	return image, nil
+}
+
+func platformOf(platform *oci.Platform) *storedPlatform {
+	if platform == nil {
+		return nil
+	}
+	return &storedPlatform{
+		OS:           platform.OS,
+		Architecture: platform.Architecture,
+		Variant:      optional(platform.Variant),
+		OSVersion:    optional(platform.OSVersion),
+		OSFeatures:   platform.OSFeatures,
+	}
+}
+
+func optional(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+// annotationList sorts annotations by key.
+func annotationList(annotations map[string]string) []storedAnnotation {
+	result := make([]storedAnnotation, 0, len(annotations))
+	for key, value := range annotations {
+		result = append(result, storedAnnotation{Key: key, Value: value})
+	}
+	slices.SortFunc(result, func(a, b storedAnnotation) int { return strings.Compare(a.Key, b.Key) })
+	return result
+}
 
 // Images lists the tagged images in the caller's namespace from the metadata
-// indexes. Index images are summarised by the manifest for the default
+// index. Index images are summarised by the manifest for the default
 // platform; tags whose image content was never pulled are omitted.
 func (r *RegistryService) Images(ctx context.Context, _ types.ImageListOptions) ([]imagetypes.Summary, error) {
 	id, ok := identity.FromContext(ctx)
@@ -163,79 +216,70 @@ func (r *RegistryService) Images(ctx context.Context, _ types.ImageListOptions) 
 	}
 	summaries := make([]imagetypes.Summary, 0)
 	for _, repo := range repos {
-		var after *string
+		after := ""
 		for {
-			var data struct {
-				Repository *struct {
-					Tags []queryTag `json:"tags"`
-				} `json:"repository"`
-			}
-			if err := r.Query(ctx, listTagsQuery, map[string]any{"repo": repo, "after": after}, &data); err != nil {
-				return nil, err
-			}
-			if data.Repository == nil {
+			tags, err := r.index.TagRecords(ctx, repo, after, indexPage)
+			if isNotFound(err) {
 				break
 			}
-			for _, tag := range data.Repository.Tags {
-				if summary, ok := imageSummary(id.Namespace, repo, tag); ok {
+			if err != nil {
+				return nil, err
+			}
+			for _, tag := range tags {
+				tree, err := r.imageTree(ctx, repo, tag.Digest)
+				if err != nil {
+					return nil, err
+				}
+				if summary, ok := imageSummary(id.Namespace, repo, tag.Tag, tree); ok {
 					summaries = append(summaries, summary)
 				}
 			}
-			if len(data.Repository.Tags) < queryPage {
+			if len(tags) < indexPage {
 				break
 			}
-			last := data.Repository.Tags[len(data.Repository.Tags)-1].Name
-			after = &last
+			after = tags[len(tags)-1].Tag
 		}
 	}
 	return summaries, nil
 }
 
 func (r *RegistryService) namespaceRepositories(ctx context.Context, namespace string) ([]string, error) {
-	prefix := ""
-	var after *string
+	prefix, after := "", ""
 	if namespace != "" {
 		prefix = namespace + "/"
 		// Repositories sort by name, so start just before the namespace.
-		start := namespace + "."
-		after = &start
+		after = namespace + "."
 	}
 	var result []string
 	for {
-		var data struct {
-			Repositories []struct {
-				Name string `json:"name"`
-			} `json:"repositories"`
-		}
-		if err := r.Query(ctx, listRepositoriesQuery, map[string]any{"after": after}, &data); err != nil {
+		names, err := r.index.Repositories(ctx, after, indexPage)
+		if err != nil {
 			return nil, err
 		}
-		for _, repo := range data.Repositories {
-			if !strings.HasPrefix(repo.Name, prefix) {
-				if repo.Name > prefix {
+		for _, name := range names {
+			if !strings.HasPrefix(name, prefix) {
+				if name > prefix {
 					return result, nil
 				}
 				continue
 			}
-			result = append(result, repo.Name)
+			result = append(result, name)
 		}
-		if len(data.Repositories) < queryPage {
+		if len(names) < indexPage {
 			return result, nil
 		}
-		last := data.Repositories[len(data.Repositories)-1].Name
-		after = &last
+		after = names[len(names)-1]
 	}
 }
 
 // imageSummary describes the image a tag names. An image stored under the tag
 // form of its digest is reported as a repository digest instead of a tag,
 // which is how it was pulled.
-func imageSummary(namespace, repo string, tag queryTag) (imagetypes.Summary, bool) {
-	if tag.Manifest == nil {
+func imageSummary(namespace, repo, tag string, root *storedImageTree) (imagetypes.Summary, bool) {
+	if root == nil {
 		return imagetypes.Summary{}, false
 	}
-	root := tag.Manifest
-	image := &root.queryImage
+	image := &root.storedImage
 	totalSize := root.Size
 	if isIndex(root.MediaType) {
 		child, ok := presentPlatformChild(root.MediaType, root.Manifests)
@@ -258,15 +302,15 @@ func imageSummary(namespace, repo string, tag queryTag) (imagetypes.Summary, boo
 		if config.Created != nil {
 			created = config.Created.Unix()
 		}
-		platform.OS = deref(config.OS)
-		platform.Architecture = deref(config.Architecture)
-		platform.Variant = deref(config.Variant)
+		platform.OS = config.OS
+		platform.Architecture = config.Architecture
+		platform.Variant = config.Variant
 	}
 
 	display := strings.TrimPrefix(repo, namespace+"/")
-	name := display + ":" + tag.Name
+	name := display + ":" + tag
 	digestRef := display + "@" + root.Digest
-	if _, byDigest := digestForTag(tag.Name); byDigest {
+	if _, byDigest := digestForTag(tag); byDigest {
 		name = digestRef
 	}
 	return imagetypes.Summary{
@@ -289,8 +333,8 @@ func imageSummary(namespace, repo string, tag queryTag) (imagetypes.Summary, boo
 // presentPlatformChild picks the index child that describes the image. Only
 // children that were pulled are stored, so it prefers the default platform
 // among those and otherwise falls back to the first stored platform manifest.
-func presentPlatformChild(mediaType string, children []queryIndexChild) (queryIndexChild, bool) {
-	var present []queryIndexChild
+func presentPlatformChild(mediaType string, children []storedIndexChild) (storedIndexChild, bool) {
+	var present []storedIndexChild
 	for _, child := range children {
 		if child.Manifest != nil && child.Platform != nil && child.Platform.OS != "unknown" {
 			present = append(present, child)
@@ -302,10 +346,10 @@ func presentPlatformChild(mediaType string, children []queryIndexChild) (queryIn
 	if len(present) > 0 {
 		return present[0], true
 	}
-	return queryIndexChild{}, false
+	return storedIndexChild{}, false
 }
 
-func defaultPlatformChild(mediaType string, children []queryIndexChild) (queryIndexChild, bool) {
+func defaultPlatformChild(mediaType string, children []storedIndexChild) (storedIndexChild, bool) {
 	index := &oci.IndexOrManifest{MediaType: mediaType}
 	for _, child := range children {
 		descriptor := oci.Descriptor{Digest: oci.Digest(child.Digest), MediaType: child.MediaType, Size: child.Size}
@@ -322,14 +366,14 @@ func defaultPlatformChild(mediaType string, children []queryIndexChild) (queryIn
 	}
 	selected, err := parseIndexManifest(nil, index)
 	if err != nil {
-		return queryIndexChild{}, false
+		return storedIndexChild{}, false
 	}
 	for _, child := range children {
 		if oci.Digest(child.Digest) == selected.platformDigest {
 			return child, true
 		}
 	}
-	return queryIndexChild{}, false
+	return storedIndexChild{}, false
 }
 
 func deref(value *string) string {
@@ -337,21 +381,6 @@ func deref(value *string) string {
 		return ""
 	}
 	return *value
-}
-
-const removeImageQuery = `query($repo: String!, $ref: String!) {
-	image(repository: $repo, reference: $ref) {
-		digest
-		tags
-		closure { digest role retainedInRepository shared }
-	}
-}`
-
-type closureEntry struct {
-	Digest               string `json:"digest"`
-	Role                 string `json:"role"`
-	RetainedInRepository bool   `json:"retainedInRepository"`
-	Shared               bool   `json:"shared"`
 }
 
 // ImageDelete untags name and, when no other tag or manifest in the
@@ -373,26 +402,26 @@ func (r *RegistryService) ImageDelete(ctx context.Context, name string, options 
 		return nil, err
 	}
 
-	var data struct {
-		Image *struct {
-			Digest  string         `json:"digest"`
-			Tags    []string       `json:"tags"`
-			Closure []closureEntry `json:"closure"`
-		} `json:"image"`
-	}
-	if err := r.Query(ctx, removeImageQuery, map[string]any{"repo": resolved.repository, "ref": resolved.digest.String()}, &data); err != nil {
+	record, found, err := r.manifest(ctx, resolved.repository, resolved.digest)
+	if err != nil {
 		return nil, err
 	}
-	if data.Image == nil {
+	if !found {
 		return nil, httpx.NotFound(fmt.Errorf("no such image: %s", name))
 	}
-	image := data.Image
+	closure, err := r.index.Closure(ctx, resolved.repository, resolved.digest)
+	if isNotFound(err) {
+		return nil, httpx.NotFound(fmt.Errorf("no such image: %s", name))
+	}
+	if err != nil {
+		return nil, err
+	}
 
 	// A tagged name removes just that tag. An ID or digest names the image
 	// itself, which docker only removes unforced while a single tag holds it.
 	remove := []string{resolved.tag}
 	if resolved.tag == "" {
-		remove = image.Tags
+		remove = record.Tags
 		if len(remove) > 1 && !options.Force {
 			return nil, httpx.Conflict(fmt.Errorf("unable to delete %s (must be forced) - image is referenced in multiple tags", name))
 		}
@@ -402,7 +431,7 @@ func (r *RegistryService) ImageDelete(ctx context.Context, name string, options 
 	for _, tag := range remove {
 		untagged := resolved.display() + ":" + tag
 		if _, byDigest := digestForTag(tag); byDigest {
-			untagged = resolved.display() + "@" + image.Digest
+			untagged = resolved.display() + "@" + record.Descriptor.Digest.String()
 		}
 		if err := local.DeleteTag(ctx, resolved.repository, tag); err != nil {
 			return records, fmt.Errorf("untagging %s: %w", untagged, err)
@@ -411,24 +440,24 @@ func (r *RegistryService) ImageDelete(ctx context.Context, name string, options 
 	}
 
 	remaining := 0
-	for _, tag := range image.Tags {
+	for _, tag := range record.Tags {
 		if !slices.Contains(remove, tag) {
 			remaining++
 		}
 	}
-	if remaining > 0 || len(image.Closure) == 0 || image.Closure[0].RetainedInRepository {
+	if remaining > 0 || len(closure) == 0 || closure[0].RetainedInRepository {
 		return records, nil
 	}
 
 	// Manifests go first, parents before children, so every blob is
 	// unreferenced in the repository by the time it is removed.
-	var deleted []closureEntry
+	var deleted []ocistore.ClosureEntry
 	for _, pass := range []bool{true, false} {
-		for _, entry := range image.Closure {
-			if (entry.Role == "MANIFEST") != pass || entry.RetainedInRepository {
+		for _, entry := range closure {
+			if (entry.Role == ocistore.RoleManifest) != pass || entry.RetainedInRepository {
 				continue
 			}
-			digest := oci.Digest(entry.Digest)
+			digest := entry.Descriptor.Digest
 			if pass {
 				err = local.DeleteManifest(ctx, resolved.repository, digest)
 			} else {
@@ -442,7 +471,7 @@ func (r *RegistryService) ImageDelete(ctx context.Context, name string, options 
 	}
 	for _, entry := range deleted {
 		if !entry.Shared {
-			records = append(records, imagetypes.DeleteResponse{Deleted: entry.Digest})
+			records = append(records, imagetypes.DeleteResponse{Deleted: entry.Descriptor.Digest.String()})
 		}
 	}
 	return records, nil

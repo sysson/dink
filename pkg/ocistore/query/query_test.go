@@ -12,11 +12,11 @@ import (
 
 	"github.com/docker/oci"
 	"github.com/docker/oci/ocidigest"
-	"github.com/sysson/dink/core/registry/backend/blobstore"
-	"github.com/sysson/dink/core/registry/backend/kv/memkv"
-	"github.com/sysson/dink/core/registry/backend/kvmeta"
-	"github.com/sysson/dink/core/registry/ocibackend"
-	"github.com/sysson/dink/core/registry/query"
+	"github.com/sysson/dink/pkg/ocistore"
+	"github.com/sysson/dink/pkg/ocistore/blobstore"
+	"github.com/sysson/dink/pkg/ocistore/kv/memkv"
+	"github.com/sysson/dink/pkg/ocistore/kvmeta"
+	"github.com/sysson/dink/pkg/ocistore/query"
 )
 
 const (
@@ -29,7 +29,7 @@ const (
 type fixture struct {
 	t        *testing.T
 	ctx      context.Context
-	registry *ocibackend.Registry
+	registry *ocistore.Store
 	service  *query.Service
 }
 
@@ -46,11 +46,11 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = metadata.Close() })
-	registry, err := ocibackend.New(content, metadata)
+	registry, err := ocistore.New(content, metadata)
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := query.New(metadata, content)
+	service, err := query.New(registry.Index())
 	if err != nil {
 		t.Fatal(err)
 	}

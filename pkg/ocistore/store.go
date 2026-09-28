@@ -1,4 +1,4 @@
-package ocibackend
+package ocistore
 
 import (
 	"bytes"
@@ -14,27 +14,27 @@ import (
 	"github.com/docker/oci"
 	"github.com/docker/oci/ocidigest"
 	"github.com/docker/oci/ociref"
-	"github.com/sysson/dink/core/registry/backend"
-	"github.com/sysson/dink/core/registry/backend/blobstore"
+	"github.com/sysson/dink/pkg/ocistore/backend"
+	"github.com/sysson/dink/pkg/ocistore/blobstore"
 	"github.com/sysson/syskit/logx"
 )
 
-type Registry struct {
+type Store struct {
 	*oci.Funcs
 	content  backend.ContentStore
-	metadata backend.MetadataStore
+	metadata Metadata
 }
 
-var _ oci.Interface = (*Registry)(nil)
+var _ oci.Interface = (*Store)(nil)
 
-func New(content backend.ContentStore, metadata backend.MetadataStore) (*Registry, error) {
+func New(content backend.ContentStore, metadata Metadata) (*Store, error) {
 	if content == nil {
 		return nil, errors.New("registry content store is required")
 	}
 	if metadata == nil {
 		return nil, errors.New("registry metadata store is required")
 	}
-	r := &Registry{content: content, metadata: metadata}
+	r := &Store{content: content, metadata: metadata}
 	r.Funcs = &oci.Funcs{
 		GetBlob_:               r.getBlob,
 		GetBlobRange_:          r.getBlobRange,
@@ -58,31 +58,7 @@ func New(content backend.ContentStore, metadata backend.MetadataStore) (*Registr
 	return r, nil
 }
 
-func (r *Registry) RunGarbageCollector(ctx context.Context, interval time.Duration) {
-	if interval <= 0 {
-		interval = time.Minute
-	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		if err := r.CollectGarbage(ctx); err != nil && ctx.Err() == nil {
-			logx.G(ctx).WithError(err).Error("collecting unreferenced registry content")
-		}
-		if err := r.CleanupExpiredUploads(ctx, time.Now().Add(-24*time.Hour)); err != nil && ctx.Err() == nil {
-			logx.G(ctx).WithError(err).Error("cleaning expired registry uploads")
-		}
-		if err := r.CleanupExpiredReservations(ctx, time.Now().Add(-24*time.Hour)); err != nil && ctx.Err() == nil {
-			logx.G(ctx).WithError(err).Error("cleaning expired registry content reservations")
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-func (r *Registry) CleanupExpiredUploads(ctx context.Context, cutoff time.Time) error {
+func (r *Store) CleanupExpiredUploads(ctx context.Context, cutoff time.Time) error {
 	for {
 		uploads, err := r.metadata.ListExpiredUploads(ctx, cutoff, 100)
 		if err != nil {
@@ -102,7 +78,7 @@ func (r *Registry) CleanupExpiredUploads(ctx context.Context, cutoff time.Time) 
 	}
 }
 
-func (r *Registry) CleanupExpiredReservations(ctx context.Context, cutoff time.Time) error {
+func (r *Store) CleanupExpiredReservations(ctx context.Context, cutoff time.Time) error {
 	for {
 		reservations, err := r.metadata.ListExpiredReservations(ctx, cutoff, 100)
 		if err != nil {
@@ -119,7 +95,7 @@ func (r *Registry) CleanupExpiredReservations(ctx context.Context, cutoff time.T
 	}
 }
 
-func (r *Registry) CollectGarbage(ctx context.Context) error {
+func (r *Store) CollectGarbage(ctx context.Context) error {
 	for {
 		candidates, err := r.metadata.GarbageCandidates(ctx, 100)
 		if err != nil {
@@ -149,7 +125,7 @@ func (r *Registry) CollectGarbage(ctx context.Context) error {
 	}
 }
 
-func (r *Registry) getBlob(ctx context.Context, repository string, digest oci.Digest) (oci.BlobReader, error) {
+func (r *Store) getBlob(ctx context.Context, repository string, digest oci.Digest) (oci.BlobReader, error) {
 	desc, err := r.metadata.Blob(ctx, repository, digest)
 	if err != nil {
 		return nil, err
@@ -161,7 +137,7 @@ func (r *Registry) getBlob(ctx context.Context, repository string, digest oci.Di
 	return &blobReader{ReadCloser: reader, descriptor: desc}, nil
 }
 
-func (r *Registry) getBlobRange(ctx context.Context, repository string, digest oci.Digest, start, end int64) (oci.BlobReader, error) {
+func (r *Store) getBlobRange(ctx context.Context, repository string, digest oci.Digest, start, end int64) (oci.BlobReader, error) {
 	desc, err := r.metadata.Blob(ctx, repository, digest)
 	if err != nil {
 		return nil, err
@@ -173,7 +149,7 @@ func (r *Registry) getBlobRange(ctx context.Context, repository string, digest o
 	return &blobReader{ReadCloser: reader, descriptor: desc}, nil
 }
 
-func (r *Registry) getManifest(ctx context.Context, repository string, digest oci.Digest) (oci.BlobReader, error) {
+func (r *Store) getManifest(ctx context.Context, repository string, digest oci.Digest) (oci.BlobReader, error) {
 	record, err := r.metadata.Manifest(ctx, repository, digest)
 	if err != nil {
 		return nil, err
@@ -185,7 +161,7 @@ func (r *Registry) getManifest(ctx context.Context, repository string, digest oc
 	return &blobReader{ReadCloser: reader, descriptor: record.Descriptor}, nil
 }
 
-func (r *Registry) getTag(ctx context.Context, repository, tag string) (oci.BlobReader, error) {
+func (r *Store) getTag(ctx context.Context, repository, tag string) (oci.BlobReader, error) {
 	desc, err := r.metadata.ResolveTag(ctx, repository, tag)
 	if err != nil {
 		return nil, err
@@ -193,7 +169,7 @@ func (r *Registry) getTag(ctx context.Context, repository, tag string) (oci.Blob
 	return r.getManifest(ctx, repository, desc.Digest)
 }
 
-func (r *Registry) resolveBlob(ctx context.Context, repository string, digest oci.Digest) (oci.Descriptor, error) {
+func (r *Store) resolveBlob(ctx context.Context, repository string, digest oci.Digest) (oci.Descriptor, error) {
 	desc, err := r.metadata.Blob(ctx, repository, digest)
 	if err != nil {
 		return oci.Descriptor{}, err
@@ -201,7 +177,7 @@ func (r *Registry) resolveBlob(ctx context.Context, repository string, digest oc
 	return desc, nil
 }
 
-func (r *Registry) resolveManifest(ctx context.Context, repository string, digest oci.Digest) (oci.Descriptor, error) {
+func (r *Store) resolveManifest(ctx context.Context, repository string, digest oci.Digest) (oci.Descriptor, error) {
 	record, err := r.metadata.Manifest(ctx, repository, digest)
 	if err != nil {
 		return oci.Descriptor{}, err
@@ -209,11 +185,11 @@ func (r *Registry) resolveManifest(ctx context.Context, repository string, diges
 	return record.Descriptor, nil
 }
 
-func (r *Registry) resolveTag(ctx context.Context, repository, tag string) (oci.Descriptor, error) {
+func (r *Store) resolveTag(ctx context.Context, repository, tag string) (oci.Descriptor, error) {
 	return r.metadata.ResolveTag(ctx, repository, tag)
 }
 
-func (r *Registry) pushBlob(ctx context.Context, repository string, desc oci.Descriptor, content io.Reader) (oci.Descriptor, error) {
+func (r *Store) pushBlob(ctx context.Context, repository string, desc oci.Descriptor, content io.Reader) (oci.Descriptor, error) {
 	if err := validateDescriptor(desc); err != nil {
 		return oci.Descriptor{}, err
 	}
@@ -236,7 +212,7 @@ func (r *Registry) pushBlob(ctx context.Context, repository string, desc oci.Des
 	return desc, nil
 }
 
-func (r *Registry) pushBlobChunked(ctx context.Context, repository string, chunkSize int) (oci.BlobWriter, error) {
+func (r *Store) pushBlobChunked(ctx context.Context, repository string, chunkSize int) (oci.BlobWriter, error) {
 	if err := r.metadata.EnsureRepository(ctx, repository); err != nil {
 		return nil, err
 	}
@@ -258,7 +234,7 @@ func (r *Registry) pushBlobChunked(ctx context.Context, repository string, chunk
 	return &uploadWriter{registry: r, ctx: ctx, repository: repository, id: uploadID, offset: 0, chunkSize: chunkSize}, nil
 }
 
-func (r *Registry) pushBlobChunkedResume(ctx context.Context, repository, id string, offset int64, chunkSize int) (oci.BlobWriter, error) {
+func (r *Store) pushBlobChunkedResume(ctx context.Context, repository, id string, offset int64, chunkSize int) (oci.BlobWriter, error) {
 	uploadID := backend.UploadID(id)
 	if _, err := r.metadata.Upload(ctx, repository, uploadID); err != nil {
 		if errors.Is(err, backend.ErrUploadUnknown) {
@@ -285,7 +261,7 @@ func (r *Registry) pushBlobChunkedResume(ctx context.Context, repository, id str
 	}, nil
 }
 
-func (r *Registry) mountBlob(ctx context.Context, fromRepository, toRepository string, digest oci.Digest) (oci.Descriptor, error) {
+func (r *Store) mountBlob(ctx context.Context, fromRepository, toRepository string, digest oci.Digest) (oci.Descriptor, error) {
 	desc, err := r.metadata.Blob(ctx, fromRepository, digest)
 	if err != nil {
 		return oci.Descriptor{}, err
@@ -304,7 +280,7 @@ func (r *Registry) mountBlob(ctx context.Context, fromRepository, toRepository s
 	return desc, nil
 }
 
-func (r *Registry) pushManifest(ctx context.Context, repository string, content []byte, mediaType string, params *oci.PushManifestParameters) (oci.Descriptor, error) {
+func (r *Store) pushManifest(ctx context.Context, repository string, content []byte, mediaType string, params *oci.PushManifestParameters) (oci.Descriptor, error) {
 	if !ociref.IsValidRepository(repository) {
 		return oci.Descriptor{}, oci.ErrNameInvalid
 	}
@@ -415,7 +391,7 @@ func parseManifest(mediaType string, content []byte) (oci.IndexOrManifest, []oci
 	return manifest, references, subject, artifactType, nil
 }
 
-func (r *Registry) validateManifestDependencies(ctx context.Context, repository string, manifest oci.IndexOrManifest) error {
+func (r *Store) validateManifestDependencies(ctx context.Context, repository string, manifest oci.IndexOrManifest) error {
 	for _, descriptor := range manifest.Manifests {
 		if err := validateDescriptor(descriptor); err != nil {
 			return err
@@ -464,26 +440,26 @@ func (r *Registry) validateManifestDependencies(ctx context.Context, repository 
 	return nil
 }
 
-func (r *Registry) deleteBlob(ctx context.Context, repository string, digest oci.Digest) error {
+func (r *Store) deleteBlob(ctx context.Context, repository string, digest oci.Digest) error {
 	_, err := r.metadata.DeleteBlob(ctx, repository, digest)
 	return err
 }
 
-func (r *Registry) deleteManifest(ctx context.Context, repository string, digest oci.Digest) error {
+func (r *Store) deleteManifest(ctx context.Context, repository string, digest oci.Digest) error {
 	_, err := r.metadata.DeleteManifest(ctx, repository, digest)
 	return err
 }
 
-func (r *Registry) deleteTag(ctx context.Context, repository, tag string) error {
+func (r *Store) deleteTag(ctx context.Context, repository, tag string) error {
 	_, err := r.metadata.DeleteTag(ctx, repository, tag)
 	return err
 }
 
-func (r *Registry) repositories(ctx context.Context, after string) iter.Seq2[string, error] {
+func (r *Store) repositories(ctx context.Context, after string) iter.Seq2[string, error] {
 	return pageSequence(ctx, func(last string) ([]string, error) { return r.metadata.Repositories(ctx, last, 256) }, after)
 }
 
-func (r *Registry) tags(ctx context.Context, repository string, params *oci.TagsParameters) iter.Seq2[string, error] {
+func (r *Store) tags(ctx context.Context, repository string, params *oci.TagsParameters) iter.Seq2[string, error] {
 	var startAfter string
 	limit := 0
 	if params != nil {
@@ -526,7 +502,7 @@ func (r *Registry) tags(ctx context.Context, repository string, params *oci.Tags
 	}
 }
 
-func (r *Registry) referrers(ctx context.Context, repository string, digest oci.Digest, params *oci.ReferrersParameters) iter.Seq2[oci.Descriptor, error] {
+func (r *Store) referrers(ctx context.Context, repository string, digest oci.Digest, params *oci.ReferrersParameters) iter.Seq2[oci.Descriptor, error] {
 	artifactType := ""
 	if params != nil {
 		artifactType = params.ArtifactType
@@ -618,7 +594,7 @@ func (r *blobReader) Descriptor() oci.Descriptor {
 }
 
 type uploadWriter struct {
-	registry       *Registry
+	registry       *Store
 	ctx            context.Context
 	repository     string
 	id             backend.UploadID

@@ -218,3 +218,27 @@ func (c *Client) Query(ctx context.Context, document, operationName string, vari
 	}
 	return response.GetResponse(), nil
 }
+
+// IssuePullCredential creates, or replaces, the caller's namespace pull
+// credential and returns its username and password.
+func (c *Client) IssuePullCredential(ctx context.Context) (string, string, error) {
+	id, err := c.requestIdentity(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	response, err := c.rpc.IssuePullCredential(ctx, &registryv1.IssuePullCredentialRequest{Identity: id})
+	if err != nil {
+		return "", "", FromConnectError(err)
+	}
+	return response.GetUsername(), response.GetPassword(), nil
+}
+
+// RevokePullCredential removes the caller's namespace pull credential.
+func (c *Client) RevokePullCredential(ctx context.Context) error {
+	id, err := c.requestIdentity(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = c.rpc.RevokePullCredential(ctx, &registryv1.RevokePullCredentialRequest{Identity: id})
+	return FromConnectError(err)
+}

@@ -13,6 +13,7 @@
 //	referrer/<repo>/<subject>/<digest>           subject -> referrer descriptor
 //	reservation/<id>, reservation-digest/<digest>/<id>, reservation-time/<ts>/<id>
 //	upload/<id>, upload-time/<ts>/<id>
+//	pending/<repo>/<kind>/<id>                   repository -> open uploads and reservations
 //	gc-queue/<digest>, gc-claim/<digest>
 //
 // Parts are joined with kv.Separator, so each index is a part-aligned prefix
@@ -32,8 +33,8 @@ import (
 
 	"github.com/docker/oci"
 	"github.com/docker/oci/ociref"
-	"github.com/sysson/dink/core/registry/backend"
-	"github.com/sysson/dink/core/registry/backend/kv"
+	"github.com/sysson/dink/pkg/ocistore/backend"
+	"github.com/sysson/dink/pkg/ocistore/kv"
 )
 
 const (
@@ -50,11 +51,15 @@ const (
 	nsReservationTime   = "reservation-time"
 	nsUpload            = "upload"
 	nsUploadTime        = "upload-time"
+	nsPending           = "pending"
 	nsGCQueue           = "gc-queue"
 	nsGCClaim           = "gc-claim"
 	nsSchema            = "schema"
 
-	schemaVersion = "1"
+	pendingUpload      = "upload"
+	pendingReservation = "reservation"
+
+	schemaVersion = "2"
 )
 
 // Store is the metadata store over a kv.Store.
@@ -82,6 +87,9 @@ func New(ctx context.Context, store kv.Store) (*Store, error) {
 		if err != nil {
 			return err
 		}
+		if string(value) == "1" {
+			return migrateV1(ctx, tx)
+		}
 		if string(value) != schemaVersion {
 			return fmt.Errorf("unsupported registry metadata schema %q (want %s)", value, schemaVersion)
 		}
@@ -91,6 +99,29 @@ func New(ctx context.Context, store kv.Store) (*Store, error) {
 		return nil, fmt.Errorf("initializing registry metadata: %w", err)
 	}
 	return s, nil
+}
+
+// migrateV1 builds the pending index, which schema 1 did not have.
+func migrateV1(ctx context.Context, tx kv.Txn) error {
+	if err := tx.Scan(ctx, kv.Prefix(nsUpload), "", func(_ string, value []byte) (bool, error) {
+		var session backend.UploadSession
+		if err := json.Unmarshal(value, &session); err != nil {
+			return false, fmt.Errorf("decoding registry upload metadata: %w", err)
+		}
+		return true, tx.Put(kv.Key(nsPending, session.Repository, pendingUpload, string(session.ID)), nil)
+	}); err != nil {
+		return err
+	}
+	if err := tx.Scan(ctx, kv.Prefix(nsReservation), "", func(_ string, value []byte) (bool, error) {
+		var reservation backend.ContentReservation
+		if err := json.Unmarshal(value, &reservation); err != nil {
+			return false, fmt.Errorf("decoding registry reservation metadata: %w", err)
+		}
+		return true, tx.Put(kv.Key(nsPending, reservation.Repository, pendingReservation, reservation.ID), nil)
+	}); err != nil {
+		return err
+	}
+	return tx.Put(kv.Key(nsSchema), []byte(schemaVersion))
 }
 
 // Open opens the kv driver cfg selects and returns a metadata store over it.
@@ -394,6 +425,9 @@ func (s *Store) ReserveContent(ctx context.Context, name string, desc oci.Descri
 			return err
 		}
 		if err := tx.Put(kv.Key(nsReservationDigest, string(desc.Digest), id), nil); err != nil {
+			return err
+		}
+		if err := tx.Put(kv.Key(nsPending, name, pendingReservation, id), nil); err != nil {
 			return err
 		}
 		return tx.Put(kv.Key(nsReservationTime, timeKey(reservedAt), id), nil)
@@ -700,6 +734,9 @@ func (s *Store) CreateUpload(ctx context.Context, session backend.UploadSession)
 		if err := putJSON(tx, kv.Key(nsUpload, string(session.ID)), session); err != nil {
 			return err
 		}
+		if err := tx.Put(kv.Key(nsPending, session.Repository, pendingUpload, string(session.ID)), nil); err != nil {
+			return err
+		}
 		return tx.Put(kv.Key(nsUploadTime, timeKey(session.StartedAt), string(session.ID)), nil)
 	})
 }
@@ -755,6 +792,9 @@ func (s *Store) DeleteUpload(ctx context.Context, name string, id backend.Upload
 			return err
 		}
 		if err := tx.Delete(kv.Key(nsUploadTime, timeKey(session.StartedAt), string(id))); err != nil {
+			return err
+		}
+		if err := tx.Delete(kv.Key(nsPending, session.Repository, pendingUpload, string(id))); err != nil {
 			return err
 		}
 		return s.pruneRepositoryIfEmpty(ctx, tx, name)
@@ -841,38 +881,8 @@ func (s *Store) pruneRepositoryIfEmpty(ctx context.Context, tx kv.Txn, name stri
 	} else if err != nil {
 		return err
 	}
-	for _, namespace := range []string{nsTag, nsTagRef, nsManifest, nsBlob, nsReferrer} {
+	for _, namespace := range []string{nsTag, nsTagRef, nsManifest, nsBlob, nsReferrer, nsPending} {
 		found, err := exists(ctx, tx, kv.Prefix(namespace, name))
-		if err != nil {
-			return err
-		}
-		if found {
-			return nil
-		}
-	}
-	for _, namespace := range []string{nsUpload, nsReservation} {
-		found := false
-		err := tx.Scan(ctx, kv.Prefix(namespace), "", func(_ string, value []byte) (bool, error) {
-			var repository string
-			if namespace == nsUpload {
-				var session backend.UploadSession
-				if err := json.Unmarshal(value, &session); err != nil {
-					return false, fmt.Errorf("decoding registry upload metadata: %w", err)
-				}
-				repository = session.Repository
-			} else {
-				var reservation backend.ContentReservation
-				if err := json.Unmarshal(value, &reservation); err != nil {
-					return false, fmt.Errorf("decoding registry reservation metadata: %w", err)
-				}
-				repository = reservation.Repository
-			}
-			if repository == name {
-				found = true
-				return false, nil
-			}
-			return true, nil
-		})
 		if err != nil {
 			return err
 		}
@@ -934,6 +944,7 @@ func takeReservation(ctx context.Context, tx kv.Txn, reservation backend.Content
 		kv.Key(nsReservation, reserved.ID),
 		kv.Key(nsReservationDigest, string(reserved.Descriptor.Digest), reserved.ID),
 		kv.Key(nsReservationTime, timeKey(reserved.ReservedAt), reserved.ID),
+		kv.Key(nsPending, reserved.Repository, pendingReservation, reserved.ID),
 	} {
 		if err := tx.Delete(key); err != nil {
 			return backend.ContentReservation{}, err

@@ -68,8 +68,7 @@ func TestValidateAPI(t *testing.T) {
 		wantErr bool
 	}{
 		"default":          {mutate: func(*Config) {}},
-		"disabled ignores": {mutate: func(c *Config) { c.API.Disabled = true; c.API.Port = c.Server.Port; c.API.ClientCAFile = "" }},
-		"same address":     {mutate: func(c *Config) { c.API.Port = c.Server.Port }, wantErr: true},
+		"disabled ignores": {mutate: func(c *Config) { c.API.Disabled = true; c.API.ClientCAFile = "" }},
 		"missing CA":       {mutate: func(c *Config) { c.API.ClientCAFile = "" }, wantErr: true},
 		"missing subject":  {mutate: func(c *Config) { c.API.ClientOrganization = ""; c.API.ClientCommonName = "" }, wantErr: true},
 		"plaintext api": {mutate: func(c *Config) {
@@ -82,7 +81,6 @@ func TestValidateAPI(t *testing.T) {
 			c.API.Disabled = true
 			c.GraphQL.Enabled = true
 		}, wantErr: true},
-		"bad port": {mutate: func(c *Config) { c.API.Port = "not-a-port" }, wantErr: true},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {

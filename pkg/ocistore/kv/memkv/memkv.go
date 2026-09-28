@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sysson/dink/core/registry/backend/kv"
+	"github.com/sysson/dink/pkg/ocistore/kv"
 )
 
 // Config selects the in-memory driver. It has no settings.

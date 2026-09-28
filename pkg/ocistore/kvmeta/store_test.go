@@ -2,6 +2,7 @@ package kvmeta_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"slices"
@@ -10,14 +11,14 @@ import (
 
 	"github.com/docker/oci"
 	"github.com/docker/oci/ocidigest"
-	"github.com/sysson/dink/core/registry/backend"
-	"github.com/sysson/dink/core/registry/backend/kv"
-	"github.com/sysson/dink/core/registry/backend/kv/boltkv"
-	"github.com/sysson/dink/core/registry/backend/kv/etcdkv"
-	"github.com/sysson/dink/core/registry/backend/kv/kvtest"
-	"github.com/sysson/dink/core/registry/backend/kv/memkv"
-	"github.com/sysson/dink/core/registry/backend/kv/natskv"
-	"github.com/sysson/dink/core/registry/backend/kvmeta"
+	"github.com/sysson/dink/pkg/ocistore/backend"
+	"github.com/sysson/dink/pkg/ocistore/kv"
+	"github.com/sysson/dink/pkg/ocistore/kv/boltkv"
+	"github.com/sysson/dink/pkg/ocistore/kv/etcdkv"
+	"github.com/sysson/dink/pkg/ocistore/kv/kvtest"
+	"github.com/sysson/dink/pkg/ocistore/kv/memkv"
+	"github.com/sysson/dink/pkg/ocistore/kv/natskv"
+	"github.com/sysson/dink/pkg/ocistore/kvmeta"
 )
 
 func TestMetadataMem(t *testing.T) {
@@ -54,6 +55,42 @@ type fixture struct {
 	t     *testing.T
 	store *kvmeta.Store
 	ctx   context.Context
+}
+
+func TestMigrateV1PendingIndex(t *testing.T) {
+	ctx := context.Background()
+	raw := memkv.New()
+	session, err := json.Marshal(backend.UploadSession{ID: "upload", Repository: "team/app", StartedAt: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Update(ctx, func(tx kv.Txn) error {
+		return errors.Join(
+			tx.Put(kv.Key("schema"), []byte("1")),
+			tx.Put(kv.Key("repo", "team/app"), []byte("{}")),
+			tx.Put(kv.Key("upload", "upload"), session),
+		)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store, err := kvmeta.New(ctx, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := fixture{t: t, store: store, ctx: ctx}
+	blob := f.blob("team/app", "content")
+	if _, err := store.DeleteBlob(ctx, "team/app", blob.Digest); err != nil {
+		t.Fatal(err)
+	}
+	if repositories, err := store.Repositories(ctx, "", 10); err != nil || !slices.Equal(repositories, []string{"team/app"}) {
+		t.Fatalf("repositories with a migrated upload = %v, %v; want [team/app]", repositories, err)
+	}
+	if err := store.DeleteUpload(ctx, "team/app", "upload"); err != nil {
+		t.Fatal(err)
+	}
+	if repositories, err := store.Repositories(ctx, "", 10); err != nil || len(repositories) != 0 {
+		t.Fatalf("repositories after deleting the migrated upload = %v, %v; want none", repositories, err)
+	}
 }
 
 func testEmptyRepositoryPruning(t *testing.T, store *kvmeta.Store) {

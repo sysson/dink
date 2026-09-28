@@ -47,7 +47,13 @@ k8s_resource(
 
 k8s_resource(
     'dinki',
-    port_forwards=['5000:5000', '5001:5001'],
+    port_forwards=['5000:5000'],
     resource_deps=['certificates'],
+    labels=['registry'],
+)
+
+k8s_resource(
+    'dinki-node',
+    resource_deps=['certificates', 'dinki'],
     labels=['registry'],
 )

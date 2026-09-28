@@ -5,19 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/docker/oci"
-	"github.com/sysson/dink/core/registry/backend"
+	"github.com/sysson/dink/pkg/ocistore"
+	"github.com/sysson/dink/pkg/ocistore/backend"
 )
 
 // resolver is the gqlgen resolver root and the Query type resolver.
 type resolver struct {
-	metadata Metadata
-	content  backend.ContentStore
+	index *ocistore.Index
 }
 
 func (r *resolver) Query() QueryResolver { return r }
@@ -27,7 +26,7 @@ func (r *resolver) Repositories(ctx context.Context, first *int32, after *string
 	if err != nil {
 		return nil, err
 	}
-	names, err := r.metadata.Repositories(ctx, deref(after), n)
+	names, err := r.index.Repositories(ctx, deref(after), n)
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +38,7 @@ func (r *resolver) Repositories(ctx context.Context, first *int32, after *string
 }
 
 func (r *resolver) Repository(ctx context.Context, name string) (*Repository, error) {
-	if _, err := r.metadata.Tags(ctx, name, "", 1); err != nil {
+	if _, err := r.index.TagRecords(ctx, name, "", 1); err != nil {
 		if isNotFound(err) || errors.Is(err, oci.ErrNameInvalid) {
 			return nil, nil
 		}
@@ -52,7 +51,7 @@ func (r *resolver) Image(ctx context.Context, repository, reference string) (*Ma
 	if strings.Contains(reference, ":") {
 		return r.Manifest(ctx, repository, reference)
 	}
-	descriptor, err := r.metadata.ResolveTag(ctx, repository, reference)
+	descriptor, err := r.index.ResolveTag(ctx, repository, reference)
 	if err != nil {
 		if isNotFound(err) || errors.Is(err, oci.ErrNameInvalid) {
 			return nil, nil
@@ -79,7 +78,7 @@ func (r *resolver) Content(_ context.Context, digest string) (*Content, error) {
 }
 
 func (r *resolver) manifest(ctx context.Context, repository string, digest oci.Digest) (*Manifest, error) {
-	record, err := r.metadata.Manifest(ctx, repository, digest)
+	record, err := r.index.Manifest(ctx, repository, digest)
 	if err != nil {
 		if isNotFound(err) || errors.Is(err, oci.ErrNameInvalid) {
 			return nil, nil
@@ -94,7 +93,7 @@ func (r *resolver) dependents(ctx context.Context, digest oci.Digest, first *int
 	if err != nil {
 		return nil, err
 	}
-	dependents, err := r.metadata.Dependents(ctx, digest, n)
+	dependents, err := r.index.Dependents(ctx, digest, n)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +163,7 @@ func (r *Repository) Tags(ctx context.Context, first *int32, after *string) ([]*
 	if err != nil {
 		return nil, err
 	}
-	records, err := r.root.metadata.TagRecords(ctx, r.name, deref(after), n)
+	records, err := r.root.index.TagRecords(ctx, r.name, deref(after), n)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +179,7 @@ func (r *Repository) Manifests(ctx context.Context, first *int32, after *string)
 	if err != nil {
 		return nil, err
 	}
-	records, err := r.root.metadata.Manifests(ctx, r.name, oci.Digest(deref(after)), n)
+	records, err := r.root.index.Manifests(ctx, r.name, oci.Digest(deref(after)), n)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +195,7 @@ func (r *Repository) Blobs(ctx context.Context, first *int32, after *string) ([]
 	if err != nil {
 		return nil, err
 	}
-	records, err := r.root.metadata.Blobs(ctx, r.name, oci.Digest(deref(after)), n)
+	records, err := r.root.index.Blobs(ctx, r.name, oci.Digest(deref(after)), n)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +250,7 @@ func (m *Manifest) Subject(ctx context.Context) (*Descriptor, error) {
 		return nil, nil
 	}
 	descriptor := oci.Descriptor{Digest: *m.record.Subject}
-	if record, err := m.root.metadata.Manifest(ctx, m.repository, *m.record.Subject); err == nil {
+	if record, err := m.root.index.Manifest(ctx, m.repository, *m.record.Subject); err == nil {
 		descriptor = record.Descriptor
 	} else if !isNotFound(err) {
 		return nil, err
@@ -264,7 +263,7 @@ func (m *Manifest) Referrers(ctx context.Context, artifactType *string, first *i
 	if err != nil {
 		return nil, err
 	}
-	referrers, err := m.root.metadata.Referrers(ctx, m.repository, m.record.Descriptor.Digest, deref(artifactType), deref(after), n)
+	referrers, err := m.root.index.Referrers(ctx, m.repository, m.record.Descriptor.Digest, deref(artifactType), deref(after), n)
 	if err != nil {
 		return nil, err
 	}
@@ -276,34 +275,18 @@ func (m *Manifest) Dependents(ctx context.Context, first *int32) ([]*Dependent, 
 }
 
 func (m *Manifest) ImageConfig(ctx context.Context) (*ImageConfig, error) {
-	if m.record.Config == nil || m.root.content == nil || !isImageConfig(m.record.Config.MediaType) {
+	if m.record.Config == nil {
 		return nil, nil
 	}
-	if m.record.Config.Size > maxConfigSize {
-		return nil, fmt.Errorf("image config %s is larger than %d bytes", m.record.Config.Digest, maxConfigSize)
-	}
-	reader, err := m.root.content.Open(ctx, m.record.Config.Digest)
-	if err != nil {
-		return nil, fmt.Errorf("reading image config %s: %w", m.record.Config.Digest, err)
-	}
-	defer func() { _ = reader.Close() }()
-	raw, err := io.ReadAll(io.LimitReader(reader, maxConfigSize+1))
-	if err != nil {
-		return nil, fmt.Errorf("reading image config %s: %w", m.record.Config.Digest, err)
-	}
-	if len(raw) > maxConfigSize {
-		return nil, fmt.Errorf("image config %s is larger than %d bytes", m.record.Config.Digest, maxConfigSize)
+	raw, err := m.root.index.ImageConfig(ctx, *m.record.Config)
+	if err != nil || raw == nil {
+		return nil, err
 	}
 	var config imageConfig
 	if err := json.Unmarshal(raw, &config); err != nil {
 		return nil, fmt.Errorf("decoding image config %s: %w", m.record.Config.Digest, err)
 	}
 	return &ImageConfig{digest: m.record.Config.Digest, config: config, raw: raw}, nil
-}
-
-func isImageConfig(mediaType string) bool {
-	return mediaType == "application/vnd.oci.image.config.v1+json" ||
-		mediaType == "application/vnd.docker.container.image.v1+json"
 }
 
 func (m *Manifest) descriptor(descriptor oci.Descriptor) *Descriptor {
@@ -409,11 +392,11 @@ type Content struct {
 func (c *Content) Digest() string { return string(c.digest) }
 
 func (c *Content) Reserved(ctx context.Context) (bool, error) {
-	return c.root.metadata.Reserved(ctx, c.digest)
+	return c.root.index.Reserved(ctx, c.digest)
 }
 
 func (c *Content) Locations(ctx context.Context) ([]*Location, error) {
-	locations, err := c.root.metadata.Locations(ctx, c.digest)
+	locations, err := c.root.index.Locations(ctx, c.digest)
 	if err != nil {
 		return nil, err
 	}
@@ -425,13 +408,13 @@ func (c *Content) Dependents(ctx context.Context, first *int32) ([]*Dependent, e
 }
 
 func (c *Content) Referenced(ctx context.Context) (bool, error) {
-	locations, err := c.root.metadata.Locations(ctx, c.digest)
+	locations, err := c.root.index.Locations(ctx, c.digest)
 	if err != nil || len(locations) > 0 {
 		return len(locations) > 0, err
 	}
-	dependents, err := c.root.metadata.Dependents(ctx, c.digest, 1)
+	dependents, err := c.root.index.Dependents(ctx, c.digest, 1)
 	if err != nil || len(dependents) > 0 {
 		return len(dependents) > 0, err
 	}
-	return c.root.metadata.Reserved(ctx, c.digest)
+	return c.root.index.Reserved(ctx, c.digest)
 }

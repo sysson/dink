@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sysson/dink/core/registry/backend/kv/boltkv"
-	"github.com/sysson/dink/core/registry/backend/kv/kvtest"
+	"github.com/sysson/dink/pkg/ocistore/kv/boltkv"
+	"github.com/sysson/dink/pkg/ocistore/kv/kvtest"
 )
 
 func TestConformance(t *testing.T) {

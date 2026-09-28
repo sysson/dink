@@ -12,17 +12,19 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/sysson/dink/cmd/dinki/config"
 	"github.com/sysson/dink/core/registry"
 	api "github.com/sysson/dink/core/registry/api/server"
-	"github.com/sysson/dink/core/registry/backend/blobstore"
-	"github.com/sysson/dink/core/registry/backend/kvmeta"
-	"github.com/sysson/dink/core/registry/ocibackend"
-	"github.com/sysson/dink/core/registry/query"
+	"github.com/sysson/dink/core/registry/pullauth"
 	"github.com/sysson/dink/core/registry/server"
 	"github.com/sysson/dink/core/server/middleware"
+	"github.com/sysson/dink/pkg/ocistore"
+	"github.com/sysson/dink/pkg/ocistore/blobstore"
+	"github.com/sysson/dink/pkg/ocistore/kvmeta"
+	"github.com/sysson/dink/pkg/ocistore/query"
 	"github.com/sysson/syskit/logx"
 	"github.com/urfave/cli/v3"
 )
@@ -54,6 +56,7 @@ func New(stdout, stderr io.Writer) Runner {
 			}
 			return serve(ctx, cfg, stderr)
 		},
+		Commands: []*cli.Command{newNodeCommand()},
 	}
 	return command
 }
@@ -81,61 +84,96 @@ func serve(ctx context.Context, cfg config.Config, stderr io.Writer) error {
 		collectorDone := make(chan struct{})
 		go func() {
 			defer close(collectorDone)
-			backend.registry.RunGarbageCollector(collectorCtx, time.Minute)
+			collectGarbage(collectorCtx, backend.registry, cfg.GC)
 		}()
 		defer func() {
 			cancelCollector()
 			<-collectorDone
 		}()
 	}
-	queries, err := query.New(backend.metadata, backend.content)
+	handler, err := newHandler(cfg, backend)
 	if err != nil {
 		return err
 	}
-	handler, err := server.New(backend.registry)
+	tlsConfig, err := serverTLSConfig(cfg)
 	if err != nil {
 		return err
 	}
-	handler = requestMiddleware(ctx, cfg, stderr, handler)
-
-	servers := []*listenerServer{}
-	registryTLS, err := serverTLSConfig(cfg, nil)
-	if err != nil {
-		return err
+	if tlsConfig == nil {
+		slog.WarnContext(ctx, "TLS is disabled; serving the registry in plaintext")
 	}
-	servers = append(servers, &listenerServer{
+	return serveAll(ctx, cfg, []*listenerServer{{
 		name:    "registry",
 		address: net.JoinHostPort(cfg.Server.Host, cfg.Server.Port),
-		tls:     registryTLS,
-		handler: handler,
-	})
-	if !cfg.API.Disabled {
-		apiServer, err := api.New(registry.New(backend.registry, queries), queries)
-		if err != nil {
-			return err
-		}
-		path, apiHandler := apiServer.Handler()
-		mux := http.NewServeMux()
-		mux.Handle(path, apiHandler)
-		if cfg.GraphQL.Enabled {
-			mux.Handle(server.GraphQLPath, queries)
-		}
-		apiTLS, err := serverTLSConfig(cfg, &cfg.API)
-		if err != nil {
-			return err
-		}
-		if apiTLS == nil {
-			slog.WarnContext(ctx, "internal registry API is served without TLS or client authentication")
-		}
-		internalHandler := requestMiddleware(ctx, cfg, stderr, mux)
-		servers = append(servers, &listenerServer{
-			name:    "internal registry API",
-			address: net.JoinHostPort(cfg.API.Host, cfg.API.Port),
-			tls:     apiTLS,
-			handler: internalHandler,
-		})
+		tls:     tlsConfig,
+		handler: requestMiddleware(ctx, cfg, stderr, handler),
+	}})
+}
+
+// newHandler serves the registry read-only to holders of a namespace pull
+// credential and, unless disabled, the internal API and GraphQL to dink's
+// client certificate.
+func newHandler(cfg config.Config, backend *registryBackend) (http.Handler, error) {
+	store := backend.registry
+	ociHandler, err := server.New(pullauth.Scope(store))
+	if err != nil {
+		return nil, err
 	}
-	return serveAll(ctx, cfg, servers)
+	registryHandler := pullauth.Middleware(backend.credentials)(ociHandler)
+	if cfg.API.Disabled {
+		return registryHandler, nil
+	}
+	index := store.Index()
+	queries, err := query.New(index)
+	if err != nil {
+		return nil, err
+	}
+	apiServer, err := api.New(registry.New(store, index), queries, backend.credentials)
+	if err != nil {
+		return nil, err
+	}
+	path, apiHandler := apiServer.Handler()
+	mux := http.NewServeMux()
+	mux.Handle(path, apiHandler)
+	prefixes := []string{path}
+	if cfg.GraphQL.Enabled {
+		mux.Handle(server.GraphQLPath, queries)
+		prefixes = append(prefixes, server.GraphQLPath)
+	}
+	return &router{
+		registry:    registryHandler,
+		api:         requireAPIClient(cfg.API.ClientOrganization, cfg.API.ClientCommonName, mux),
+		apiPrefixes: prefixes,
+	}, nil
+}
+
+// router sends requests under apiPrefixes to api and the rest to registry.
+type router struct {
+	registry    http.Handler
+	api         http.Handler
+	apiPrefixes []string
+}
+
+func (h *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	for _, prefix := range h.apiPrefixes {
+		if strings.HasPrefix(r.URL.Path, prefix) {
+			h.api.ServeHTTP(w, r)
+			return
+		}
+	}
+	h.registry.ServeHTTP(w, r)
+}
+
+// requireAPIClient admits only requests authenticated by a verified client
+// certificate whose subject names dink.
+func requireAPIClient(organization, commonName string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := verifyAPIClient(r.TLS, organization, commonName); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func requestMiddleware(ctx context.Context, cfg config.Config, stderr io.Writer, handler http.Handler) http.Handler {
@@ -155,11 +193,9 @@ type listenerServer struct {
 }
 
 // serverTLSConfig returns the listener TLS configuration, or nil when TLS is
-// disabled. A clientCAFile makes the listener require and verify client
-// certificates.
-// serverTLSConfig builds a listener TLS config. With api set it also requires a
-// client certificate from api.ClientCAFile whose subject names dink.
-func serverTLSConfig(cfg config.Config, api *config.API) (*tls.Config, error) {
+// disabled. With the API enabled it verifies client certificates that are
+// offered; requireAPIClient decides per request which ones reach the API.
+func serverTLSConfig(cfg config.Config) (*tls.Config, error) {
 	if cfg.TLS.Disabled {
 		return nil, nil
 	}
@@ -175,8 +211,8 @@ func serverTLSConfig(cfg config.Config, api *config.API) (*tls.Config, error) {
 		MinVersion:   minVersion,
 		Certificates: []tls.Certificate{certificate},
 	}
-	if api != nil {
-		clientCAFile := api.ClientCAFile
+	if !cfg.API.Disabled {
+		clientCAFile := cfg.API.ClientCAFile
 		pem, err := os.ReadFile(clientCAFile)
 		if err != nil {
 			return nil, fmt.Errorf("reading API client CA: %w", err)
@@ -186,8 +222,7 @@ func serverTLSConfig(cfg config.Config, api *config.API) (*tls.Config, error) {
 			return nil, fmt.Errorf("no certificates found in %s", clientCAFile)
 		}
 		config.ClientCAs = pool
-		config.ClientAuth = tls.RequireAndVerifyClientCert
-		config.VerifyConnection = verifyAPIClient(api.ClientOrganization, api.ClientCommonName)
+		config.ClientAuth = tls.VerifyClientCertIfGiven
 	}
 	return config, nil
 }
@@ -248,12 +283,36 @@ func serveAll(ctx context.Context, cfg config.Config, servers []*listenerServer)
 	return failure
 }
 
-var _ registry.Querier = (*query.Service)(nil)
+var _ api.Querier = (*query.Service)(nil)
+
+// collectGarbage runs a collection pass every cfg.Interval until ctx ends.
+func collectGarbage(ctx context.Context, store *ocistore.Store, cfg config.GC) {
+	ticker := time.NewTicker(time.Duration(cfg.Interval))
+	defer ticker.Stop()
+	for {
+		cutoff := time.Now().Add(-time.Duration(cfg.UploadExpiry))
+		if err := store.CollectGarbage(ctx); err != nil && ctx.Err() == nil {
+			slog.ErrorContext(ctx, "collecting unreferenced registry content", "error", err)
+		}
+		if err := store.CleanupExpiredUploads(ctx, cutoff); err != nil && ctx.Err() == nil {
+			slog.ErrorContext(ctx, "cleaning expired registry uploads", "error", err)
+		}
+		if err := store.CleanupExpiredReservations(ctx, cutoff); err != nil && ctx.Err() == nil {
+			slog.ErrorContext(ctx, "cleaning expired registry content reservations", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
 
 type registryBackend struct {
-	registry *ocibackend.Registry
-	content  *blobstore.Store
-	metadata *kvmeta.Store
+	registry    *ocistore.Store
+	content     *blobstore.Store
+	metadata    *kvmeta.Store
+	credentials *pullauth.Store
 }
 
 func (b *registryBackend) Close() error {
@@ -261,40 +320,42 @@ func (b *registryBackend) Close() error {
 }
 
 // newBackend opens the blob driver selected by storage and the kv metadata
-// driver selected by metadata.
+// driver selected by metadata, which also holds the pull credentials.
 func newBackend(ctx context.Context, cfg config.Config) (*registryBackend, error) {
 	content, err := blobstore.OpenConfig(ctx, cfg.Storage)
 	if err != nil {
 		return nil, fmt.Errorf("opening blob storage: %w", err)
 	}
-	metadata, err := kvmeta.Open(ctx, cfg.Metadata)
+	store, err := cfg.Metadata.Open(ctx)
 	if err != nil {
 		_ = content.Close()
 		return nil, fmt.Errorf("opening metadata store: %w", err)
 	}
-	registry, err := ocibackend.New(content, metadata)
+	metadata, err := kvmeta.New(ctx, store)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("opening metadata store: %w", err), store.Close(), content.Close())
+	}
+	registry, err := ocistore.New(content, metadata)
 	if err != nil {
 		return nil, errors.Join(err, content.Close(), metadata.Close())
 	}
-	return &registryBackend{registry: registry, content: content, metadata: metadata}, nil
+	return &registryBackend{registry: registry, content: content, metadata: metadata, credentials: pullauth.New(store)}, nil
 }
 
-// verifyAPIClient accepts only the verified client certificate whose subject
+// verifyAPIClient accepts only a verified client certificate whose subject
 // matches organization and commonName (an empty value is not checked).
-func verifyAPIClient(organization, commonName string) func(tls.ConnectionState) error {
-	return func(state tls.ConnectionState) error {
-		if len(state.PeerCertificates) == 0 {
-			return errors.New("internal registry API requires a client certificate")
-		}
-		subject := state.PeerCertificates[0].Subject
-		if commonName != "" && subject.CommonName != commonName {
-			return fmt.Errorf("client certificate %q is not authorized for the internal registry API", subject.CommonName)
-		}
-		if organization != "" && !slices.Contains(subject.Organization, organization) {
-			return fmt.Errorf("client certificate %q is not authorized for the internal registry API", subject.CommonName)
-		}
-		return nil
+func verifyAPIClient(state *tls.ConnectionState, organization, commonName string) error {
+	if state == nil || len(state.VerifiedChains) == 0 || len(state.VerifiedChains[0]) == 0 {
+		return errors.New("internal registry API requires a client certificate")
 	}
+	subject := state.VerifiedChains[0][0].Subject
+	if commonName != "" && subject.CommonName != commonName {
+		return fmt.Errorf("client certificate %q is not authorized for the internal registry API", subject.CommonName)
+	}
+	if organization != "" && !slices.Contains(subject.Organization, organization) {
+		return fmt.Errorf("client certificate %q is not authorized for the internal registry API", subject.CommonName)
+	}
+	return nil
 }
 
 func driverName[T any](name string, _ T, _ error) string { return name }

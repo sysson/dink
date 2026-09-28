@@ -25,7 +25,7 @@ import (
 	"github.com/99designs/gqlgen/graphql/executor"
 	"github.com/99designs/gqlgen/graphql/handler/extension"
 	"github.com/99designs/gqlgen/graphql/handler/lru"
-	"github.com/sysson/dink/core/registry/backend"
+	"github.com/sysson/dink/pkg/ocistore"
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 )
@@ -37,35 +37,25 @@ var schemaSource string
 func Schema() string { return schemaSource }
 
 const (
-	defaultPage       = 100
-	maxPage           = 1000
-	maxClosure        = 10000
-	maxConfigSize     = 4 << 20
-	maxQueryLength    = 64 << 10
-	maxRequestBody    = 1 << 20
-	maxDepth          = 16
-	queryCacheSize    = 256
-	closureDependents = maxPage
+	defaultPage    = 100
+	maxPage        = 1000
+	maxQueryLength = 64 << 10
+	maxRequestBody = 1 << 20
+	maxDepth       = 16
+	queryCacheSize = 256
 )
-
-// Metadata is the metadata store view the query layer resolves against.
-type Metadata interface {
-	backend.MetadataStore
-	backend.MetadataQuerier
-}
 
 // Service executes GraphQL queries against dinki metadata.
 type Service struct {
 	exec *executor.Executor
 }
 
-// New builds the query service. content may be nil, in which case
-// Manifest.imageConfig always resolves to null.
-func New(metadata Metadata, content backend.ContentStore) (*Service, error) {
-	if metadata == nil {
-		return nil, errors.New("query: metadata store is required")
+// New builds the query service over index.
+func New(index *ocistore.Index) (*Service, error) {
+	if index == nil {
+		return nil, errors.New("query: index is required")
 	}
-	exec := executor.New(NewExecutableSchema(Config{Resolvers: &resolver{metadata: metadata, content: content}}))
+	exec := executor.New(NewExecutableSchema(Config{Resolvers: &resolver{index: index}}))
 	exec.SetQueryCache(lru.New[*ast.QueryDocument](queryCacheSize))
 	exec.Use(extension.Introspection{})
 	exec.Use(depthLimit(maxDepth))

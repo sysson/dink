@@ -12,7 +12,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/sysson/dink/core/registry/backend/kv"
+	"github.com/sysson/dink/pkg/ocistore/kv"
 	bolt "go.etcd.io/bbolt"
 )
 

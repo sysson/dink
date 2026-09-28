@@ -64,7 +64,8 @@ func (cr *containerRouter) postContainersCreate(w http.ResponseWriter, r *http.R
 		Config: request.Config,
 	})
 	if err != nil {
-		return httpx.InternalServerError(err)
+		// The translator reports client errors as httpx errors; anything else becomes a 500.
+		return err
 	}
 	if len(ccr.Warnings) > 0 {
 		logx.G(r.Context()).With("warnings", ccr.Warnings).Warn("container creation warnings")

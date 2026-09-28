@@ -1,4 +1,4 @@
-package ocibackend
+package ocistore
 
 import (
 	"bytes"
@@ -9,9 +9,9 @@ import (
 
 	"github.com/docker/oci"
 	"github.com/docker/oci/ocidigest"
-	"github.com/sysson/dink/core/registry/backend/blobstore"
-	"github.com/sysson/dink/core/registry/backend/kv/boltkv"
-	"github.com/sysson/dink/core/registry/backend/kvmeta"
+	"github.com/sysson/dink/pkg/ocistore/blobstore"
+	"github.com/sysson/dink/pkg/ocistore/kv/boltkv"
+	"github.com/sysson/dink/pkg/ocistore/kvmeta"
 )
 
 func TestBlobDeleteAndGarbageCollection(t *testing.T) {

@@ -11,11 +11,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sysson/dink/core/registry/backend/kv"
-	"github.com/sysson/dink/core/registry/backend/kv/boltkv"
-	"github.com/sysson/dink/core/registry/backend/kv/etcdkv"
-	"github.com/sysson/dink/core/registry/backend/kv/memkv"
-	"github.com/sysson/dink/core/registry/backend/kv/natskv"
+	"github.com/sysson/dink/pkg/ocistore/kv"
+	"github.com/sysson/dink/pkg/ocistore/kv/boltkv"
+	"github.com/sysson/dink/pkg/ocistore/kv/etcdkv"
+	"github.com/sysson/dink/pkg/ocistore/kv/memkv"
+	"github.com/sysson/dink/pkg/ocistore/kv/natskv"
 )
 
 // Config names one metadata driver and its settings, e.g.

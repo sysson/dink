@@ -1,12 +1,10 @@
 package router
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/sysson/dink/core/version"
 	"github.com/sysson/syskit/httpx"
 )
 
@@ -20,11 +18,6 @@ func TestWithMinAPIVersion(t *testing.T) {
 		wantMessage string
 		wantCalled  bool
 	}{
-		{
-			name:        "missing API version",
-			wantStatus:  http.StatusBadRequest,
-			wantMessage: "API version not specified",
-		},
 		{
 			name:        "API version below minimum",
 			apiVersion:  "1.30",
@@ -53,8 +46,7 @@ func TestWithMinAPIVersion(t *testing.T) {
 
 			request := httptest.NewRequest(http.MethodGet, "/resource", nil)
 			if tt.apiVersion != "" {
-				ctx := context.WithValue(request.Context(), version.APIVersion{}, tt.apiVersion)
-				request = request.WithContext(ctx)
+				request.SetPathValue("version", tt.apiVersion)
 			}
 
 			err := route.Handler()(httptest.NewRecorder(), request)

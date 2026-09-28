@@ -7,8 +7,8 @@ option go_package = "github.com/sysson/dink/sdk/registry/v1;registry";
 // RegistryService is dinki's internal API. dink translates Docker API
 // requests into these calls and never makes OCI requests itself: dinki talks
 // to upstream registries and to its own storage, and streams results back.
-// The API is served on a separate listener authenticated with mutual TLS;
-// dinki trusts the caller-supplied identity.
+// The API shares the registry listener; only dink's mutual TLS client
+// certificate may call it, and dinki trusts the caller-supplied identity.
 service RegistryService {
   // Login verifies credentials against a registry. Nothing is persisted.
   rpc Login(LoginRequest) returns (LoginResponse);
@@ -29,6 +29,12 @@ service RegistryService {
   rpc RemoveImage(RemoveImageRequest) returns (RemoveImageResponse);
   // Query executes a read-only GraphQL document against dinki metadata.
   rpc Query(QueryRequest) returns (QueryResponse);
+  // IssuePullCredential creates, or replaces, the Basic credential that
+  // nodes use to pull the images of the identity's namespace. The password
+  // is only ever returned here.
+  rpc IssuePullCredential(IssuePullCredentialRequest) returns (IssuePullCredentialResponse);
+  // RevokePullCredential removes the namespace's pull credential.
+  rpc RevokePullCredential(RevokePullCredentialRequest) returns (RevokePullCredentialResponse);
 }
 
 // Identity is the tenant a request is made for.
@@ -188,3 +194,18 @@ message QueryResponse {
   // The JSON-encoded GraphQL response ({"data": ..., "errors": ...}).
   bytes response = 1;
 }
+
+message IssuePullCredentialRequest {
+  Identity identity = 1;
+}
+
+message IssuePullCredentialResponse {
+  string username = 1;
+  string password = 2;
+}
+
+message RevokePullCredentialRequest {
+  Identity identity = 1;
+}
+
+message RevokePullCredentialResponse {}

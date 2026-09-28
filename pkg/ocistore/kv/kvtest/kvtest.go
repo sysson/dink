@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sysson/dink/core/registry/backend/kv"
+	"github.com/sysson/dink/pkg/ocistore/kv"
 )
 
 // Run exercises store. The store must start empty.

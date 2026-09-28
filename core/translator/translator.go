@@ -9,14 +9,24 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	"github.com/sysson/dink/core/config"
 	"github.com/sysson/dink/core/k8s"
 	registryapi "github.com/sysson/dink/core/registry/api"
+	"github.com/sysson/dink/core/types"
 	"github.com/sysson/syskit/logx"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+// dockerRegistry is what Docker needs from dinki.
+type dockerRegistry interface {
+	Authenticate(ctx context.Context, auth types.RegistryAuth) (string, error)
+	ImageInspect(ctx context.Context, name string, options imagebackend.ImageInspectOpts) (*imagebackend.InspectData, error)
+	IssuePullCredential(ctx context.Context) (string, string, error)
+}
 
 type Translator struct {
 	k8s      *k8s.KubeClient
@@ -28,7 +38,10 @@ type Translator struct {
 
 type Docker struct {
 	k8s      *k8s.KubeClient
-	registry *registryapi.Client
+	registry dockerRegistry
+	// pullHost is where nodes pull tenant images from.
+	pullHost     string
+	pullSecretMu sync.Mutex
 }
 
 type Swarm struct {
@@ -55,7 +68,7 @@ func New(ctx context.Context, cfg *config.Config) (*Translator, error) {
 
 	t := &Translator{
 		k8s:      k,
-		docker:   Docker{k8s: k, registry: r},
+		docker:   Docker{k8s: k, registry: r, pullHost: cfg.Registry.PullHost},
 		swarm:    Swarm{k8s: k},
 		builder:  Builder{k8s: k},
 		registry: Registry{registry: r, k8s: k},

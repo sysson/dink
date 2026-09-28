@@ -1,5 +1,5 @@
 # gqlgen configuration for the dinki metadata query layer. Regenerate with
-# `go generate ./core/registry/query`. Every GraphQL type is bound to a
+# `go generate ./pkg/ocistore/query`. Every GraphQL type is bound to a
 # hand-written model in this package whose methods resolve its fields, so only
 # generated.go is produced.
 schema:
@@ -25,28 +25,28 @@ models:
   ClosureRole:
     model: github.com/99designs/gqlgen/graphql.String
   Repository:
-    model: github.com/sysson/dink/core/registry/query.Repository
+    model: github.com/sysson/dink/pkg/ocistore/query.Repository
   Tag:
-    model: github.com/sysson/dink/core/registry/query.Tag
+    model: github.com/sysson/dink/pkg/ocistore/query.Tag
   Manifest:
-    model: github.com/sysson/dink/core/registry/query.Manifest
+    model: github.com/sysson/dink/pkg/ocistore/query.Manifest
   Descriptor:
-    model: github.com/sysson/dink/core/registry/query.Descriptor
+    model: github.com/sysson/dink/pkg/ocistore/query.Descriptor
   Platform:
-    model: github.com/sysson/dink/core/registry/query.Platform
+    model: github.com/sysson/dink/pkg/ocistore/query.Platform
   Annotation:
-    model: github.com/sysson/dink/core/registry/query.Annotation
+    model: github.com/sysson/dink/pkg/ocistore/query.Annotation
   Blob:
-    model: github.com/sysson/dink/core/registry/query.Blob
+    model: github.com/sysson/dink/pkg/ocistore/query.Blob
   Dependent:
-    model: github.com/sysson/dink/core/registry/query.Dependent
+    model: github.com/sysson/dink/pkg/ocistore/query.Dependent
   Location:
-    model: github.com/sysson/dink/core/registry/query.Location
+    model: github.com/sysson/dink/pkg/ocistore/query.Location
   Content:
-    model: github.com/sysson/dink/core/registry/query.Content
+    model: github.com/sysson/dink/pkg/ocistore/query.Content
   ClosureEntry:
-    model: github.com/sysson/dink/core/registry/query.ClosureEntry
+    model: github.com/sysson/dink/pkg/ocistore/query.ClosureEntry
   ImageConfig:
-    model: github.com/sysson/dink/core/registry/query.ImageConfig
+    model: github.com/sysson/dink/pkg/ocistore/query.ImageConfig
   History:
-    model: github.com/sysson/dink/core/registry/query.History
+    model: github.com/sysson/dink/pkg/ocistore/query.History

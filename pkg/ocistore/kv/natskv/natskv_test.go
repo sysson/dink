@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/nats-io/nats.go"
-	"github.com/sysson/dink/core/registry/backend/kv"
-	"github.com/sysson/dink/core/registry/backend/kv/kvtest"
-	"github.com/sysson/dink/core/registry/backend/kv/natskv"
+	"github.com/sysson/dink/pkg/ocistore/kv"
+	"github.com/sysson/dink/pkg/ocistore/kv/kvtest"
+	"github.com/sysson/dink/pkg/ocistore/kv/natskv"
 )
 
 func TestConformance(t *testing.T) {

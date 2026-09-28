@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sysson/dink/core/registry/backend/kv"
-	"github.com/sysson/dink/core/registry/backend/kv/etcdkv"
-	"github.com/sysson/dink/core/registry/backend/kv/kvtest"
+	"github.com/sysson/dink/pkg/ocistore/kv"
+	"github.com/sysson/dink/pkg/ocistore/kv/etcdkv"
+	"github.com/sysson/dink/pkg/ocistore/kv/kvtest"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 

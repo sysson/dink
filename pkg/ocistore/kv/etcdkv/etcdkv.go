@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sysson/dink/core/registry/backend/kv"
-	"github.com/sysson/dink/core/registry/backend/kv/remotekv"
+	"github.com/sysson/dink/pkg/ocistore/kv"
+	"github.com/sysson/dink/pkg/ocistore/kv/remotekv"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 

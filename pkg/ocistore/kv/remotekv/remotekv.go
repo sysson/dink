@@ -15,7 +15,7 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"github.com/sysson/dink/core/registry/backend/kv"
+	"github.com/sysson/dink/pkg/ocistore/kv"
 )
 
 // Backend is the minimal remote contract a driver implements.
