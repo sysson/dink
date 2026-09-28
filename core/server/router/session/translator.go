@@ -1,9 +1,10 @@
 package session
 
 import (
+	"context"
 	"net/http"
 )
 
 type Translator interface {
-	HandleHTTPRequest(w http.ResponseWriter, r *http.Request) error
+	HandleHTTPRequest(context.Context, http.ResponseWriter, *http.Request) error
 }

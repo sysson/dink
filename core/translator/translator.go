@@ -12,18 +12,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	"github.com/sysson/dink/core/config"
 	"github.com/sysson/dink/core/k8s"
-	registryapi "github.com/sysson/dink/core/registry/api"
-	"github.com/sysson/dink/core/types"
+	api "github.com/sysson/dink/core/registry/api"
+	"github.com/sysson/syskit/httpx"
 	"github.com/sysson/syskit/logx"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // dockerRegistry is what Docker needs from dinki.
 type dockerRegistry interface {
-	Authenticate(ctx context.Context, auth types.RegistryAuth) (string, error)
+	Authenticate(ctx context.Context, auth *registry.AuthConfig) (string, error)
 	ImageInspect(ctx context.Context, name string, options imagebackend.ImageInspectOpts) (*imagebackend.InspectData, error)
 	IssuePullCredential(ctx context.Context) (string, string, error)
 }
@@ -53,7 +54,7 @@ type Builder struct {
 }
 
 type Registry struct {
-	registry *registryapi.Client
+	registry *api.Client
 	k8s      *k8s.KubeClient
 }
 
@@ -103,7 +104,7 @@ func (t *Translator) Registry() *Registry {
 	return &t.registry
 }
 
-var ErrNotImplemented = errors.New("not implemented")
+var ErrNotImplemented = httpx.NewHTTPError(http.StatusNotImplemented, errors.New("not implemented"))
 
 func (t *Translator) EnsureNamespace(ctx context.Context, namespace string) error {
 	_, err := t.k8s.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
@@ -113,12 +114,12 @@ func (t *Translator) EnsureNamespace(ctx context.Context, namespace string) erro
 	return nil
 }
 
-func newRegistryService(cfg *config.Config) *registryapi.Client {
+func newRegistryService(cfg *config.Config) *api.Client {
 	httpClient, err := newRegistryHTTPClient(cfg)
 	if err != nil {
-		return registryapi.Unavailable(fmt.Errorf("registry API client for %q: %w", cfg.Registry.URL, err))
+		return api.Unavailable(fmt.Errorf("registry API client for %q: %w", cfg.Registry.URL, err))
 	}
-	return registryapi.NewClient(httpClient, strings.TrimSuffix(cfg.Registry.URL, "/"))
+	return api.NewClient(httpClient, strings.TrimSuffix(cfg.Registry.URL, "/"))
 }
 
 // newRegistryHTTPClient returns the HTTP client for dinki's internal API. Over

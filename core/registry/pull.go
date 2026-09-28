@@ -14,8 +14,8 @@ import (
 	"github.com/containerd/platforms"
 	"github.com/docker/oci"
 	"github.com/docker/oci/ociref"
+	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	"github.com/sysson/dink/core/identity"
-	"github.com/sysson/dink/core/types"
 	"github.com/sysson/syskit/httpx"
 	"github.com/sysson/syskit/logx"
 	"github.com/sysson/syskit/stream"
@@ -34,7 +34,7 @@ func (r *RegistryService) Search()      {}
 // the internal registry, namespaced by the identity present in ctx, and
 // streams progress to options.OutStream in the JSON stream format understood
 // by docker clients.
-func (r *RegistryService) PullImage(ctx context.Context, ref ociref.Reference, options types.ImagePullOptions) error {
+func (r *RegistryService) PullImage(ctx context.Context, ref ociref.Reference, options imagebackend.PullOptions) error {
 
 	if len(options.Platforms) > 1 {
 		return fmt.Errorf("pulling multiple platforms is not supported")
@@ -46,7 +46,7 @@ func (r *RegistryService) PullImage(ctx context.Context, ref ociref.Reference, o
 	}
 
 	client, err := NewClient(ref.Host, ClientOptions{
-		Auth:      options.Auth,
+		Auth:      options.AuthConfig,
 		Transport: RegistryTransport(nil, options.MetaHeaders),
 	})
 	if err != nil {

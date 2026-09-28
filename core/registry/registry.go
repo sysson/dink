@@ -14,7 +14,7 @@ import (
 	"github.com/docker/oci"
 	"github.com/docker/oci/ociauth"
 	"github.com/docker/oci/ociclient"
-	"github.com/sysson/dink/core/types"
+	"github.com/moby/moby/api/types/registry"
 	"github.com/sysson/dink/pkg/ocistore"
 	"github.com/sysson/dink/pkg/ocistore/backend"
 )
@@ -24,13 +24,13 @@ import (
 // challenge the registry responds with (the same transport pulls use). It
 // does not persist anything: the docker client that sent auth owns the
 // credentials and resends them via X-Registry-Auth on later requests.
-func Authenticate(ctx context.Context, auth types.RegistryAuth) (string, error) {
+func Authenticate(ctx context.Context, auth *registry.AuthConfig) (string, error) {
 	host, insecure, err := registryHost(auth.ServerAddress)
 	if err != nil {
 		return "", err
 	}
 	transport := ociauth.NewStdTransport(ociauth.StdTransportParams{
-		Config:    authConfigSource{host: host, auth: &auth},
+		Config:    authConfigSource{host: host, auth: auth},
 		Transport: RegistryTransport(nil, nil),
 	})
 
@@ -141,7 +141,7 @@ func (h *registryRoundTripper) RoundTrip(req *http.Request) (*http.Response, err
 
 // ClientOptions configures an OCI registry client.
 type ClientOptions struct {
-	Auth      *types.RegistryAuth
+	Auth      *registry.AuthConfig
 	Transport http.RoundTripper
 }
 
@@ -197,14 +197,14 @@ func isLoopback(host string) bool {
 // registries).
 type authConfigSource struct {
 	host string
-	auth *types.RegistryAuth
+	auth *registry.AuthConfig
 }
 
 func (s authConfigSource) EntryForRegistry(host string) (ociauth.ConfigEntry, error) {
 	if s.auth != nil {
 		return ociauth.ConfigEntry{
-			RefreshToken: s.auth.RefreshToken,
-			AccessToken:  s.auth.AccessToken,
+			RefreshToken: s.auth.IdentityToken,
+			AccessToken:  s.auth.RegistryToken,
 			Username:     s.auth.Username,
 			Password:     s.auth.Password,
 		}, nil

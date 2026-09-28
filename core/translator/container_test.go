@@ -8,12 +8,13 @@ import (
 	"testing"
 
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/v2/daemon/server/backend"
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/k8s"
-	"github.com/sysson/dink/core/types"
 	"github.com/sysson/syskit/httpx"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubernetesfake "k8s.io/client-go/kubernetes/fake"
@@ -24,7 +25,7 @@ type fakeRegistry struct {
 	issued  int
 }
 
-func (f *fakeRegistry) Authenticate(context.Context, types.RegistryAuth) (string, error) {
+func (f *fakeRegistry) Authenticate(context.Context, *registry.AuthConfig) (string, error) {
 	return "", nil
 }
 
@@ -98,5 +99,50 @@ func TestContainerCreatePullsFromDinki(t *testing.T) {
 	}
 	if _, err := client.AppsV1().Deployments("tenant").Get(ctx, "missing", metav1.GetOptions{}); err == nil {
 		t.Fatal("deployment created for a missing image")
+	}
+}
+
+func TestContainerLifecycle(t *testing.T) {
+	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
+	client := kubernetesfake.NewClientset()
+	docker := &Docker{k8s: &k8s.KubeClient{Interface: client}}
+	replicas := int32(1)
+	deployment, err := client.AppsV1().Deployments("tenant").Create(ctx, &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "tenant", UID: "12345678-1234-1234-1234-123456789abc"},
+		Spec:       appsv1.DeploymentSpec{Replicas: &replicas},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dockerID := identity.DockerIDFromUID(deployment.UID)
+
+	if err := docker.ContainerStop(ctx, "web", backend.ContainerStopOptions{}); err != nil {
+		t.Fatalf("ContainerStop: %v", err)
+	}
+	deployment, err = client.AppsV1().Deployments("tenant").Get(ctx, "web", metav1.GetOptions{})
+	if err != nil || *deployment.Spec.Replicas != 0 {
+		t.Fatalf("replicas after stop = %v, err = %v; want 0", deployment.Spec.Replicas, err)
+	}
+
+	if err := docker.ContainerStart(ctx, dockerID[:12], "", ""); err != nil {
+		t.Fatalf("ContainerStart by ID prefix: %v", err)
+	}
+	if err := docker.ContainerRestart(ctx, "web", backend.ContainerStopOptions{}); err != nil {
+		t.Fatalf("ContainerRestart: %v", err)
+	}
+	deployment, err = client.AppsV1().Deployments("tenant").Get(ctx, "web", metav1.GetOptions{})
+	if err != nil || *deployment.Spec.Replicas != 1 || deployment.Spec.Template.Annotations["dink.io/restarted-at"] == "" {
+		t.Fatalf("deployment after restart = %+v, err = %v", deployment.Spec, err)
+	}
+
+	otherTenant := identity.NewContext(context.Background(), identity.Identity{Namespace: "other-tenant"})
+	if err := docker.ContainerStop(otherTenant, "web", backend.ContainerStopOptions{}); err == nil {
+		t.Fatal("ContainerStop crossed tenant namespace")
+	}
+	if err := docker.ContainerRm(ctx, dockerID, &backend.ContainerRmConfig{}); err != nil {
+		t.Fatalf("ContainerRm by ID: %v", err)
+	}
+	if _, err := client.AppsV1().Deployments("tenant").Get(ctx, "web", metav1.GetOptions{}); err == nil {
+		t.Fatal("deployment remains after ContainerRm")
 	}
 }

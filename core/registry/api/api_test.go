@@ -17,6 +17,7 @@ import (
 	"github.com/docker/oci/ocimem"
 	"github.com/docker/oci/ociref"
 	"github.com/docker/oci/ociserver"
+	registrytypes "github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sysson/dink/core/identity"
@@ -171,7 +172,7 @@ func TestPullListQueryRemove(t *testing.T) {
 	for _, tag := range []string{"v1", "v2"} {
 		var progress bytes.Buffer
 		ref := ociref.Reference{Host: up.host, Repository: "app", Tag: tag}
-		if err := client.PullImage(ctx, ref, types.ImagePullOptions{OutStream: &progress}); err != nil {
+		if err := client.PullImage(ctx, ref, imagebackend.PullOptions{OutStream: &progress}); err != nil {
 			t.Fatalf("PullImage(%s) error = %v", tag, err)
 		}
 		if !strings.Contains(progress.String(), "Digest: sha256:") {
@@ -268,7 +269,7 @@ func TestPullNotFoundKeepsStatus(t *testing.T) {
 	up := newUpstream(t)
 	client := newAPI(t)
 	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
-	err := client.PullImage(ctx, ociref.Reference{Host: up.host, Repository: "missing", Tag: "latest"}, types.ImagePullOptions{})
+	err := client.PullImage(ctx, ociref.Reference{Host: up.host, Repository: "missing", Tag: "latest"}, imagebackend.PullOptions{})
 	if status := statusCode(err); status != http.StatusNotFound {
 		t.Fatalf("PullImage() error = %v (status %d), want 404", err, status)
 	}
@@ -288,7 +289,7 @@ func TestUnavailableClient(t *testing.T) {
 	if _, err := client.Images(ctx, types.ImageListOptions{}); !errors.Is(err, want) {
 		t.Fatalf("Images() error = %v, want %v", err, want)
 	}
-	if _, err := client.Authenticate(ctx, types.RegistryAuth{}); !errors.Is(err, want) {
+	if _, err := client.Authenticate(ctx, &registrytypes.AuthConfig{}); !errors.Is(err, want) {
 		t.Fatalf("Authenticate() error = %v, want %v", err, want)
 	}
 }
@@ -356,7 +357,7 @@ func TestPullSinglePlatformOfIndex(t *testing.T) {
 	pull := func(arch string) string {
 		t.Helper()
 		var progress bytes.Buffer
-		options := types.ImagePullOptions{OutStream: &progress, Platforms: []ocispec.Platform{{OS: "linux", Architecture: arch}}}
+		options := imagebackend.PullOptions{OutStream: &progress, Platforms: []ocispec.Platform{{OS: "linux", Architecture: arch}}}
 		if err := client.PullImage(ctx, ref, options); err != nil {
 			t.Fatalf("PullImage(%s) error = %v", arch, err)
 		}

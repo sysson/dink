@@ -1,3 +1,5 @@
 package translator
 
-func (B *Builder) RegisterGRPC() {}
+import "google.golang.org/grpc"
+
+func (b *Builder) RegisterGRPC(*grpc.Server) {}

@@ -9,12 +9,12 @@ import (
 	"testing"
 
 	networktypes "github.com/moby/moby/api/types/network"
-	"github.com/sysson/dink/core/types"
+	"github.com/sysson/dink/pkg/filters"
 )
 
 type networkStub struct{}
 
-func (networkStub) GetNetworkSummaries(_ context.Context, _ types.Args) ([]networktypes.Summary, error) {
+func (networkStub) GetNetworkSummaries(_ context.Context, _ filters.Args) ([]networktypes.Summary, error) {
 	return []networktypes.Summary{}, nil
 }
 func (networkStub) GetNetwork(_ context.Context, _ string) (networktypes.Inspect, error) {
@@ -23,10 +23,14 @@ func (networkStub) GetNetwork(_ context.Context, _ string) (networktypes.Inspect
 func (networkStub) CreateNetwork(_ context.Context, _ networktypes.CreateRequest) (networktypes.CreateResponse, error) {
 	return networktypes.CreateResponse{ID: "abc"}, nil
 }
-func (networkStub) ConnectContainerToNetwork()                      {}
-func (networkStub) DisconnectContainerFromNetwork()                 {}
+func (networkStub) ConnectContainerToNetwork(context.Context, string, string, *networktypes.EndpointSettings) error {
+	return nil
+}
+func (networkStub) DisconnectContainerFromNetwork(context.Context, string, string, bool) error {
+	return nil
+}
 func (networkStub) DeleteNetwork(_ context.Context, _ string) error { return nil }
-func (networkStub) NetworkPrune(_ context.Context, _ types.Args) (networktypes.PruneReport, error) {
+func (networkStub) NetworkPrune(_ context.Context, _ filters.Args) (networktypes.PruneReport, error) {
 	return networktypes.PruneReport{NetworksDeleted: []string{"sample"}}, nil
 }
 

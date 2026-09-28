@@ -5,11 +5,16 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"strings"
+	"time"
 
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/v2/daemon/server/backend"
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	"github.com/sysson/dink/core/identity"
+	"github.com/sysson/dink/pkg/filters"
 	"github.com/sysson/syskit/httpx"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -17,40 +22,40 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func (d *Docker) ContainerExecCreate() {
-
+func (d *Docker) ContainerExecCreate(context.Context, string, *container.ExecCreateRequest) (string, error) {
+	return "", ErrNotImplemented
 }
 
-func (d *Docker) ContainerExecInspect() {
-
+func (d *Docker) ContainerExecInspect(context.Context, string) (*container.ExecInspectResponse, error) {
+	return nil, ErrNotImplemented
 }
 
-func (d *Docker) ContainerExecResize() {
-
+func (d *Docker) ContainerExecResize(context.Context, string, uint32, uint32) error {
+	return ErrNotImplemented
 }
 
-func (d *Docker) ContainerExecStart() {
-
+func (d *Docker) ContainerExecStart(context.Context, string, backend.ExecStartConfig) error {
+	return ErrNotImplemented
 }
 
-func (d *Docker) ExecExists() {
-
+func (d *Docker) ExecExists(context.Context, string) (bool, error) {
+	return false, ErrNotImplemented
 }
 
-func (d *Docker) ContainerArchivePath() {
-
+func (d *Docker) ContainerArchivePath(context.Context, string, string) (io.ReadCloser, *container.PathStat, error) {
+	return nil, nil, ErrNotImplemented
 }
 
-func (d *Docker) ContainerExport() {
-
+func (d *Docker) ContainerExport(context.Context, string, io.Writer) error {
+	return ErrNotImplemented
 }
 
-func (d *Docker) ContainerExtractToDir() {
-
+func (d *Docker) ContainerExtractToDir(context.Context, string, string, bool, bool, io.Reader) error {
+	return ErrNotImplemented
 }
 
-func (d *Docker) ContainerStatPath() {
-
+func (d *Docker) ContainerStatPath(context.Context, string, string) (*container.PathStat, error) {
+	return nil, ErrNotImplemented
 }
 
 func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreateConfig) (container.CreateResponse, error) {
@@ -110,88 +115,169 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 	}, nil
 }
 
-func (d *Docker) ContainerKill() {
-
+func (d *Docker) ContainerKill(ctx context.Context, name, signal string) error {
+	if signal != "" && signal != "KILL" && signal != "SIGKILL" {
+		return httpx.BadRequest(fmt.Errorf("container signal %q is not supported by the Kubernetes backend", signal))
+	}
+	return d.setContainerReplicas(ctx, name, 0, "")
 }
 
-func (d *Docker) ContainerPause() {
-
+func (d *Docker) ContainerPause(context.Context, string) error {
+	return ErrNotImplemented
 }
 
-func (d *Docker) ContainerRename() {
-
+func (d *Docker) ContainerRename(context.Context, string, string) error {
+	return ErrNotImplemented
 }
 
-func (d *Docker) ContainerResize() {
-
+func (d *Docker) ContainerResize(context.Context, string, uint32, uint32) error {
+	return ErrNotImplemented
 }
 
-func (d *Docker) ContainerRestart() {
-
+func (d *Docker) ContainerRestart(ctx context.Context, name string, options backend.ContainerStopOptions) error {
+	if err := validateStopOptions(options); err != nil {
+		return err
+	}
+	return d.setContainerReplicas(ctx, name, 1, time.Now().UTC().Format(time.RFC3339Nano))
 }
 
-func (d *Docker) ContainerRm() {
-
+func (d *Docker) ContainerRm(ctx context.Context, name string, config *backend.ContainerRmConfig) error {
+	if config != nil && (config.RemoveVolume || config.RemoveLink) {
+		return httpx.BadRequest(fmt.Errorf("volume and link removal are not supported by the Kubernetes backend"))
+	}
+	deployment, err := d.findDeployment(ctx, name)
+	if err != nil {
+		return err
+	}
+	uid := deployment.UID
+	options := metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid}}
+	if config != nil && config.ForceRemove {
+		zero := int64(0)
+		options.GracePeriodSeconds = &zero
+	}
+	return kubeError(d.k8s.AppsV1().Deployments(deployment.Namespace).Delete(ctx, deployment.Name, options))
 }
 
-func (d *Docker) ContainerStart() {
-
+func (d *Docker) ContainerStart(ctx context.Context, name, checkpoint, checkpointDir string) error {
+	if checkpoint != "" || checkpointDir != "" {
+		return httpx.BadRequest(fmt.Errorf("container checkpoints are not supported by the Kubernetes backend"))
+	}
+	return d.setContainerReplicas(ctx, name, 1, "")
 }
 
-func (d *Docker) ContainerStop() {
-
+func (d *Docker) ContainerStop(ctx context.Context, name string, options backend.ContainerStopOptions) error {
+	if err := validateStopOptions(options); err != nil {
+		return err
+	}
+	return d.setContainerReplicas(ctx, name, 0, "")
 }
 
-func (d *Docker) ContainerUnpause() {
-
+func (d *Docker) ContainerUnpause(context.Context, string) error {
+	return ErrNotImplemented
 }
 
-func (d *Docker) ContainerUpdate() {
-
+func (d *Docker) ContainerUpdate(context.Context, string, *container.HostConfig) (container.UpdateResponse, error) {
+	return container.UpdateResponse{}, ErrNotImplemented
 }
 
-func (d *Docker) ContainerWait() {
-
+func (d *Docker) ContainerWait(context.Context, string, container.WaitCondition) (container.WaitResponse, error) {
+	return container.WaitResponse{}, ErrNotImplemented
 }
 
-func (d *Docker) ContainerAttach() {
-
+func (d *Docker) ContainerAttach(context.Context, string, *backend.ContainerAttachConfig) error {
+	return ErrNotImplemented
 }
 
-func (d *Docker) ContainerChanges() {
-
+func (d *Docker) ContainerChanges(context.Context, string) ([]container.FilesystemChange, error) {
+	return nil, ErrNotImplemented
 }
 
-func (d *Docker) ContainerInspect() {
-
+func (d *Docker) ContainerInspect(context.Context, string, backend.ContainerInspectOptions) (*container.InspectResponse, network.HardwareAddr, error) {
+	return nil, nil, ErrNotImplemented
 }
 
-func (d *Docker) ContainerLogs() {
-
+func (d *Docker) ContainerLogs(context.Context, string, *backend.ContainerLogsOptions) (<-chan *backend.LogMessage, bool, error) {
+	return nil, false, ErrNotImplemented
 }
 
-func (d *Docker) ContainerStats() {
-
+func (d *Docker) ContainerStats(context.Context, string, *backend.ContainerStatsConfig) error {
+	return ErrNotImplemented
 }
 
-func (d *Docker) ContainerTop() {
-
+func (d *Docker) ContainerTop(context.Context, string, string) (*container.TopResponse, error) {
+	return nil, ErrNotImplemented
 }
 
-func (d *Docker) Containers() {
-
+func (d *Docker) Containers(context.Context, *backend.ContainerListOptions) ([]container.Summary, error) {
+	return nil, ErrNotImplemented
 }
 
-func (d *Docker) ContainerPrune() {
-
+func (d *Docker) ContainerPrune(context.Context, filters.Args) (*container.PruneReport, error) {
+	return nil, ErrNotImplemented
 }
 
-func (d *Docker) CreateImageFromContainer() {
-
+func (d *Docker) CreateImageFromContainer(context.Context, string, *backend.CreateImageConfig) (string, error) {
+	return "", ErrNotImplemented
 }
 
-func (d *Docker) RawSysInfo() {
+func (d *Docker) findDeployment(ctx context.Context, nameOrID string) (*appsv1.Deployment, error) {
+	id, ok := identity.FromContext(ctx)
+	if !ok {
+		return nil, httpx.Unauthorized(fmt.Errorf("missing identity in context"))
+	}
+	if nameOrID == "" {
+		return nil, httpx.BadRequest(fmt.Errorf("container name or ID is required"))
+	}
+	deployments := d.k8s.AppsV1().Deployments(id.Namespace)
+	if deployment, err := deployments.Get(ctx, nameOrID, metav1.GetOptions{}); err == nil {
+		return deployment, nil
+	} else if !apierrors.IsNotFound(err) {
+		return nil, kubeError(err)
+	}
 
+	list, err := deployments.List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, kubeError(err)
+	}
+	var match *appsv1.Deployment
+	for index := range list.Items {
+		deployment := &list.Items[index]
+		dockerID := identity.DockerIDFromUID(deployment.UID)
+		if dockerID == "" || !strings.HasPrefix(dockerID, nameOrID) {
+			continue
+		}
+		if match != nil {
+			return nil, httpx.Conflict(fmt.Errorf("container ID %s is ambiguous", nameOrID))
+		}
+		match = deployment
+	}
+	if match == nil {
+		return nil, httpx.NotFound(fmt.Errorf("container %s not found", nameOrID))
+	}
+	return match, nil
+}
+
+func (d *Docker) setContainerReplicas(ctx context.Context, name string, replicas int32, restartAt string) error {
+	deployment, err := d.findDeployment(ctx, name)
+	if err != nil {
+		return err
+	}
+	deployment.Spec.Replicas = &replicas
+	if restartAt != "" {
+		if deployment.Spec.Template.Annotations == nil {
+			deployment.Spec.Template.Annotations = make(map[string]string)
+		}
+		deployment.Spec.Template.Annotations["dink.io/restarted-at"] = restartAt
+	}
+	_, err = d.k8s.AppsV1().Deployments(deployment.Namespace).Update(ctx, deployment, metav1.UpdateOptions{})
+	return kubeError(err)
+}
+
+func validateStopOptions(options backend.ContainerStopOptions) error {
+	if options.Signal != "" || options.Timeout != nil {
+		return httpx.BadRequest(fmt.Errorf("custom signal and timeout are not supported by the Kubernetes backend"))
+	}
+	return nil
 }
 
 // pullSecretName is the dockerconfigjson Secret, one per tenant namespace,

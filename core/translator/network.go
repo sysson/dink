@@ -10,7 +10,7 @@ import (
 
 	networktypes "github.com/moby/moby/api/types/network"
 	"github.com/sysson/dink/core/identity"
-	"github.com/sysson/dink/core/types"
+	"github.com/sysson/dink/pkg/filters"
 	"github.com/sysson/syskit/httpx"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -132,7 +132,7 @@ func (d *Docker) findNetwork(ctx context.Context, nameOrID string) (*unstructure
 	return match, nil
 }
 
-func (d *Docker) GetNetworkSummaries(ctx context.Context, filters types.Args) ([]networktypes.Summary, error) {
+func (d *Docker) GetNetworkSummaries(ctx context.Context, filters filters.Args) ([]networktypes.Summary, error) {
 	for _, key := range filters.Keys() {
 		switch key {
 		case "name", "id", "driver", "scope", "label", "label!", "type", "dangling":
@@ -272,7 +272,7 @@ func (d *Docker) DeleteNetwork(ctx context.Context, nameOrID string) error {
 	return err
 }
 
-func (d *Docker) NetworkPrune(ctx context.Context, filters types.Args) (networktypes.PruneReport, error) {
+func (d *Docker) NetworkPrune(ctx context.Context, filters filters.Args) (networktypes.PruneReport, error) {
 	for _, key := range filters.Keys() {
 		if key != "label" && key != "label!" && key != "until" {
 			return networktypes.PruneReport{}, httpx.BadRequest(fmt.Errorf("unsupported network prune filter %q", key))
@@ -342,12 +342,34 @@ func matchExcludedLabels(excluded []string, labels map[string]string) bool {
 	return true
 }
 
-func (d *Docker) ConnectContainerToNetwork()      {}
-func (d *Docker) DisconnectContainerFromNetwork() {}
+func (d *Docker) ConnectContainerToNetwork(context.Context, string, string, *networktypes.EndpointSettings) error {
+	return ErrNotImplemented
+}
 
-func (s *Swarm) GetNetworks()         {}
-func (s *Swarm) GetNetworkSummaries() {}
-func (s *Swarm) GetNetwork()          {}
-func (s *Swarm) GetNetworksByName()   {}
-func (s *Swarm) CreateNetwork()       {}
-func (s *Swarm) RemoveNetwork()       {}
+func (d *Docker) DisconnectContainerFromNetwork(context.Context, string, string, bool) error {
+	return ErrNotImplemented
+}
+
+func (s *Swarm) GetNetworks(context.Context, filters.Args, bool) ([]networktypes.Inspect, error) {
+	return nil, ErrNotImplemented
+}
+
+func (s *Swarm) GetNetworkSummaries(context.Context, filters.Args) ([]networktypes.Summary, error) {
+	return nil, ErrNotImplemented
+}
+
+func (s *Swarm) GetNetwork(context.Context, string, bool) (networktypes.Inspect, error) {
+	return networktypes.Inspect{}, ErrNotImplemented
+}
+
+func (s *Swarm) GetNetworksByName(context.Context, string) ([]networktypes.Network, error) {
+	return nil, ErrNotImplemented
+}
+
+func (s *Swarm) CreateNetwork(context.Context, networktypes.CreateRequest) (string, error) {
+	return "", ErrNotImplemented
+}
+
+func (s *Swarm) RemoveNetwork(context.Context, string) error {
+	return ErrNotImplemented
+}

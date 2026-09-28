@@ -12,6 +12,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/99designs/gqlgen/graphql"
+	registrytypes "github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/registry"
@@ -96,9 +97,9 @@ func (s *Server) RevokePullCredential(ctx context.Context, request *registryv1.R
 func (s *Server) Login(ctx context.Context, request *registryv1.LoginRequest) (*registryv1.LoginResponse, error) {
 	auth := api.AuthFromProto(request.GetAuth())
 	if auth == nil {
-		auth = &types.RegistryAuth{}
+		auth = &registrytypes.AuthConfig{}
 	}
-	token, err := registry.Authenticate(ctx, *auth)
+	token, err := registry.Authenticate(ctx, auth)
 	if err != nil {
 		return nil, api.ToConnectError(err)
 	}
@@ -129,8 +130,8 @@ func (s *Server) Pull(ctx context.Context, request *registryv1.PullRequest, stre
 	if err != nil {
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	err = s.images.PullImage(ctx, ref, types.ImagePullOptions{
-		Auth:        api.AuthFromProto(request.GetAuth()),
+	err = s.images.PullImage(ctx, ref, imagebackend.PullOptions{
+		AuthConfig:  api.AuthFromProto(request.GetAuth()),
 		MetaHeaders: api.HeadersFromProto(request.GetMetaHeaders()),
 		OutStream:   streamWriter{stream: stream},
 		Platforms:   api.PlatformsFromProto(request.GetPlatforms()),
