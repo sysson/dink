@@ -1,6 +1,7 @@
 package container
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"github.com/moby/moby/client/pkg/versions"
 	"github.com/moby/moby/v2/daemon/server/backend"
 	"github.com/sysson/dink/core/version"
+	"github.com/sysson/dink/pkg/filters"
 	"github.com/sysson/syskit/httpx"
 	"github.com/sysson/syskit/logx"
 )
@@ -18,7 +20,48 @@ func (cr *containerRouter) headContainersArchive(w http.ResponseWriter, r *http.
 }
 
 func (cr *containerRouter) getContainersJSON(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	if err := r.ParseForm(); err != nil {
+		return httpx.BadRequest(err)
+	}
+	filter, err := filters.FromJSON(r.Form.Get("filters"))
+	if err != nil {
+		return httpx.BadRequest(err)
+	}
+	filterJSON, err := filters.ToJSON(filter)
+	if err != nil {
+		return httpx.BadRequest(err)
+	}
+	if filterJSON == "" {
+		filterJSON = "{}"
+	}
+	limit := 0
+	if rawLimit := r.Form.Get("limit"); rawLimit != "" {
+		limit, err = strconv.Atoi(rawLimit)
+		if err != nil {
+			return httpx.BadRequest(err)
+		}
+	}
+	all, err := queryBool(r, "all")
+	if err != nil {
+		return err
+	}
+	size, err := queryBool(r, "size")
+	if err != nil {
+		return err
+	}
+	options := &backend.ContainerListOptions{
+		All:   all,
+		Size:  size,
+		Limit: limit,
+	}
+	if err := json.Unmarshal([]byte(filterJSON), &options.Filters); err != nil {
+		return httpx.BadRequest(err)
+	}
+	containers, err := cr.translator.Containers(r.Context(), options)
+	if err != nil {
+		return err
+	}
+	return httpx.WriteJSON(w, http.StatusOK, containers)
 }
 
 func (cr *containerRouter) getContainersExport(w http.ResponseWriter, r *http.Request) error {
@@ -30,7 +73,15 @@ func (cr *containerRouter) getContainersChanges(w http.ResponseWriter, r *http.R
 }
 
 func (cr *containerRouter) getContainersByName(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	size, err := queryBool(r, "size")
+	if err != nil {
+		return err
+	}
+	result, _, err := cr.translator.ContainerInspect(r.Context(), r.PathValue("name"), backend.ContainerInspectOptions{Size: size})
+	if err != nil {
+		return err
+	}
+	return httpx.WriteJSON(w, http.StatusOK, result)
 }
 
 func (cr *containerRouter) getContainersTop(w http.ResponseWriter, r *http.Request) error {
@@ -64,8 +115,10 @@ func (cr *containerRouter) postContainersCreate(w http.ResponseWriter, r *http.R
 		return httpx.BadRequest(err)
 	}
 	ccr, err := cr.translator.ContainerCreate(r.Context(), backend.ContainerCreateConfig{
-		Name:   name,
-		Config: request.Config,
+		Name:             name,
+		Config:           request.Config,
+		HostConfig:       request.HostConfig,
+		NetworkingConfig: request.NetworkingConfig,
 	})
 	if err != nil {
 		// The translator reports client errors as httpx errors; anything else becomes a 500.
