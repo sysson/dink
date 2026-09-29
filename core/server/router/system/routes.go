@@ -33,7 +33,11 @@ func (s *systemRouter) getEvents(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (s *systemRouter) getInfo(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	info, err := s.translator.SystemInfo(r.Context())
+	if err != nil {
+		return err
+	}
+	return httpx.WriteJSON(w, http.StatusOK, info)
 }
 
 func (s *systemRouter) getVersion(w http.ResponseWriter, r *http.Request) error {
