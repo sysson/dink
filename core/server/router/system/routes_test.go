@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/moby/moby/api/types/registry"
+	systemtypes "github.com/moby/moby/api/types/system"
 )
 
 type authTranslator struct {
@@ -44,5 +45,40 @@ func TestPostAuthUsesJSONBody(t *testing.T) {
 	}
 	if result.IdentityToken != "identity-token" {
 		t.Fatalf("identity token = %q, want %q", result.IdentityToken, "identity-token")
+	}
+}
+
+type infoTranslatorStub struct {
+	Translator
+	info *systemtypes.Info
+}
+
+func (s *infoTranslatorStub) SystemInfo(context.Context) (*systemtypes.Info, error) {
+	return s.info, nil
+}
+
+func TestGetInfo(t *testing.T) {
+	translator := &infoTranslatorStub{info: &systemtypes.Info{
+		Name:            "dink",
+		OperatingSystem: "Kubernetes-backed Dink",
+		Containers:      2,
+		Warnings:        []string{"Counts are scoped to the authenticated namespace."},
+	}}
+	router := &systemRouter{translator: translator}
+	request := httptest.NewRequest(http.MethodGet, "/info", nil)
+	response := httptest.NewRecorder()
+
+	if err := router.getInfo(response, request); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body = %s", response.Code, http.StatusOK, response.Body.String())
+	}
+	var info systemtypes.Info
+	if err := json.Unmarshal(response.Body.Bytes(), &info); err != nil {
+		t.Fatal(err)
+	}
+	if info.Name != "dink" || info.OperatingSystem != "Kubernetes-backed Dink" || info.Containers != 2 || len(info.Warnings) != 1 {
+		t.Fatalf("system info = %+v", info)
 	}
 }

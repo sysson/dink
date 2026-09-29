@@ -1309,6 +1309,102 @@ func (x *RemoveImageResponse) GetRecords() []*RemoveImageRecord {
 	return nil
 }
 
+type TagImageRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Identity      *Identity              `protobuf:"bytes,1,opt,name=identity,proto3" json:"identity,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Target        *Reference             `protobuf:"bytes,3,opt,name=target,proto3" json:"target,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TagImageRequest) Reset() {
+	*x = TagImageRequest{}
+	mi := &file_sdk_registry_v1_registry_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TagImageRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TagImageRequest) ProtoMessage() {}
+
+func (x *TagImageRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_sdk_registry_v1_registry_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TagImageRequest.ProtoReflect.Descriptor instead.
+func (*TagImageRequest) Descriptor() ([]byte, []int) {
+	return file_sdk_registry_v1_registry_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *TagImageRequest) GetIdentity() *Identity {
+	if x != nil {
+		return x.Identity
+	}
+	return nil
+}
+
+func (x *TagImageRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *TagImageRequest) GetTarget() *Reference {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+type TagImageResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TagImageResponse) Reset() {
+	*x = TagImageResponse{}
+	mi := &file_sdk_registry_v1_registry_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TagImageResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TagImageResponse) ProtoMessage() {}
+
+func (x *TagImageResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_sdk_registry_v1_registry_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TagImageResponse.ProtoReflect.Descriptor instead.
+func (*TagImageResponse) Descriptor() ([]byte, []int) {
+	return file_sdk_registry_v1_registry_proto_rawDescGZIP(), []int{23}
+}
+
 type QueryRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Query         string                 `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
@@ -1321,7 +1417,7 @@ type QueryRequest struct {
 
 func (x *QueryRequest) Reset() {
 	*x = QueryRequest{}
-	mi := &file_sdk_registry_v1_registry_proto_msgTypes[22]
+	mi := &file_sdk_registry_v1_registry_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1333,7 +1429,7 @@ func (x *QueryRequest) String() string {
 func (*QueryRequest) ProtoMessage() {}
 
 func (x *QueryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sdk_registry_v1_registry_proto_msgTypes[22]
+	mi := &file_sdk_registry_v1_registry_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1346,7 +1442,7 @@ func (x *QueryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryRequest.ProtoReflect.Descriptor instead.
 func (*QueryRequest) Descriptor() ([]byte, []int) {
-	return file_sdk_registry_v1_registry_proto_rawDescGZIP(), []int{22}
+	return file_sdk_registry_v1_registry_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *QueryRequest) GetQuery() string {
@@ -1380,7 +1476,7 @@ type QueryResponse struct {
 
 func (x *QueryResponse) Reset() {
 	*x = QueryResponse{}
-	mi := &file_sdk_registry_v1_registry_proto_msgTypes[23]
+	mi := &file_sdk_registry_v1_registry_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1392,7 +1488,7 @@ func (x *QueryResponse) String() string {
 func (*QueryResponse) ProtoMessage() {}
 
 func (x *QueryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sdk_registry_v1_registry_proto_msgTypes[23]
+	mi := &file_sdk_registry_v1_registry_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1405,7 +1501,7 @@ func (x *QueryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryResponse.ProtoReflect.Descriptor instead.
 func (*QueryResponse) Descriptor() ([]byte, []int) {
-	return file_sdk_registry_v1_registry_proto_rawDescGZIP(), []int{23}
+	return file_sdk_registry_v1_registry_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *QueryResponse) GetResponse() []byte {
@@ -1424,7 +1520,7 @@ type IssuePullCredentialRequest struct {
 
 func (x *IssuePullCredentialRequest) Reset() {
 	*x = IssuePullCredentialRequest{}
-	mi := &file_sdk_registry_v1_registry_proto_msgTypes[24]
+	mi := &file_sdk_registry_v1_registry_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1436,7 +1532,7 @@ func (x *IssuePullCredentialRequest) String() string {
 func (*IssuePullCredentialRequest) ProtoMessage() {}
 
 func (x *IssuePullCredentialRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sdk_registry_v1_registry_proto_msgTypes[24]
+	mi := &file_sdk_registry_v1_registry_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1449,7 +1545,7 @@ func (x *IssuePullCredentialRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IssuePullCredentialRequest.ProtoReflect.Descriptor instead.
 func (*IssuePullCredentialRequest) Descriptor() ([]byte, []int) {
-	return file_sdk_registry_v1_registry_proto_rawDescGZIP(), []int{24}
+	return file_sdk_registry_v1_registry_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *IssuePullCredentialRequest) GetIdentity() *Identity {
@@ -1469,7 +1565,7 @@ type IssuePullCredentialResponse struct {
 
 func (x *IssuePullCredentialResponse) Reset() {
 	*x = IssuePullCredentialResponse{}
-	mi := &file_sdk_registry_v1_registry_proto_msgTypes[25]
+	mi := &file_sdk_registry_v1_registry_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1481,7 +1577,7 @@ func (x *IssuePullCredentialResponse) String() string {
 func (*IssuePullCredentialResponse) ProtoMessage() {}
 
 func (x *IssuePullCredentialResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sdk_registry_v1_registry_proto_msgTypes[25]
+	mi := &file_sdk_registry_v1_registry_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1494,7 +1590,7 @@ func (x *IssuePullCredentialResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IssuePullCredentialResponse.ProtoReflect.Descriptor instead.
 func (*IssuePullCredentialResponse) Descriptor() ([]byte, []int) {
-	return file_sdk_registry_v1_registry_proto_rawDescGZIP(), []int{25}
+	return file_sdk_registry_v1_registry_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *IssuePullCredentialResponse) GetUsername() string {
@@ -1520,7 +1616,7 @@ type RevokePullCredentialRequest struct {
 
 func (x *RevokePullCredentialRequest) Reset() {
 	*x = RevokePullCredentialRequest{}
-	mi := &file_sdk_registry_v1_registry_proto_msgTypes[26]
+	mi := &file_sdk_registry_v1_registry_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1532,7 +1628,7 @@ func (x *RevokePullCredentialRequest) String() string {
 func (*RevokePullCredentialRequest) ProtoMessage() {}
 
 func (x *RevokePullCredentialRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sdk_registry_v1_registry_proto_msgTypes[26]
+	mi := &file_sdk_registry_v1_registry_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1545,7 +1641,7 @@ func (x *RevokePullCredentialRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokePullCredentialRequest.ProtoReflect.Descriptor instead.
 func (*RevokePullCredentialRequest) Descriptor() ([]byte, []int) {
-	return file_sdk_registry_v1_registry_proto_rawDescGZIP(), []int{26}
+	return file_sdk_registry_v1_registry_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *RevokePullCredentialRequest) GetIdentity() *Identity {
@@ -1563,7 +1659,7 @@ type RevokePullCredentialResponse struct {
 
 func (x *RevokePullCredentialResponse) Reset() {
 	*x = RevokePullCredentialResponse{}
-	mi := &file_sdk_registry_v1_registry_proto_msgTypes[27]
+	mi := &file_sdk_registry_v1_registry_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1575,7 +1671,7 @@ func (x *RevokePullCredentialResponse) String() string {
 func (*RevokePullCredentialResponse) ProtoMessage() {}
 
 func (x *RevokePullCredentialResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sdk_registry_v1_registry_proto_msgTypes[27]
+	mi := &file_sdk_registry_v1_registry_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1588,7 +1684,7 @@ func (x *RevokePullCredentialResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokePullCredentialResponse.ProtoReflect.Descriptor instead.
 func (*RevokePullCredentialResponse) Descriptor() ([]byte, []int) {
-	return file_sdk_registry_v1_registry_proto_rawDescGZIP(), []int{27}
+	return file_sdk_registry_v1_registry_proto_rawDescGZIP(), []int{29}
 }
 
 var File_sdk_registry_v1_registry_proto protoreflect.FileDescriptor
@@ -1689,7 +1785,12 @@ const file_sdk_registry_v1_registry_proto_rawDesc = "" +
 	"\buntagged\x18\x01 \x01(\tR\buntagged\x12\x18\n" +
 	"\adeleted\x18\x02 \x01(\tR\adeleted\"S\n" +
 	"\x13RemoveImageResponse\x12<\n" +
-	"\arecords\x18\x01 \x03(\v2\".sdk.registry.v1.RemoveImageRecordR\arecords\"i\n" +
+	"\arecords\x18\x01 \x03(\v2\".sdk.registry.v1.RemoveImageRecordR\arecords\"\x90\x01\n" +
+	"\x0fTagImageRequest\x125\n" +
+	"\bidentity\x18\x01 \x01(\v2\x19.sdk.registry.v1.IdentityR\bidentity\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x122\n" +
+	"\x06target\x18\x03 \x01(\v2\x1a.sdk.registry.v1.ReferenceR\x06target\"\x12\n" +
+	"\x10TagImageResponse\"i\n" +
 	"\fQueryRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12%\n" +
 	"\x0eoperation_name\x18\x02 \x01(\tR\roperationName\x12\x1c\n" +
@@ -1703,7 +1804,7 @@ const file_sdk_registry_v1_registry_proto_rawDesc = "" +
 	"\bpassword\x18\x02 \x01(\tR\bpassword\"T\n" +
 	"\x1bRevokePullCredentialRequest\x125\n" +
 	"\bidentity\x18\x01 \x01(\v2\x19.sdk.registry.v1.IdentityR\bidentity\"\x1e\n" +
-	"\x1cRevokePullCredentialResponse2\xa6\a\n" +
+	"\x1cRevokePullCredentialResponse2\xf7\a\n" +
 	"\x0fRegistryService\x12F\n" +
 	"\x05Login\x12\x1d.sdk.registry.v1.LoginRequest\x1a\x1e.sdk.registry.v1.LoginResponse\x12E\n" +
 	"\x04Pull\x12\x1c.sdk.registry.v1.PullRequest\x1a\x1d.sdk.registry.v1.PullResponse0\x01\x12U\n" +
@@ -1712,7 +1813,8 @@ const file_sdk_registry_v1_registry_proto_rawDesc = "" +
 	"\fInspectImage\x12$.sdk.registry.v1.InspectImageRequest\x1a%.sdk.registry.v1.InspectImageResponse\x12[\n" +
 	"\fImageHistory\x12$.sdk.registry.v1.ImageHistoryRequest\x1a%.sdk.registry.v1.ImageHistoryResponse\x12j\n" +
 	"\x11ImageAttestations\x12).sdk.registry.v1.ImageAttestationsRequest\x1a*.sdk.registry.v1.ImageAttestationsResponse\x12X\n" +
-	"\vRemoveImage\x12#.sdk.registry.v1.RemoveImageRequest\x1a$.sdk.registry.v1.RemoveImageResponse\x12F\n" +
+	"\vRemoveImage\x12#.sdk.registry.v1.RemoveImageRequest\x1a$.sdk.registry.v1.RemoveImageResponse\x12O\n" +
+	"\bTagImage\x12 .sdk.registry.v1.TagImageRequest\x1a!.sdk.registry.v1.TagImageResponse\x12F\n" +
 	"\x05Query\x12\x1d.sdk.registry.v1.QueryRequest\x1a\x1e.sdk.registry.v1.QueryResponse\x12p\n" +
 	"\x13IssuePullCredential\x12+.sdk.registry.v1.IssuePullCredentialRequest\x1a,.sdk.registry.v1.IssuePullCredentialResponse\x12s\n" +
 	"\x14RevokePullCredential\x12,.sdk.registry.v1.RevokePullCredentialRequest\x1a-.sdk.registry.v1.RevokePullCredentialResponseB\xb3\x01\n" +
@@ -1730,7 +1832,7 @@ func file_sdk_registry_v1_registry_proto_rawDescGZIP() []byte {
 	return file_sdk_registry_v1_registry_proto_rawDescData
 }
 
-var file_sdk_registry_v1_registry_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_sdk_registry_v1_registry_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_sdk_registry_v1_registry_proto_goTypes = []any{
 	(*Identity)(nil),                     // 0: sdk.registry.v1.Identity
 	(*RegistryAuth)(nil),                 // 1: sdk.registry.v1.RegistryAuth
@@ -1754,20 +1856,22 @@ var file_sdk_registry_v1_registry_proto_goTypes = []any{
 	(*RemoveImageRequest)(nil),           // 19: sdk.registry.v1.RemoveImageRequest
 	(*RemoveImageRecord)(nil),            // 20: sdk.registry.v1.RemoveImageRecord
 	(*RemoveImageResponse)(nil),          // 21: sdk.registry.v1.RemoveImageResponse
-	(*QueryRequest)(nil),                 // 22: sdk.registry.v1.QueryRequest
-	(*QueryResponse)(nil),                // 23: sdk.registry.v1.QueryResponse
-	(*IssuePullCredentialRequest)(nil),   // 24: sdk.registry.v1.IssuePullCredentialRequest
-	(*IssuePullCredentialResponse)(nil),  // 25: sdk.registry.v1.IssuePullCredentialResponse
-	(*RevokePullCredentialRequest)(nil),  // 26: sdk.registry.v1.RevokePullCredentialRequest
-	(*RevokePullCredentialResponse)(nil), // 27: sdk.registry.v1.RevokePullCredentialResponse
-	nil,                                  // 28: sdk.registry.v1.PullRequest.MetaHeadersEntry
+	(*TagImageRequest)(nil),              // 22: sdk.registry.v1.TagImageRequest
+	(*TagImageResponse)(nil),             // 23: sdk.registry.v1.TagImageResponse
+	(*QueryRequest)(nil),                 // 24: sdk.registry.v1.QueryRequest
+	(*QueryResponse)(nil),                // 25: sdk.registry.v1.QueryResponse
+	(*IssuePullCredentialRequest)(nil),   // 26: sdk.registry.v1.IssuePullCredentialRequest
+	(*IssuePullCredentialResponse)(nil),  // 27: sdk.registry.v1.IssuePullCredentialResponse
+	(*RevokePullCredentialRequest)(nil),  // 28: sdk.registry.v1.RevokePullCredentialRequest
+	(*RevokePullCredentialResponse)(nil), // 29: sdk.registry.v1.RevokePullCredentialResponse
+	nil,                                  // 30: sdk.registry.v1.PullRequest.MetaHeadersEntry
 }
 var file_sdk_registry_v1_registry_proto_depIdxs = []int32{
 	1,  // 0: sdk.registry.v1.LoginRequest.auth:type_name -> sdk.registry.v1.RegistryAuth
 	0,  // 1: sdk.registry.v1.PullRequest.identity:type_name -> sdk.registry.v1.Identity
 	6,  // 2: sdk.registry.v1.PullRequest.reference:type_name -> sdk.registry.v1.Reference
 	1,  // 3: sdk.registry.v1.PullRequest.auth:type_name -> sdk.registry.v1.RegistryAuth
-	28, // 4: sdk.registry.v1.PullRequest.meta_headers:type_name -> sdk.registry.v1.PullRequest.MetaHeadersEntry
+	30, // 4: sdk.registry.v1.PullRequest.meta_headers:type_name -> sdk.registry.v1.PullRequest.MetaHeadersEntry
 	2,  // 5: sdk.registry.v1.PullRequest.platforms:type_name -> sdk.registry.v1.Platform
 	0,  // 6: sdk.registry.v1.ListImagesRequest.identity:type_name -> sdk.registry.v1.Identity
 	2,  // 7: sdk.registry.v1.Descriptor.platform:type_name -> sdk.registry.v1.Platform
@@ -1782,34 +1886,38 @@ var file_sdk_registry_v1_registry_proto_depIdxs = []int32{
 	0,  // 16: sdk.registry.v1.RemoveImageRequest.identity:type_name -> sdk.registry.v1.Identity
 	2,  // 17: sdk.registry.v1.RemoveImageRequest.platforms:type_name -> sdk.registry.v1.Platform
 	20, // 18: sdk.registry.v1.RemoveImageResponse.records:type_name -> sdk.registry.v1.RemoveImageRecord
-	0,  // 19: sdk.registry.v1.IssuePullCredentialRequest.identity:type_name -> sdk.registry.v1.Identity
-	0,  // 20: sdk.registry.v1.RevokePullCredentialRequest.identity:type_name -> sdk.registry.v1.Identity
-	3,  // 21: sdk.registry.v1.PullRequest.MetaHeadersEntry.value:type_name -> sdk.registry.v1.HeaderValues
-	4,  // 22: sdk.registry.v1.RegistryService.Login:input_type -> sdk.registry.v1.LoginRequest
-	7,  // 23: sdk.registry.v1.RegistryService.Pull:input_type -> sdk.registry.v1.PullRequest
-	9,  // 24: sdk.registry.v1.RegistryService.ListImages:input_type -> sdk.registry.v1.ListImagesRequest
-	13, // 25: sdk.registry.v1.RegistryService.InspectImage:input_type -> sdk.registry.v1.InspectImageRequest
-	15, // 26: sdk.registry.v1.RegistryService.ImageHistory:input_type -> sdk.registry.v1.ImageHistoryRequest
-	17, // 27: sdk.registry.v1.RegistryService.ImageAttestations:input_type -> sdk.registry.v1.ImageAttestationsRequest
-	19, // 28: sdk.registry.v1.RegistryService.RemoveImage:input_type -> sdk.registry.v1.RemoveImageRequest
-	22, // 29: sdk.registry.v1.RegistryService.Query:input_type -> sdk.registry.v1.QueryRequest
-	24, // 30: sdk.registry.v1.RegistryService.IssuePullCredential:input_type -> sdk.registry.v1.IssuePullCredentialRequest
-	26, // 31: sdk.registry.v1.RegistryService.RevokePullCredential:input_type -> sdk.registry.v1.RevokePullCredentialRequest
-	5,  // 32: sdk.registry.v1.RegistryService.Login:output_type -> sdk.registry.v1.LoginResponse
-	8,  // 33: sdk.registry.v1.RegistryService.Pull:output_type -> sdk.registry.v1.PullResponse
-	12, // 34: sdk.registry.v1.RegistryService.ListImages:output_type -> sdk.registry.v1.ListImagesResponse
-	14, // 35: sdk.registry.v1.RegistryService.InspectImage:output_type -> sdk.registry.v1.InspectImageResponse
-	16, // 36: sdk.registry.v1.RegistryService.ImageHistory:output_type -> sdk.registry.v1.ImageHistoryResponse
-	18, // 37: sdk.registry.v1.RegistryService.ImageAttestations:output_type -> sdk.registry.v1.ImageAttestationsResponse
-	21, // 38: sdk.registry.v1.RegistryService.RemoveImage:output_type -> sdk.registry.v1.RemoveImageResponse
-	23, // 39: sdk.registry.v1.RegistryService.Query:output_type -> sdk.registry.v1.QueryResponse
-	25, // 40: sdk.registry.v1.RegistryService.IssuePullCredential:output_type -> sdk.registry.v1.IssuePullCredentialResponse
-	27, // 41: sdk.registry.v1.RegistryService.RevokePullCredential:output_type -> sdk.registry.v1.RevokePullCredentialResponse
-	32, // [32:42] is the sub-list for method output_type
-	22, // [22:32] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	0,  // 19: sdk.registry.v1.TagImageRequest.identity:type_name -> sdk.registry.v1.Identity
+	6,  // 20: sdk.registry.v1.TagImageRequest.target:type_name -> sdk.registry.v1.Reference
+	0,  // 21: sdk.registry.v1.IssuePullCredentialRequest.identity:type_name -> sdk.registry.v1.Identity
+	0,  // 22: sdk.registry.v1.RevokePullCredentialRequest.identity:type_name -> sdk.registry.v1.Identity
+	3,  // 23: sdk.registry.v1.PullRequest.MetaHeadersEntry.value:type_name -> sdk.registry.v1.HeaderValues
+	4,  // 24: sdk.registry.v1.RegistryService.Login:input_type -> sdk.registry.v1.LoginRequest
+	7,  // 25: sdk.registry.v1.RegistryService.Pull:input_type -> sdk.registry.v1.PullRequest
+	9,  // 26: sdk.registry.v1.RegistryService.ListImages:input_type -> sdk.registry.v1.ListImagesRequest
+	13, // 27: sdk.registry.v1.RegistryService.InspectImage:input_type -> sdk.registry.v1.InspectImageRequest
+	15, // 28: sdk.registry.v1.RegistryService.ImageHistory:input_type -> sdk.registry.v1.ImageHistoryRequest
+	17, // 29: sdk.registry.v1.RegistryService.ImageAttestations:input_type -> sdk.registry.v1.ImageAttestationsRequest
+	19, // 30: sdk.registry.v1.RegistryService.RemoveImage:input_type -> sdk.registry.v1.RemoveImageRequest
+	22, // 31: sdk.registry.v1.RegistryService.TagImage:input_type -> sdk.registry.v1.TagImageRequest
+	24, // 32: sdk.registry.v1.RegistryService.Query:input_type -> sdk.registry.v1.QueryRequest
+	26, // 33: sdk.registry.v1.RegistryService.IssuePullCredential:input_type -> sdk.registry.v1.IssuePullCredentialRequest
+	28, // 34: sdk.registry.v1.RegistryService.RevokePullCredential:input_type -> sdk.registry.v1.RevokePullCredentialRequest
+	5,  // 35: sdk.registry.v1.RegistryService.Login:output_type -> sdk.registry.v1.LoginResponse
+	8,  // 36: sdk.registry.v1.RegistryService.Pull:output_type -> sdk.registry.v1.PullResponse
+	12, // 37: sdk.registry.v1.RegistryService.ListImages:output_type -> sdk.registry.v1.ListImagesResponse
+	14, // 38: sdk.registry.v1.RegistryService.InspectImage:output_type -> sdk.registry.v1.InspectImageResponse
+	16, // 39: sdk.registry.v1.RegistryService.ImageHistory:output_type -> sdk.registry.v1.ImageHistoryResponse
+	18, // 40: sdk.registry.v1.RegistryService.ImageAttestations:output_type -> sdk.registry.v1.ImageAttestationsResponse
+	21, // 41: sdk.registry.v1.RegistryService.RemoveImage:output_type -> sdk.registry.v1.RemoveImageResponse
+	23, // 42: sdk.registry.v1.RegistryService.TagImage:output_type -> sdk.registry.v1.TagImageResponse
+	25, // 43: sdk.registry.v1.RegistryService.Query:output_type -> sdk.registry.v1.QueryResponse
+	27, // 44: sdk.registry.v1.RegistryService.IssuePullCredential:output_type -> sdk.registry.v1.IssuePullCredentialResponse
+	29, // 45: sdk.registry.v1.RegistryService.RevokePullCredential:output_type -> sdk.registry.v1.RevokePullCredentialResponse
+	35, // [35:46] is the sub-list for method output_type
+	24, // [24:35] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_sdk_registry_v1_registry_proto_init() }
@@ -1823,7 +1931,7 @@ func file_sdk_registry_v1_registry_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sdk_registry_v1_registry_proto_rawDesc), len(file_sdk_registry_v1_registry_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   29,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

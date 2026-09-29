@@ -9,6 +9,7 @@ import (
 
 	"github.com/docker/oci/ociref"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sysson/dink/pkg/filters"
 	"github.com/sysson/syskit/httpx"
 )
 
@@ -78,5 +79,16 @@ func (ir *imageRouter) postImagesTag(w http.ResponseWriter, r *http.Request) err
 }
 
 func (ir *imageRouter) postImagesPrune(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	if err := r.ParseForm(); err != nil {
+		return httpx.BadRequest(err)
+	}
+	pruneFilters, err := filters.FromJSON(r.Form.Get("filters"))
+	if err != nil {
+		return httpx.BadRequest(err)
+	}
+	report, err := ir.translator.ImagePrune(r.Context(), pruneFilters)
+	if err != nil {
+		return err
+	}
+	return httpx.WriteJSON(w, http.StatusOK, report)
 }
