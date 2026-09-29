@@ -4,9 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"strconv"
 	"strings"
-	"time"
 
 	networktypes "github.com/moby/moby/api/types/network"
 	"github.com/sysson/dink/core/identity"
@@ -132,106 +130,16 @@ func (d *Docker) findNetwork(ctx context.Context, nameOrID string) (*unstructure
 	return match, nil
 }
 
-func (d *Docker) GetNetworkSummaries(ctx context.Context, filters filters.Args) ([]networktypes.Summary, error) {
-	for _, key := range filters.Keys() {
-		switch key {
-		case "name", "id", "driver", "scope", "label", "label!", "type", "dangling":
-		default:
-			return nil, httpx.BadRequest(fmt.Errorf("unsupported network filter %q", key))
-		}
-	}
-	list, err := d.networkList(ctx)
-	if err != nil {
-		return nil, err
-	}
-	dangling, err := filters.GetBoolOrDefault("dangling", false)
-	if err != nil {
-		return nil, httpx.BadRequest(err)
-	}
-	result := make([]networktypes.Summary, 0, len(list.Items))
-	for index := range list.Items {
-		obj := &list.Items[index]
-		network := networkFromObject(obj)
-		_, builtin := builtinNetworkDrivers[network.Name]
-		networkType := "custom"
-		if builtin {
-			networkType = "builtin"
-		}
-		if !filters.Match("name", network.Name) || !filters.Match("id", network.ID) ||
-			!filters.ExactMatch("driver", network.Driver) || !filters.ExactMatch("scope", network.Scope) ||
-			!filters.ExactMatch("type", networkType) ||
-			!filters.MatchKVList("label", network.Labels) || !matchExcludedLabels(filters.Get("label!"), network.Labels) {
-			continue
-		}
-		if len(filters.Get("dangling")) > 0 {
-			if builtin {
-				if dangling {
-					continue
-				}
-				result = append(result, networktypes.Summary{Network: network})
-				continue
-			}
-			inUse, err := d.networkInUse(ctx, obj)
-			if err != nil {
-				return nil, err
-			}
-			if dangling == inUse {
-				continue
-			}
-		}
-		result = append(result, networktypes.Summary{Network: network})
-	}
-	return result, nil
+func (s *Swarm) GetNetworks(context.Context, filters.Args, bool) ([]networktypes.Inspect, error) {
+	return nil, ErrNotImplemented
 }
 
-func (d *Docker) GetNetwork(ctx context.Context, nameOrID string) (networktypes.Inspect, error) {
-	obj, err := d.findNetwork(ctx, nameOrID)
-	if err != nil {
-		return networktypes.Inspect{}, err
-	}
-	return networktypes.Inspect{Network: networkFromObject(obj), Containers: map[string]networktypes.EndpointResource{}}, nil
+func (s *Swarm) GetNetworksByName(context.Context, string) ([]networktypes.Network, error) {
+	return nil, ErrNotImplemented
 }
 
-func (d *Docker) CreateNetwork(ctx context.Context, request networktypes.CreateRequest) (networktypes.CreateResponse, error) {
-	if strings.TrimSpace(request.Name) == "" {
-		return networktypes.CreateResponse{}, httpx.BadRequest(fmt.Errorf("network name is required"))
-	}
-	if (request.Driver != "" && request.Driver != "bridge") || (request.Scope != "" && request.Scope != "local") ||
-		(request.EnableIPv4 != nil && !*request.EnableIPv4) || (request.EnableIPv6 != nil && *request.EnableIPv6) ||
-		request.Internal || request.Attachable || request.Ingress || request.ConfigOnly || request.ConfigFrom != nil || len(request.Options) > 0 ||
-		(request.IPAM != nil && (request.IPAM.Driver != "" && request.IPAM.Driver != "default" || len(request.IPAM.Options) > 0 || len(request.IPAM.Config) > 0)) {
-		return networktypes.CreateResponse{}, httpx.BadRequest(fmt.Errorf("network configuration is not supported by the Kubernetes backend"))
-	}
-	namespace, err := networkNamespace(ctx)
-	if err != nil {
-		return networktypes.CreateResponse{}, err
-	}
-	list, err := d.networkList(ctx)
-	if err != nil {
-		return networktypes.CreateResponse{}, err
-	}
-	for index := range list.Items {
-		if networkFromObject(&list.Items[index]).Name == request.Name {
-			return networktypes.CreateResponse{}, httpx.Conflict(fmt.Errorf("network with name %s already exists", request.Name))
-		}
-	}
-	labels := make(map[string]any, len(request.Labels))
-	for key, value := range request.Labels {
-		labels[key] = value
-	}
-	obj, err := d.k8s.Dynamic.Resource(networkResource).Namespace(namespace).Create(ctx, &unstructured.Unstructured{Object: map[string]any{
-		"apiVersion": "dink.io/v1alpha1",
-		"kind":       "DockerNetwork",
-		"metadata":   map[string]any{"name": networkObjectName(request.Name)},
-		"spec":       map[string]any{"name": request.Name, "labels": labels},
-	}}, metav1.CreateOptions{})
-	if apierrors.IsAlreadyExists(err) {
-		return networktypes.CreateResponse{}, httpx.Conflict(fmt.Errorf("network with name %s already exists", request.Name))
-	}
-	if err != nil {
-		return networktypes.CreateResponse{}, err
-	}
-	return networktypes.CreateResponse{ID: identity.DockerIDFromUID(obj.GetUID()), Warning: ""}, nil
+func (s *Swarm) RemoveNetwork(context.Context, string) error {
+	return ErrNotImplemented
 }
 
 func (d *Docker) networkInUse(ctx context.Context, obj *unstructured.Unstructured) (bool, error) {
@@ -248,128 +156,4 @@ func (d *Docker) networkInUse(ctx context.Context, obj *unstructured.Unstructure
 	}
 	pods, err := d.k8s.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
 	return err == nil && len(pods.Items) > 0, err
-}
-
-func (d *Docker) DeleteNetwork(ctx context.Context, nameOrID string) error {
-	obj, err := d.findNetwork(ctx, nameOrID)
-	if err != nil {
-		return err
-	}
-	if _, builtin := builtinNetworkDrivers[networkFromObject(obj).Name]; builtin {
-		return httpx.Forbidden(fmt.Errorf("network %s is a predefined network and cannot be removed", nameOrID))
-	}
-	inUse, err := d.networkInUse(ctx, obj)
-	if err != nil {
-		return err
-	}
-	if inUse {
-		return httpx.Conflict(fmt.Errorf("network %s has active endpoints", nameOrID))
-	}
-	err = d.k8s.Dynamic.Resource(networkResource).Namespace(obj.GetNamespace()).Delete(ctx, obj.GetName(), metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: new(obj.GetUID())}})
-	if apierrors.IsNotFound(err) {
-		return httpx.NotFound(fmt.Errorf("network %s not found", nameOrID))
-	}
-	return err
-}
-
-func (d *Docker) NetworkPrune(ctx context.Context, filters filters.Args) (networktypes.PruneReport, error) {
-	for _, key := range filters.Keys() {
-		if key != "label" && key != "label!" && key != "until" {
-			return networktypes.PruneReport{}, httpx.BadRequest(fmt.Errorf("unsupported network prune filter %q", key))
-		}
-	}
-	before, err := pruneBefore(filters.Get("until"))
-	if err != nil {
-		return networktypes.PruneReport{}, httpx.BadRequest(err)
-	}
-	list, err := d.networkList(ctx)
-	if err != nil {
-		return networktypes.PruneReport{}, err
-	}
-	result := networktypes.PruneReport{NetworksDeleted: []string{}}
-	for index := range list.Items {
-		obj := &list.Items[index]
-		network := networkFromObject(obj)
-		if _, builtin := builtinNetworkDrivers[network.Name]; builtin {
-			continue
-		}
-		if !filters.MatchKVList("label", network.Labels) || !matchExcludedLabels(filters.Get("label!"), network.Labels) ||
-			(!before.IsZero() && obj.GetCreationTimestamp().After(before)) {
-			continue
-		}
-		inUse, err := d.networkInUse(ctx, obj)
-		if err != nil {
-			return result, err
-		}
-		if inUse {
-			continue
-		}
-		if err := d.k8s.Dynamic.Resource(networkResource).Namespace(obj.GetNamespace()).Delete(ctx, obj.GetName(), metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: new(obj.GetUID())}}); err != nil {
-			return result, err
-		}
-		result.NetworksDeleted = append(result.NetworksDeleted, network.Name)
-	}
-	return result, nil
-}
-
-func pruneBefore(values []string) (time.Time, error) {
-	if len(values) == 0 {
-		return time.Time{}, nil
-	}
-	if len(values) != 1 {
-		return time.Time{}, fmt.Errorf("until filter requires one value")
-	}
-	value := values[0]
-	if timestamp, err := time.Parse(time.RFC3339Nano, value); err == nil {
-		return timestamp, nil
-	}
-	if seconds, err := strconv.ParseFloat(value, 64); err == nil {
-		return time.Unix(0, int64(seconds*float64(time.Second))), nil
-	}
-	if duration, err := time.ParseDuration(value); err == nil && duration >= 0 {
-		return time.Now().Add(-duration), nil
-	}
-	return time.Time{}, fmt.Errorf("invalid until filter %q", value)
-}
-
-func matchExcludedLabels(excluded []string, labels map[string]string) bool {
-	for _, entry := range excluded {
-		key, value, hasValue := strings.Cut(entry, "=")
-		if actual, ok := labels[key]; ok && (!hasValue || actual == value) {
-			return false
-		}
-	}
-	return true
-}
-
-func (d *Docker) ConnectContainerToNetwork(context.Context, string, string, *networktypes.EndpointSettings) error {
-	return ErrNotImplemented
-}
-
-func (d *Docker) DisconnectContainerFromNetwork(context.Context, string, string, bool) error {
-	return ErrNotImplemented
-}
-
-func (s *Swarm) GetNetworks(context.Context, filters.Args, bool) ([]networktypes.Inspect, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Swarm) GetNetworkSummaries(context.Context, filters.Args) ([]networktypes.Summary, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Swarm) GetNetwork(context.Context, string, bool) (networktypes.Inspect, error) {
-	return networktypes.Inspect{}, ErrNotImplemented
-}
-
-func (s *Swarm) GetNetworksByName(context.Context, string) ([]networktypes.Network, error) {
-	return nil, ErrNotImplemented
-}
-
-func (s *Swarm) CreateNetwork(context.Context, networktypes.CreateRequest) (string, error) {
-	return "", ErrNotImplemented
-}
-
-func (s *Swarm) RemoveNetwork(context.Context, string) error {
-	return ErrNotImplemented
 }

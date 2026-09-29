@@ -9,8 +9,32 @@ func TestDefaultIsValid(t *testing.T) {
 	if err := Default().Validate(); err != nil {
 		t.Fatalf("default config is invalid: %v", err)
 	}
+	if got := Default().Kubernetes.DefaultResources.Limits; got.CPU != "500m" || got.Memory != "512Mi" {
+		t.Fatalf("default resource limits = %+v", got)
+	}
 	if got := Default().Registry.PullHost; got != "dinki.io" {
 		t.Fatalf("default pull host = %q, want dinki.io", got)
+	}
+}
+
+func TestResourceDefaultsValidate(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		defaults  ResourceDefaults
+		wantError bool
+	}{
+		{"valid", ResourceDefaults{Limits: ResourceValues{CPU: "500m", Memory: "512Mi"}, Requests: ResourceValues{CPU: "100m", Memory: "128Mi"}}, false},
+		{"invalid quantity", ResourceDefaults{Limits: ResourceValues{CPU: "invalid"}}, true},
+		{"submillicore", ResourceDefaults{Limits: ResourceValues{CPU: "0.0001"}}, true},
+		{"huge CPU", ResourceDefaults{Limits: ResourceValues{CPU: "10000000000"}}, true},
+		{"fractional byte", ResourceDefaults{Limits: ResourceValues{Memory: "0.5"}}, true},
+		{"request above limit", ResourceDefaults{Limits: ResourceValues{Memory: "128Mi"}, Requests: ResourceValues{Memory: "256Mi"}}, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := test.defaults.Validate(); (err != nil) != test.wantError {
+				t.Fatalf("Validate() = %v, wantError = %v", err, test.wantError)
+			}
+		})
 	}
 }
 

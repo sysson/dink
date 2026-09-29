@@ -19,7 +19,6 @@ import (
 	"github.com/sysson/syskit/httpx"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubernetesfake "k8s.io/client-go/kubernetes/fake"
 )
 
@@ -60,13 +59,13 @@ func TestImageUsageInNamespace(t *testing.T) {
 	const pinned = "registry.local/tenant/web@sha256:used"
 	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
 	client := kubernetesfake.NewClientset(
-		&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "stopped", Namespace: "tenant"}, Spec: appsv1.DeploymentSpec{
+		&appsv1.Deployment{Name: "stopped", Namespace: "tenant", Spec: appsv1.DeploymentSpec{
 			Replicas: new(int32(0)), Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Image: pinned}}}},
 		}},
-		&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "init", Namespace: "tenant"}, Spec: appsv1.DeploymentSpec{
+		&appsv1.Deployment{Name: "init", Namespace: "tenant", Spec: appsv1.DeploymentSpec{
 			Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{InitContainers: []corev1.Container{{Image: pinned}}}},
 		}},
-		&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "elsewhere", Namespace: "other"}, Spec: appsv1.DeploymentSpec{
+		&appsv1.Deployment{Name: "elsewhere", Namespace: "other", Spec: appsv1.DeploymentSpec{
 			Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Image: pinned}}}},
 		}},
 	)
@@ -105,7 +104,7 @@ func TestImageUsageInNamespace(t *testing.T) {
 func TestImagePrune(t *testing.T) {
 	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
 	client := kubernetesfake.NewClientset(&appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{Name: "stopped", Namespace: "tenant"},
+		Name: "stopped", Namespace: "tenant",
 		Spec: appsv1.DeploymentSpec{Replicas: new(int32(0)), Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{Containers: []corev1.Container{{Image: "registry.local/tenant/web@sha256:used"}}},
 		}},

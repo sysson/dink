@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	networktypes "github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/v2/daemon/server/networkbackend"
 	"github.com/sysson/dink/pkg/filters"
 	"github.com/sysson/syskit/httpx"
 )
@@ -41,10 +42,26 @@ func (nr *networkRouter) postNetworkCreate(w http.ResponseWriter, r *http.Reques
 }
 
 func (nr *networkRouter) postNetworkConnect(w http.ResponseWriter, r *http.Request) error {
+	var request networkbackend.ConnectRequest
+	if err := httpx.ParseJSON(r, &request); err != nil {
+		return httpx.BadRequest(err)
+	}
+	if err := nr.translator.ConnectContainerToNetwork(r.Context(), r.PathValue("id"), request.Container, request.EndpointConfig); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
 
 func (nr *networkRouter) postNetworkDisconnect(w http.ResponseWriter, r *http.Request) error {
+	var request networkbackend.DisconnectRequest
+	if err := httpx.ParseJSON(r, &request); err != nil {
+		return httpx.BadRequest(err)
+	}
+	if err := nr.translator.DisconnectContainerFromNetwork(r.Context(), r.PathValue("id"), request.Container, request.Force); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
 
