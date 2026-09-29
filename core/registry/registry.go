@@ -11,11 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/99designs/gqlgen/graphql"
 	"github.com/docker/oci"
 	"github.com/docker/oci/ociauth"
 	"github.com/docker/oci/ociclient"
-	"github.com/sysson/dink/core/types"
+	"github.com/moby/moby/api/types/registry"
+	"github.com/sysson/dink/pkg/ocistore"
+	"github.com/sysson/dink/pkg/ocistore/backend"
 )
 
 // Authenticate verifies auth against host by using it to make a request,
@@ -23,13 +24,13 @@ import (
 // challenge the registry responds with (the same transport pulls use). It
 // does not persist anything: the docker client that sent auth owns the
 // credentials and resends them via X-Registry-Auth on later requests.
-func Authenticate(ctx context.Context, auth types.RegistryAuth) (string, error) {
+func Authenticate(ctx context.Context, auth *registry.AuthConfig) (string, error) {
 	host, insecure, err := registryHost(auth.ServerAddress)
 	if err != nil {
 		return "", err
 	}
 	transport := ociauth.NewStdTransport(ociauth.StdTransportParams{
-		Config:    authConfigSource{host: host, auth: &auth},
+		Config:    authConfigSource{host: host, auth: auth},
 		Transport: RegistryTransport(nil, nil),
 	})
 
@@ -56,31 +57,38 @@ func Authenticate(ctx context.Context, auth types.RegistryAuth) (string, error) 
 	return "", nil
 }
 
-// Querier executes GraphQL documents against the registry metadata. It is
-// satisfied by [github.com/sysson/dink/core/registry/query.Service].
-type Querier interface {
-	Exec(ctx context.Context, document, operationName string, variables map[string]any) *graphql.Response
+// Index is the typed metadata view image operations read. It is satisfied by
+// [github.com/sysson/dink/pkg/ocistore.Index].
+type Index interface {
+	Repositories(ctx context.Context, after string, limit int) ([]string, error)
+	TagRecords(ctx context.Context, repository, after string, limit int) ([]backend.TagRecord, error)
+	ResolveTag(ctx context.Context, repository, tag string) (oci.Descriptor, error)
+	Manifest(ctx context.Context, repository string, digest oci.Digest) (backend.ManifestRecord, error)
+	Closure(ctx context.Context, repository string, digest oci.Digest) ([]ocistore.ClosureEntry, error)
+	ImageConfig(ctx context.Context, config oci.Descriptor) ([]byte, error)
 }
+
+var _ Index = (*ocistore.Index)(nil)
 
 type RegistryService struct {
 	// internal is the client for dink's own registry. Its credentials are
 	// dink's and never change, so one client is shared for the process.
 	internal oci.Interface
-	// queries resolves GraphQL documents against internal's metadata.
-	queries Querier
+	// index reads internal's metadata.
+	index Index
 	// internalErr is why that client could not be built. It is reported
 	// only to the endpoints that need the registry; the rest still work.
 	internalErr error
 }
 
 // New returns an image service backed by dinki's local registry and its
-// metadata query service. It runs inside dinki: pulls fetch from upstream
+// metadata index. It runs inside dinki: pulls fetch from upstream
 // registries and write straight into local storage.
-func New(internal oci.Interface, queries Querier) *RegistryService {
+func New(internal oci.Interface, index Index) *RegistryService {
 	if internal == nil {
 		return Unavailable(fmt.Errorf("registry client is not set"))
 	}
-	return &RegistryService{internal: internal, queries: queries}
+	return &RegistryService{internal: internal, index: index}
 }
 
 // Unavailable returns an image service whose registry-backed endpoints report
@@ -133,7 +141,7 @@ func (h *registryRoundTripper) RoundTrip(req *http.Request) (*http.Response, err
 
 // ClientOptions configures an OCI registry client.
 type ClientOptions struct {
-	Auth      *types.RegistryAuth
+	Auth      *registry.AuthConfig
 	Transport http.RoundTripper
 }
 
@@ -189,14 +197,14 @@ func isLoopback(host string) bool {
 // registries).
 type authConfigSource struct {
 	host string
-	auth *types.RegistryAuth
+	auth *registry.AuthConfig
 }
 
 func (s authConfigSource) EntryForRegistry(host string) (ociauth.ConfigEntry, error) {
 	if s.auth != nil {
 		return ociauth.ConfigEntry{
-			RefreshToken: s.auth.RefreshToken,
-			AccessToken:  s.auth.AccessToken,
+			RefreshToken: s.auth.IdentityToken,
+			AccessToken:  s.auth.RegistryToken,
 			Username:     s.auth.Username,
 			Password:     s.auth.Password,
 		}, nil

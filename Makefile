@@ -31,7 +31,7 @@ HOST_DOCKER := env -u DOCKER_HOST -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH DOCKE
 
 .PHONY: all build test generate lint clean fix dev image image-minikube load ca-generate ca-generate-local ca-rotate server registry-server certificates tenant bootstrap \
 	context context-sync context-use context-default context-rm port-forward restart release show-image \
-	deploy undeploy logs docker-env start
+	deploy undeploy logs docker-env start clean-images
 
 all: build
 
@@ -192,3 +192,8 @@ docker-env:
 	@echo 'export DOCKER_HOST=$(DINK_HOST)'
 	@echo 'export DOCKER_TLS_VERIFY=1'
 	@echo 'export DOCKER_CERT_PATH=$(DOCKER_CERT_DIR)'
+
+## clean-images: Remove all local docker images and prune images from the minikube containerd instance
+clean-images:
+	@$(HOST_DOCKER) $(DOCKER) system prune -a
+	@$(HOST_DOCKER) $(DOCKER) exec -it $(MINIKUBE_PROFILE) ctr -n k8s.io images prune --all

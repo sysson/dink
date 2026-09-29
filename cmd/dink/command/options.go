@@ -174,6 +174,13 @@ func (o *options) addFlags(flags *[]cli.Flag) {
 			Sources:     cli.EnvVars(types.DefaultEnvPrefix+"_REGISTRY_KEYFILE", types.DefaultEnvPrefix+"_REGISTRY_KEY_FILE"),
 			Destination: &o.cfg.Registry.KeyFile,
 		},
+		&cli.StringFlag{
+			Name:        "registryPullHost",
+			Usage:       "Stable registry name in tenant image references (dinki serve-node registryHost)",
+			DefaultText: o.defaults.Registry.PullHost,
+			Sources:     cli.EnvVars(types.DefaultEnvPrefix+"_REGISTRY_PULLHOST", types.DefaultEnvPrefix+"_REGISTRY_PULL_HOST"),
+			Destination: &o.cfg.Registry.PullHost,
+		},
 	}...)
 }
 

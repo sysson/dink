@@ -1,7 +1,7 @@
 ---
-# Internal OCI registry for the dink system namespace. Port 5000 is the OCI
-# distribution API; port 5001 is the internal RegistryService API that only dink
-# (authenticated by its client certificate subject) may call.
+# Internal OCI registry for the dink system namespace. Port 5000 serves the OCI
+# distribution API read-only, and the internal RegistryService API that only
+# dink (authenticated by its client certificate subject) may call.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -59,29 +59,23 @@ spec:
             - name: registry
               containerPort: 5000
               protocol: TCP
-            - name: api
-              containerPort: 5001
-              protocol: TCP
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             privileged: false
             capabilities:
               drop: ["ALL"]
+          # Every registry request needs a pull credential, so probe the socket.
           livenessProbe:
-            httpGet:
-              path: /v2/
+            tcpSocket:
               port: registry
-              scheme: HTTPS
             initialDelaySeconds: 3
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
           readinessProbe:
-            httpGet:
-              path: /v2/
+            tcpSocket:
               port: registry
-              scheme: HTTPS
             initialDelaySeconds: 3
             periodSeconds: 10
             timeoutSeconds: 5
@@ -140,6 +134,3 @@ spec:
     - name: registry
       port: 5000
       targetPort: registry
-    - name: api
-      port: 5001
-      targetPort: api

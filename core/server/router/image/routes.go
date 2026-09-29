@@ -10,6 +10,7 @@ import (
 	"github.com/containerd/platforms"
 	"github.com/docker/oci/ocidigest"
 	"github.com/docker/oci/ociref"
+	"github.com/moby/moby/api/pkg/authconfig"
 	imagetypes "github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/client/pkg/versions"
@@ -17,13 +18,14 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sysson/dink/core/types"
 	"github.com/sysson/dink/core/version"
+	"github.com/sysson/dink/pkg/filters"
 	"github.com/sysson/syskit/httpx"
 	"github.com/sysson/syskit/iox"
 	"github.com/sysson/syskit/stream"
 )
 
 func (ir *imageRouter) getImagesJSON(w http.ResponseWriter, r *http.Request) error {
-	imageFilters, err := types.FromJSON(r.URL.Query().Get("filters"))
+	imageFilters, err := filters.FromJSON(r.URL.Query().Get("filters"))
 	if err != nil {
 		return httpx.BadRequest(err)
 	}
@@ -242,11 +244,15 @@ func (ir *imageRouter) postImagesCreate(w http.ResponseWriter, r *http.Request) 
 		if err != nil {
 			return httpx.BadRequest(err)
 		}
-		authConfig, _ := types.DecodeRegistryAuthHeader(r.Header.Get(registry.AuthHeader))
-		pullOptions := types.ImagePullOptions{
-			Auth:        authConfig,
+		authconfig, err := authconfig.Decode(r.Header.Get(registry.AuthHeader))
+		if err != nil {
+			return httpx.BadRequest(err)
+		}
+		pullOptions := imagebackend.PullOptions{
+			AuthConfig:  authconfig,
 			MetaHeaders: metaHeaders,
 			OutStream:   output,
+			Platforms:   []ocispec.Platform{},
 		}
 		if platform != nil {
 			pullOptions.Platforms = append(pullOptions.Platforms, *platform)

@@ -8,10 +8,11 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"time"
 
-	"github.com/sysson/dink/core/registry/backend/blobstore"
-	"github.com/sysson/dink/core/registry/backend/kv/boltkv"
-	"github.com/sysson/dink/core/registry/backend/kv/drivers"
+	"github.com/sysson/dink/pkg/ocistore/blobstore"
+	"github.com/sysson/dink/pkg/ocistore/kv/boltkv"
+	"github.com/sysson/dink/pkg/ocistore/kv/drivers"
 )
 
 const DefaultFile = "/etc/dinki/config.json"
@@ -23,6 +24,7 @@ type Config struct {
 	TLS       TLS              `json:"tls"`
 	Storage   blobstore.Config `json:"storage"`
 	Metadata  drivers.Config   `json:"metadata"`
+	GC        GC               `json:"gc"`
 	GraphQL   GraphQL          `json:"graphql"`
 	API       API              `json:"api"`
 }
@@ -48,21 +50,46 @@ type TLS struct {
 	MinTLSVersion string `json:"minTLSVersion"`
 }
 
-// GraphQL controls the metadata query endpoint on the client-authenticated
-// internal API listener at /v2/_dinki/ext/graphql.
+// GC schedules garbage collection. UploadExpiry is how long an unfinished
+// upload or content reservation is kept before it is reclaimed.
+type GC struct {
+	Interval     Duration `json:"interval"`
+	UploadExpiry Duration `json:"uploadExpiry"`
+}
+
+// Duration is a time.Duration written as a string such as "90s" or "24h".
+type Duration time.Duration
+
+func (d Duration) MarshalJSON() ([]byte, error) {
+	return json.Marshal(time.Duration(d).String())
+}
+
+func (d *Duration) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return fmt.Errorf("duration must be a string: %w", err)
+	}
+	parsed, err := time.ParseDuration(s)
+	if err != nil {
+		return err
+	}
+	*d = Duration(parsed)
+	return nil
+}
+
+// GraphQL controls the metadata query endpoint at /v2/_dinki/ext/graphql,
+// which is authorized like the internal API.
 type GraphQL struct {
 	Enabled bool `json:"enabled"`
 }
 
-// API is the internal RegistryService listener dink calls. It shares the
-// registry certificate and, unless TLS is disabled, requires client
-// certificates signed by ClientCAFile whose subject matches ClientOrganization
-// and ClientCommonName. Tenant client certificates share the CA, so the
-// subject check is what keeps tenants off this API.
+// API is the internal RegistryService dink calls on the registry listener.
+// Its requests must present a client certificate signed by ClientCAFile whose
+// subject matches ClientOrganization and ClientCommonName. Tenant client
+// certificates share the CA, so the subject check is what keeps tenants off
+// this API.
 type API struct {
 	Disabled           bool   `json:"disabled"`
-	Host               string `json:"host"`
-	Port               string `json:"port"`
 	ClientCAFile       string `json:"clientCAFile"`
 	ClientOrganization string `json:"clientOrganization"`
 	ClientCommonName   string `json:"clientCommonName"`
@@ -82,8 +109,11 @@ func Default() Config {
 		},
 		Storage:  blobstore.Config{File: &blobstore.FileConfig{Path: "/var/lib/dinki/blobs"}},
 		Metadata: drivers.Config{BBolt: &boltkv.Config{Path: "/var/lib/dinki/metadata.db"}},
+		GC: GC{
+			Interval:     Duration(time.Minute),
+			UploadExpiry: Duration(24 * time.Hour),
+		},
 		API: API{
-			Port:               "5001",
 			ClientCAFile:       "/etc/dinki/tls/ca.crt",
 			ClientOrganization: "dink-system",
 			ClientCommonName:   "dink.dink-system.svc",
@@ -137,22 +167,22 @@ func (c Config) Validate() error {
 	if err := c.Metadata.Validate(); err != nil {
 		errs = append(errs, fmt.Errorf("metadata: %w", err))
 	}
+	if c.GC.Interval <= 0 {
+		errs = append(errs, errors.New("gc.interval must be positive"))
+	}
+	if c.GC.UploadExpiry <= 0 {
+		errs = append(errs, errors.New("gc.uploadExpiry must be positive"))
+	}
 	if c.GraphQL.Enabled && c.API.Disabled {
-		errs = append(errs, errors.New("graphql requires the client-authenticated api listener"))
+		errs = append(errs, errors.New("graphql requires the client-authenticated api"))
 	}
 	if !c.API.Disabled {
-		if _, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(c.API.Host, c.API.Port)); err != nil {
-			errs = append(errs, fmt.Errorf("api address: %w", err))
-		}
 		if c.TLS.Disabled {
 			errs = append(errs, errors.New("api requires TLS to enforce client certificate authentication"))
 		} else if c.API.ClientCAFile == "" {
 			errs = append(errs, errors.New("api.clientCAFile must not be empty when TLS is enabled"))
 		} else if c.API.ClientOrganization == "" && c.API.ClientCommonName == "" {
 			errs = append(errs, errors.New("api.clientOrganization or api.clientCommonName must be set when TLS is enabled"))
-		}
-		if c.API.Host == c.Server.Host && c.API.Port == c.Server.Port {
-			errs = append(errs, errors.New("api and server must listen on different addresses"))
 		}
 	}
 	return errors.Join(errs...)

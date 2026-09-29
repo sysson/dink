@@ -6,6 +6,8 @@ require (
 	connectrpc.com/connect v1.21.0
 	github.com/99designs/gqlgen v0.17.95
 	github.com/containerd/platforms v1.0.0-rc.5
+	github.com/distribution/reference v0.6.0
+	github.com/docker/distribution v2.8.3+incompatible
 	github.com/docker/oci v0.0.23
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/go-chi/httplog/v3 v3.5.0
@@ -79,7 +81,6 @@ require (
 	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/coreos/go-systemd/v22 v22.7.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect

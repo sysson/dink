@@ -55,12 +55,14 @@ type BuildKit struct {
 
 // Registry is how dink reaches dinki's internal RegistryService API. dink
 // makes no OCI requests itself. CAFile defaults to TLS.ClientCAFile and the
-// client key pair defaults to TLS.CertFile/KeyFile.
+// client key pair defaults to TLS.CertFile/KeyFile. PullHost is the registry
+// name used in tenant image references (dinki serve-node's registryHost).
 type Registry struct {
 	URL      string `json:"url,omitempty"`
 	CAFile   string `json:"caFile,omitempty"`
 	CertFile string `json:"certFile,omitempty"`
 	KeyFile  string `json:"keyFile,omitempty"`
+	PullHost string `json:"pullHost,omitempty"`
 }
 
 type Config struct {
@@ -111,7 +113,8 @@ func Default() *Config {
 			PluginDir: "/var/lib/dink/plugins",
 		},
 		Registry: Registry{
-			URL: "https://dinki.dink-system.svc.cluster.local:5001",
+			URL:      "https://dinki.dink-system.svc.cluster.local:5000",
+			PullHost: "dinki.io",
 		},
 	}
 }
@@ -218,6 +221,17 @@ func (r *Registry) Validate() error {
 	}
 	if (r.CertFile == "") != (r.KeyFile == "") {
 		errs = append(errs, errors.New("registryCertFile and registryKeyFile must be set together"))
+	}
+	host := r.PullHost
+	if strings.Contains(host, ":") {
+		var err error
+		host, _, err = net.SplitHostPort(host)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("registryPullHost %q must be a host or host:port: %w", r.PullHost, err))
+		}
+	}
+	if host == "" || (net.ParseIP(host) == nil && !hostnameRE.MatchString(host)) {
+		errs = append(errs, fmt.Errorf("registryPullHost %q must be a valid host or host:port", r.PullHost))
 	}
 	return errors.Join(errs...)
 }

@@ -15,10 +15,10 @@ import (
 
 	"github.com/docker/oci"
 	"github.com/docker/oci/ocidigest"
-	"github.com/sysson/dink/core/registry/backend/blobstore"
-	"github.com/sysson/dink/core/registry/backend/kv/boltkv"
-	"github.com/sysson/dink/core/registry/backend/kvmeta"
-	"github.com/sysson/dink/core/registry/ocibackend"
+	"github.com/sysson/dink/pkg/ocistore"
+	"github.com/sysson/dink/pkg/ocistore/blobstore"
+	"github.com/sysson/dink/pkg/ocistore/kv/boltkv"
+	"github.com/sysson/dink/pkg/ocistore/kvmeta"
 )
 
 func TestPersistentBlobUploadSurvivesRestart(t *testing.T) {
@@ -177,7 +177,7 @@ func persistentHandler(t *testing.T, ctx context.Context, dir string) (*Handler,
 		_ = content.Close()
 		t.Fatal(err)
 	}
-	backend, err := ocibackend.New(content, metadata)
+	backend, err := ocistore.New(content, metadata)
 	if err != nil {
 		_ = content.Close()
 		_ = metadata.Close()

@@ -1,7 +1,7 @@
 // Package server implements dinki's internal RegistryService. It runs every
 // image operation dink requests: pulls fetch from upstream registries and
 // write straight into dinki's storage, and listing and removal resolve
-// through the GraphQL metadata layer.
+// through the store's metadata index.
 package server
 
 import (
@@ -11,28 +11,45 @@ import (
 	"net/http"
 
 	"connectrpc.com/connect"
+	"github.com/99designs/gqlgen/graphql"
+	registrytypes "github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/registry"
 	"github.com/sysson/dink/core/registry/api"
+	"github.com/sysson/dink/core/registry/pullauth"
 	"github.com/sysson/dink/core/types"
 	registryv1 "github.com/sysson/dink/sdk/registry/v1"
 	"github.com/sysson/dink/sdk/registry/v1/registryconnect"
 )
 
+// Querier executes GraphQL documents against the registry metadata. It is
+// satisfied by [github.com/sysson/dink/pkg/ocistore/query.Service].
+type Querier interface {
+	Exec(ctx context.Context, document, operationName string, variables map[string]any) *graphql.Response
+}
+
+// Credentials issues and revokes namespace pull credentials. It is satisfied
+// by [github.com/sysson/dink/core/registry/pullauth.Store].
+type Credentials interface {
+	Issue(ctx context.Context, namespace string) (string, error)
+	Revoke(ctx context.Context, namespace string) error
+}
+
 // Server implements registryconnect.RegistryServiceHandler.
 type Server struct {
-	images  *registry.RegistryService
-	queries registry.Querier
+	images      *registry.RegistryService
+	queries     Querier
+	credentials Credentials
 }
 
 var _ registryconnect.RegistryServiceHandler = (*Server)(nil)
 
-func New(images *registry.RegistryService, queries registry.Querier) (*Server, error) {
-	if images == nil || queries == nil {
-		return nil, errors.New("registry API requires an image service and a query service")
+func New(images *registry.RegistryService, queries Querier, credentials Credentials) (*Server, error) {
+	if images == nil || queries == nil || credentials == nil {
+		return nil, errors.New("registry API requires an image service, a query service and a credential store")
 	}
-	return &Server{images: images, queries: queries}, nil
+	return &Server{images: images, queries: queries, credentials: credentials}, nil
 }
 
 // Handler returns the path to mount the service on and its handler.
@@ -47,12 +64,42 @@ func withIdentity(ctx context.Context, id *registryv1.Identity) (context.Context
 	return identity.NewContext(ctx, api.IdentityFromProto(id)), nil
 }
 
+func credentialNamespace(id *registryv1.Identity) (string, error) {
+	if id == nil || !pullauth.ValidNamespace(id.GetNamespace()) {
+		return "", connect.NewError(connect.CodeInvalidArgument, errors.New("identity with a valid namespace is required"))
+	}
+	return id.GetNamespace(), nil
+}
+
+func (s *Server) IssuePullCredential(ctx context.Context, request *registryv1.IssuePullCredentialRequest) (*registryv1.IssuePullCredentialResponse, error) {
+	namespace, err := credentialNamespace(request.GetIdentity())
+	if err != nil {
+		return nil, err
+	}
+	password, err := s.credentials.Issue(ctx, namespace)
+	if err != nil {
+		return nil, api.ToConnectError(err)
+	}
+	return &registryv1.IssuePullCredentialResponse{Username: namespace, Password: password}, nil
+}
+
+func (s *Server) RevokePullCredential(ctx context.Context, request *registryv1.RevokePullCredentialRequest) (*registryv1.RevokePullCredentialResponse, error) {
+	namespace, err := credentialNamespace(request.GetIdentity())
+	if err != nil {
+		return nil, err
+	}
+	if err := s.credentials.Revoke(ctx, namespace); err != nil {
+		return nil, api.ToConnectError(err)
+	}
+	return &registryv1.RevokePullCredentialResponse{}, nil
+}
+
 func (s *Server) Login(ctx context.Context, request *registryv1.LoginRequest) (*registryv1.LoginResponse, error) {
 	auth := api.AuthFromProto(request.GetAuth())
 	if auth == nil {
-		auth = &types.RegistryAuth{}
+		auth = &registrytypes.AuthConfig{}
 	}
-	token, err := registry.Authenticate(ctx, *auth)
+	token, err := registry.Authenticate(ctx, auth)
 	if err != nil {
 		return nil, api.ToConnectError(err)
 	}
@@ -83,8 +130,8 @@ func (s *Server) Pull(ctx context.Context, request *registryv1.PullRequest, stre
 	if err != nil {
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	err = s.images.PullImage(ctx, ref, types.ImagePullOptions{
-		Auth:        api.AuthFromProto(request.GetAuth()),
+	err = s.images.PullImage(ctx, ref, imagebackend.PullOptions{
+		AuthConfig:  api.AuthFromProto(request.GetAuth()),
 		MetaHeaders: api.HeadersFromProto(request.GetMetaHeaders()),
 		OutStream:   streamWriter{stream: stream},
 		Platforms:   api.PlatformsFromProto(request.GetPlatforms()),

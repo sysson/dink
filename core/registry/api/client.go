@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/docker/oci/ociref"
 	imagetypes "github.com/moby/moby/api/types/image"
+	"github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sysson/dink/core/identity"
@@ -48,11 +49,11 @@ func (c *Client) requestIdentity(ctx context.Context) (*registryv1.Identity, err
 }
 
 // Authenticate asks dinki to verify auth against its registry.
-func (c *Client) Authenticate(ctx context.Context, auth types.RegistryAuth) (string, error) {
+func (c *Client) Authenticate(ctx context.Context, auth *registry.AuthConfig) (string, error) {
 	if c.err != nil {
 		return "", c.err
 	}
-	response, err := c.rpc.Login(ctx, &registryv1.LoginRequest{Auth: AuthToProto(&auth)})
+	response, err := c.rpc.Login(ctx, &registryv1.LoginRequest{Auth: AuthToProto(auth)})
 	if err != nil {
 		return "", FromConnectError(err)
 	}
@@ -62,7 +63,7 @@ func (c *Client) Authenticate(ctx context.Context, auth types.RegistryAuth) (str
 // PullImage asks dinki to pull ref and copies its progress messages to
 // options.OutStream. If the Docker client stops reading, the pull is
 // cancelled.
-func (c *Client) PullImage(ctx context.Context, ref ociref.Reference, options types.ImagePullOptions) error {
+func (c *Client) PullImage(ctx context.Context, ref ociref.Reference, options imagebackend.PullOptions) error {
 	id, err := c.requestIdentity(ctx)
 	if err != nil {
 		return err
@@ -72,7 +73,7 @@ func (c *Client) PullImage(ctx context.Context, ref ociref.Reference, options ty
 	stream, err := c.rpc.Pull(ctx, &registryv1.PullRequest{
 		Identity:    id,
 		Reference:   ReferenceToProto(ref),
-		Auth:        AuthToProto(options.Auth),
+		Auth:        AuthToProto(options.AuthConfig),
 		MetaHeaders: HeadersToProto(options.MetaHeaders),
 		Platforms:   PlatformsToProto(options.Platforms),
 	})
@@ -217,4 +218,28 @@ func (c *Client) Query(ctx context.Context, document, operationName string, vari
 		return nil, FromConnectError(err)
 	}
 	return response.GetResponse(), nil
+}
+
+// IssuePullCredential creates, or replaces, the caller's namespace pull
+// credential and returns its username and password.
+func (c *Client) IssuePullCredential(ctx context.Context) (string, string, error) {
+	id, err := c.requestIdentity(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	response, err := c.rpc.IssuePullCredential(ctx, &registryv1.IssuePullCredentialRequest{Identity: id})
+	if err != nil {
+		return "", "", FromConnectError(err)
+	}
+	return response.GetUsername(), response.GetPassword(), nil
+}
+
+// RevokePullCredential removes the caller's namespace pull credential.
+func (c *Client) RevokePullCredential(ctx context.Context) error {
+	id, err := c.requestIdentity(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = c.rpc.RevokePullCredential(ctx, &registryv1.RevokePullCredentialRequest{Identity: id})
+	return FromConnectError(err)
 }

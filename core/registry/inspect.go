@@ -185,30 +185,27 @@ func (r *RegistryService) ImageAttestations(ctx context.Context, name string, op
 }
 
 // inspectTree resolves name and loads the manifest tree it names.
-func (r *RegistryService) inspectTree(ctx context.Context, name string) (resolvedImage, *queryImageTree, error) {
+func (r *RegistryService) inspectTree(ctx context.Context, name string) (resolvedImage, *storedImageTree, error) {
 	resolved, err := r.resolveImage(ctx, name)
 	if err != nil {
 		return resolvedImage{}, nil, err
 	}
-	var data struct {
-		Image *queryImageTree `json:"image"`
-	}
-	variables := map[string]any{"repo": resolved.repository, "ref": resolved.digest.String()}
-	if err := r.Query(ctx, imageTreeQuery(inspectFields), variables, &data); err != nil {
+	tree, err := r.imageTree(ctx, resolved.repository, resolved.digest)
+	if err != nil {
 		return resolvedImage{}, nil, err
 	}
-	if data.Image == nil {
+	if tree == nil {
 		return resolvedImage{}, nil, httpx.NotFound(fmt.Errorf("no such image: %s", name))
 	}
-	return resolved, data.Image, nil
+	return resolved, tree, nil
 }
 
 // platformManifest returns the image manifest describing tree for platform,
 // and the index child it came from when tree is an index. A nil platform
 // selects the daemon's default platform among the manifests that were pulled.
-func platformManifest(tree *queryImageTree, platform *ocispec.Platform) (*queryImage, *queryIndexChild, error) {
+func platformManifest(tree *storedImageTree, platform *ocispec.Platform) (*storedImage, *storedIndexChild, error) {
 	if !isIndex(tree.MediaType) {
-		return &tree.queryImage, nil, nil
+		return &tree.storedImage, nil, nil
 	}
 	if platform != nil {
 		matcher := platforms.Only(*platform)
@@ -231,7 +228,7 @@ func platformManifest(tree *queryImageTree, platform *ocispec.Platform) (*queryI
 
 // attestationManifest returns the manifest holding the statements attached to
 // the image manifest named by digest, if the index carries one.
-func attestationManifest(tree *queryImageTree, digest string) *queryImage {
+func attestationManifest(tree *storedImageTree, digest string) *storedImage {
 	for _, child := range tree.Manifests {
 		if annotationValue(child.Annotations, AnnotationReferenceType) != AnnotationReferenceTypeAttestation {
 			continue
@@ -244,7 +241,7 @@ func attestationManifest(tree *queryImageTree, digest string) *queryImage {
 	return nil
 }
 
-func decodeImageConfig(resolved resolvedImage, image *queryImage) (*dockerspec.DockerOCIImage, error) {
+func decodeImageConfig(resolved resolvedImage, image *storedImage) (*dockerspec.DockerOCIImage, error) {
 	if image == nil || image.ImageConfig == nil || image.ImageConfig.Raw == "" {
 		return nil, httpx.NotFound(fmt.Errorf("image config for %s is not stored locally", resolved.reference()))
 	}
@@ -258,7 +255,7 @@ func decodeImageConfig(resolved resolvedImage, image *queryImage) (*dockerspec.D
 // repoTags lists the names in the repository that reference the image.
 // Images stored under the tag form of their digest were pulled by digest and
 // carry no tag.
-func repoTags(resolved resolvedImage, tree *queryImageTree) []string {
+func repoTags(resolved resolvedImage, tree *storedImageTree) []string {
 	tags := make([]string, 0, len(tree.Tags))
 	for _, tag := range tree.Tags {
 		if _, byDigest := digestForTag(tag); byDigest {
@@ -279,7 +276,7 @@ func diffIDs(config *dockerspec.DockerOCIImage) []string {
 
 // imageSize is the size of everything the image is made of: the manifests
 // naming it, its config and its layers.
-func imageSize(tree *queryImageTree, image *queryImage) int64 {
+func imageSize(tree *storedImageTree, image *storedImage) int64 {
 	size := tree.Size
 	if image.Digest != tree.Digest {
 		size += image.Size
@@ -287,7 +284,7 @@ func imageSize(tree *queryImageTree, image *queryImage) int64 {
 	return size + manifestSize(image)
 }
 
-func manifestSize(image *queryImage) int64 {
+func manifestSize(image *storedImage) int64 {
 	var size int64
 	if image.Config != nil {
 		size += image.Config.Size
@@ -298,7 +295,7 @@ func manifestSize(image *queryImage) int64 {
 	return size
 }
 
-func manifestSummaries(tree *queryImageTree) []imagetypes.ManifestSummary {
+func manifestSummaries(tree *storedImageTree) []imagetypes.ManifestSummary {
 	summaries := make([]imagetypes.ManifestSummary, 0, len(tree.Manifests))
 	for _, child := range tree.Manifests {
 		descriptor := ocispec.Descriptor{
@@ -351,7 +348,7 @@ func readStatement(ctx context.Context, client oci.Interface, repository string,
 	return io.ReadAll(io.LimitReader(blob, maxStatementSize))
 }
 
-func ociPlatform(platform queryPlatform) ocispec.Platform {
+func ociPlatform(platform storedPlatform) ocispec.Platform {
 	return ocispec.Platform{
 		OS:           platform.OS,
 		Architecture: platform.Architecture,
@@ -361,7 +358,7 @@ func ociPlatform(platform queryPlatform) ocispec.Platform {
 	}
 }
 
-func annotationValue(annotations []queryAnnotation, key string) string {
+func annotationValue(annotations []storedAnnotation, key string) string {
 	for _, annotation := range annotations {
 		if annotation.Key == key {
 			return annotation.Value
@@ -370,7 +367,7 @@ func annotationValue(annotations []queryAnnotation, key string) string {
 	return ""
 }
 
-func annotationMap(annotations []queryAnnotation) map[string]string {
+func annotationMap(annotations []storedAnnotation) map[string]string {
 	if len(annotations) == 0 {
 		return nil
 	}

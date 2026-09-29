@@ -12,10 +12,10 @@ import (
 	"github.com/docker/oci/ocidigest"
 	"github.com/docker/oci/ociref"
 	imagetypes "github.com/moby/moby/api/types/image"
+	"github.com/moby/moby/api/types/registry"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sysson/dink/core/identity"
-	"github.com/sysson/dink/core/types"
 	registryv1 "github.com/sysson/dink/sdk/registry/v1"
 	"github.com/sysson/syskit/httpx"
 )
@@ -38,28 +38,28 @@ func IdentityFromProto(id *registryv1.Identity) identity.Identity {
 	}
 }
 
-func AuthToProto(auth *types.RegistryAuth) *registryv1.RegistryAuth {
+func AuthToProto(auth *registry.AuthConfig) *registryv1.RegistryAuth {
 	if auth == nil {
 		return nil
 	}
 	return &registryv1.RegistryAuth{
 		Username:      auth.Username,
 		Password:      auth.Password,
-		IdentityToken: auth.RefreshToken,
-		RegistryToken: auth.AccessToken,
+		IdentityToken: auth.IdentityToken,
+		RegistryToken: auth.RegistryToken,
 		ServerAddress: auth.ServerAddress,
 	}
 }
 
-func AuthFromProto(auth *registryv1.RegistryAuth) *types.RegistryAuth {
+func AuthFromProto(auth *registryv1.RegistryAuth) *registry.AuthConfig {
 	if auth == nil {
 		return nil
 	}
-	return &types.RegistryAuth{
+	return &registry.AuthConfig{
 		Username:      auth.GetUsername(),
 		Password:      auth.GetPassword(),
-		RefreshToken:  auth.GetIdentityToken(),
-		AccessToken:   auth.GetRegistryToken(),
+		IdentityToken: auth.GetIdentityToken(),
+		RegistryToken: auth.GetRegistryToken(),
 		ServerAddress: auth.GetServerAddress(),
 	}
 }

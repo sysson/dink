@@ -17,18 +17,20 @@ import (
 	"github.com/docker/oci/ocimem"
 	"github.com/docker/oci/ociref"
 	"github.com/docker/oci/ociserver"
+	registrytypes "github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/registry"
 	"github.com/sysson/dink/core/registry/api"
 	apiserver "github.com/sysson/dink/core/registry/api/server"
-	"github.com/sysson/dink/core/registry/backend/blobstore"
-	"github.com/sysson/dink/core/registry/backend/kv/memkv"
-	"github.com/sysson/dink/core/registry/backend/kvmeta"
-	"github.com/sysson/dink/core/registry/ocibackend"
-	"github.com/sysson/dink/core/registry/query"
+	"github.com/sysson/dink/core/registry/pullauth"
 	"github.com/sysson/dink/core/types"
+	"github.com/sysson/dink/pkg/ocistore"
+	"github.com/sysson/dink/pkg/ocistore/blobstore"
+	"github.com/sysson/dink/pkg/ocistore/kv/memkv"
+	"github.com/sysson/dink/pkg/ocistore/kvmeta"
+	"github.com/sysson/dink/pkg/ocistore/query"
 	"github.com/sysson/syskit/httpx"
 )
 
@@ -89,6 +91,11 @@ func (u *upstream) image(repo, tag string, layers ...oci.Descriptor) oci.Descrip
 }
 
 func newAPI(t *testing.T) *api.Client {
+	client, _ := newAPIWithCredentials(t)
+	return client
+}
+
+func newAPIWithCredentials(t *testing.T) (*api.Client, *pullauth.Store) {
 	t.Helper()
 	ctx := context.Background()
 	content, err := blobstore.Open(ctx, "mem://")
@@ -96,20 +103,22 @@ func newAPI(t *testing.T) *api.Client {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = content.Close() })
-	metadata, err := kvmeta.New(ctx, memkv.New())
+	store := memkv.New()
+	metadata, err := kvmeta.New(ctx, store)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = metadata.Close() })
-	local, err := ocibackend.New(content, metadata)
+	local, err := ocistore.New(content, metadata)
 	if err != nil {
 		t.Fatal(err)
 	}
-	queries, err := query.New(metadata, content)
+	queries, err := query.New(local.Index())
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := apiserver.New(registry.New(local, queries), queries)
+	credentials := pullauth.New(store)
+	server, err := apiserver.New(registry.New(local, local.Index()), queries, credentials)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +127,36 @@ func newAPI(t *testing.T) *api.Client {
 	mux.Handle(path, handler)
 	httpServer := httptest.NewServer(mux)
 	t.Cleanup(httpServer.Close)
-	return api.NewClient(httpServer.Client(), httpServer.URL)
+	return api.NewClient(httpServer.Client(), httpServer.URL), credentials
+}
+
+func TestPullCredentials(t *testing.T) {
+	client, credentials := newAPIWithCredentials(t)
+	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
+	username, password, err := client.IssuePullCredential(ctx)
+	if err != nil || username != "tenant" || password == "" {
+		t.Fatalf("IssuePullCredential() = %q, %q, %v", username, password, err)
+	}
+	if ok, err := credentials.Verify(ctx, username, password); err != nil || !ok {
+		t.Fatalf("Verify(issued) = %v, %v", ok, err)
+	}
+	_, rotated, err := client.IssuePullCredential(ctx)
+	if err != nil || rotated == password {
+		t.Fatalf("reissued password = %q, %v; want a new one", rotated, err)
+	}
+	if ok, _ := credentials.Verify(ctx, username, password); ok {
+		t.Fatal("replaced password still verifies")
+	}
+	if err := client.RevokePullCredential(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := credentials.Verify(ctx, username, rotated); ok {
+		t.Fatal("revoked password still verifies")
+	}
+	invalid := identity.NewContext(context.Background(), identity.Identity{Namespace: "Not_Valid"})
+	if _, _, err := client.IssuePullCredential(invalid); statusCode(err) != http.StatusBadRequest {
+		t.Fatalf("IssuePullCredential(invalid namespace) error = %v, want 400", err)
+	}
 }
 
 func TestPullListQueryRemove(t *testing.T) {
@@ -134,7 +172,7 @@ func TestPullListQueryRemove(t *testing.T) {
 	for _, tag := range []string{"v1", "v2"} {
 		var progress bytes.Buffer
 		ref := ociref.Reference{Host: up.host, Repository: "app", Tag: tag}
-		if err := client.PullImage(ctx, ref, types.ImagePullOptions{OutStream: &progress}); err != nil {
+		if err := client.PullImage(ctx, ref, imagebackend.PullOptions{OutStream: &progress}); err != nil {
 			t.Fatalf("PullImage(%s) error = %v", tag, err)
 		}
 		if !strings.Contains(progress.String(), "Digest: sha256:") {
@@ -159,6 +197,22 @@ func TestPullListQueryRemove(t *testing.T) {
 	other := identity.NewContext(context.Background(), identity.Identity{Namespace: "other"})
 	if images, err := client.Images(other, types.ImageListOptions{}); err != nil || len(images) != 0 {
 		t.Fatalf("other namespace Images() = %v, %v; want none", images, err)
+	}
+
+	inspect, err := client.ImageInspect(ctx, up.host+"/app:v1", imagebackend.ImageInspectOpts{})
+	if err != nil {
+		t.Fatalf("ImageInspect() error = %v", err)
+	}
+	if inspect.ID != string(v1.Digest) || inspect.Os != "linux" || inspect.Architecture != "amd64" ||
+		!slices.Equal(inspect.RepoTags, []string{display + ":v1"}) {
+		t.Fatalf("ImageInspect() = %+v", inspect.InspectResponse)
+	}
+	history, err := client.ImageHistory(ctx, v1.Digest.Encoded()[:12], nil)
+	if err != nil || len(history) != 1 || history[0].CreatedBy != "v1" || history[0].ID != string(v1.Digest) {
+		t.Fatalf("ImageHistory(by ID) = %+v, %v", history, err)
+	}
+	if _, err := client.ImageInspect(other, up.host+"/app:v1", imagebackend.ImageInspectOpts{}); statusCode(err) != http.StatusNotFound {
+		t.Fatalf("other namespace ImageInspect() error = %v, want 404", err)
 	}
 
 	raw, err := client.Query(ctx, `query($repo: String!) { repository(name: $repo) { tags { name } } }`, "", map[string]any{"repo": "tenant/" + display})
@@ -215,7 +269,7 @@ func TestPullNotFoundKeepsStatus(t *testing.T) {
 	up := newUpstream(t)
 	client := newAPI(t)
 	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
-	err := client.PullImage(ctx, ociref.Reference{Host: up.host, Repository: "missing", Tag: "latest"}, types.ImagePullOptions{})
+	err := client.PullImage(ctx, ociref.Reference{Host: up.host, Repository: "missing", Tag: "latest"}, imagebackend.PullOptions{})
 	if status := statusCode(err); status != http.StatusNotFound {
 		t.Fatalf("PullImage() error = %v (status %d), want 404", err, status)
 	}
@@ -235,7 +289,7 @@ func TestUnavailableClient(t *testing.T) {
 	if _, err := client.Images(ctx, types.ImageListOptions{}); !errors.Is(err, want) {
 		t.Fatalf("Images() error = %v, want %v", err, want)
 	}
-	if _, err := client.Authenticate(ctx, types.RegistryAuth{}); !errors.Is(err, want) {
+	if _, err := client.Authenticate(ctx, &registrytypes.AuthConfig{}); !errors.Is(err, want) {
 		t.Fatalf("Authenticate() error = %v, want %v", err, want)
 	}
 }
@@ -303,7 +357,7 @@ func TestPullSinglePlatformOfIndex(t *testing.T) {
 	pull := func(arch string) string {
 		t.Helper()
 		var progress bytes.Buffer
-		options := types.ImagePullOptions{OutStream: &progress, Platforms: []ocispec.Platform{{OS: "linux", Architecture: arch}}}
+		options := imagebackend.PullOptions{OutStream: &progress, Platforms: []ocispec.Platform{{OS: "linux", Architecture: arch}}}
 		if err := client.PullImage(ctx, ref, options); err != nil {
 			t.Fatalf("PullImage(%s) error = %v", arch, err)
 		}

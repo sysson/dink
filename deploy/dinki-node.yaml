@@ -1,0 +1,76 @@
+---
+# Runs on every node so containerd can pull dinki.io images through a local
+# TLS proxy. By default it forwards 127.0.0.1:5000 to the dinki Service and
+# writes /etc/containerd/certs.d/dinki.io/hosts.toml pointing at that endpoint.
+# containerd must have its registry config_path set to /etc/containerd/certs.d.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: dinki-node
+  namespace: dink-system
+  labels:
+    app.kubernetes.io/name: dinki-node
+    app.kubernetes.io/component: registry
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dinki-node
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dinki-node
+        app.kubernetes.io/component: registry
+    spec:
+      hostNetwork: true
+      # Resolve the dinki Service through cluster DNS despite host networking.
+      dnsPolicy: ClusterFirstWithHostNet
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      priorityClassName: system-node-critical
+      tolerations:
+        - operator: Exists
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dinki-node
+          image: ghcr.io/sysson/dinki
+          imagePullPolicy: IfNotPresent
+          args:
+            - serve-node
+          securityContext:
+            # certs.d is owned by root on the host; no capabilities are needed.
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: containerd-certs
+              mountPath: /etc/containerd/certs.d
+            - name: ca
+              mountPath: /etc/dinki/tls
+              readOnly: true
+      volumes:
+        - name: containerd-certs
+          hostPath:
+            path: /etc/containerd/certs.d
+            type: DirectoryOrCreate
+        - name: ca
+          secret:
+            secretName: dinki-tls
+            defaultMode: 0444
+            items:
+              - key: ca.crt
+                path: ca.crt

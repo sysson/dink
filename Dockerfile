@@ -30,5 +30,5 @@ FROM gcr.io/distroless/static-debian12:nonroot AS dinki
 COPY --from=build /out/dinki /usr/local/bin/dinki
 COPY --from=build --chown=65532:65532 /out/dinki-data /var/lib/dinki
 USER 65532:65532
-EXPOSE 5000 5001
+EXPOSE 5000
 ENTRYPOINT ["/usr/local/bin/dinki"]

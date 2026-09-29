@@ -4,12 +4,12 @@ import (
 	"net/http"
 
 	networktypes "github.com/moby/moby/api/types/network"
-	"github.com/sysson/dink/core/types"
+	"github.com/sysson/dink/pkg/filters"
 	"github.com/sysson/syskit/httpx"
 )
 
 func (nr *networkRouter) getNetworksList(w http.ResponseWriter, r *http.Request) error {
-	filters, err := types.FromJSON(r.URL.Query().Get("filters"))
+	filters, err := filters.FromJSON(r.URL.Query().Get("filters"))
 	if err != nil {
 		return httpx.BadRequest(err)
 	}
@@ -49,7 +49,7 @@ func (nr *networkRouter) postNetworkDisconnect(w http.ResponseWriter, r *http.Re
 }
 
 func (nr *networkRouter) postNetworkPrune(w http.ResponseWriter, r *http.Request) error {
-	filters, err := types.FromJSON(r.URL.Query().Get("filters"))
+	filters, err := filters.FromJSON(r.URL.Query().Get("filters"))
 	if err != nil {
 		return httpx.BadRequest(err)
 	}

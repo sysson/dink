@@ -11,7 +11,7 @@ import (
 	networktypes "github.com/moby/moby/api/types/network"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/k8s"
-	"github.com/sysson/dink/core/types"
+	"github.com/sysson/dink/pkg/filters"
 	"github.com/sysson/syskit/httpx"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -39,7 +39,7 @@ func TestDockerNetworkLifecycle(t *testing.T) {
 	})
 	client := kubernetesfake.NewClientset()
 	docker := &Docker{k8s: &k8s.KubeClient{Interface: client, Dynamic: dynamicClient}}
-	builtins, err := docker.GetNetworkSummaries(ctx, types.NewArgs(types.Arg("type", "builtin")))
+	builtins, err := docker.GetNetworkSummaries(ctx, filters.NewArgs(filters.Arg("type", "builtin")))
 	if err != nil || len(builtins) != 3 {
 		t.Fatalf("built-in network list: %+v, %v", builtins, err)
 	}
@@ -82,7 +82,7 @@ func TestDockerNetworkLifecycle(t *testing.T) {
 		t.Fatal("unsupported internal network was accepted")
 	}
 
-	items, err := docker.GetNetworkSummaries(ctx, types.NewArgs(types.Arg("label", "team=dev")))
+	items, err := docker.GetNetworkSummaries(ctx, filters.NewArgs(filters.Arg("label", "team=dev")))
 	if err != nil || len(items) != 1 || items[0].Name != "my.network" || items[0].ID != created.ID {
 		t.Fatalf("list: %+v, %v", items, err)
 	}
@@ -105,36 +105,36 @@ func TestDockerNetworkLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	used, err := docker.GetNetworkSummaries(ctx, types.NewArgs(types.Arg("dangling", "false"), types.Arg("type", "custom")))
+	used, err := docker.GetNetworkSummaries(ctx, filters.NewArgs(filters.Arg("dangling", "false"), filters.Arg("type", "custom")))
 	if err != nil || len(used) != 1 {
 		t.Fatalf("list used networks: %+v, %v", used, err)
 	}
-	unused, err := docker.GetNetworkSummaries(ctx, types.NewArgs(types.Arg("dangling", "true"), types.Arg("type", "custom")))
+	unused, err := docker.GetNetworkSummaries(ctx, filters.NewArgs(filters.Arg("dangling", "true"), filters.Arg("type", "custom")))
 	if err != nil || len(unused) != 0 {
 		t.Fatalf("list unused networks: %+v, %v", unused, err)
 	}
 	if err := docker.DeleteNetwork(ctx, "my.network"); err == nil {
 		t.Fatal("deleted network with active endpoints")
 	}
-	pruned, err := docker.NetworkPrune(ctx, types.NewArgs())
+	pruned, err := docker.NetworkPrune(ctx, filters.NewArgs())
 	if err != nil || len(pruned.NetworksDeleted) != 0 {
 		t.Fatalf("prune active network: %+v, %v", pruned, err)
 	}
 	if err := client.AppsV1().Deployments("tenant").Delete(ctx, "attached", metav1.DeleteOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	pruned, err = docker.NetworkPrune(ctx, types.NewArgs(types.Arg("until", "1h")))
+	pruned, err = docker.NetworkPrune(ctx, filters.NewArgs(filters.Arg("until", "1h")))
 	if err != nil || len(pruned.NetworksDeleted) != 0 {
 		t.Fatalf("prune recent network: %+v, %v", pruned, err)
 	}
-	pruned, err = docker.NetworkPrune(ctx, types.NewArgs(types.Arg("label", "team=dev")))
+	pruned, err = docker.NetworkPrune(ctx, filters.NewArgs(filters.Arg("label", "team=dev")))
 	if err != nil || len(pruned.NetworksDeleted) != 1 || pruned.NetworksDeleted[0] != "my.network" {
 		t.Fatalf("prune: %+v, %v", pruned, err)
 	}
 	if _, err := docker.GetNetwork(ctx, "my.network"); err == nil {
 		t.Fatal("pruned network remains visible")
 	}
-	pruned, err = docker.NetworkPrune(ctx, types.NewArgs())
+	pruned, err = docker.NetworkPrune(ctx, filters.NewArgs())
 	if err != nil || len(pruned.NetworksDeleted) != 0 {
 		t.Fatalf("pruned built-in networks: %+v, %v", pruned, err)
 	}
@@ -154,7 +154,7 @@ func TestDockerNetworkLifecycle(t *testing.T) {
 		t.Fatalf("network CRDs were created %d times, want 4", createCount)
 	}
 	otherTenant := identity.NewContext(context.Background(), identity.Identity{Namespace: "other-tenant"})
-	otherNetworks, err := docker.GetNetworkSummaries(otherTenant, types.NewArgs())
+	otherNetworks, err := docker.GetNetworkSummaries(otherTenant, filters.NewArgs())
 	if err != nil || len(otherNetworks) != 3 {
 		t.Fatalf("other tenant networks: %+v, %v", otherNetworks, err)
 	}

@@ -9,6 +9,27 @@ func TestDefaultIsValid(t *testing.T) {
 	if err := Default().Validate(); err != nil {
 		t.Fatalf("default config is invalid: %v", err)
 	}
+	if got := Default().Registry.PullHost; got != "dinki.io" {
+		t.Fatalf("default pull host = %q, want dinki.io", got)
+	}
+}
+
+func TestRegistryPullHost(t *testing.T) {
+	for _, test := range []struct {
+		host    string
+		wantErr string
+	}{
+		{host: "dinki.io"},
+		{host: "localhost:5000"},
+		{host: "", wantErr: "registryPullHost"},
+		{host: "bad/host", wantErr: "registryPullHost"},
+	} {
+		t.Run(test.host, func(t *testing.T) {
+			registry := Default().Registry
+			registry.PullHost = test.host
+			assertError(t, registry.Validate(), test.wantErr)
+		})
+	}
 }
 
 func TestServerValidate(t *testing.T) {

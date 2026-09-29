@@ -39,16 +39,6 @@ func (i resolvedImage) reference() string {
 	return i.display() + ":" + i.tag
 }
 
-const resolveImageQuery = `query($repo: String!, $ref: String!) {
-	image(repository: $repo, reference: $ref) { digest }
-}`
-
-var repositoryTagsQuery = `query($repo: String!, $after: String) {
-	repository(name: $repo) {
-		tags(first: ` + fmt.Sprint(queryPage) + `, after: $after) { name digest }
-	}
-}`
-
 // resolveImage finds the image name refers to in the caller's namespace.
 // Following docker, name may be a repository with an optional tag
 // ("nginx:latest"), a digest reference ("nginx@sha256:...") or a full or
@@ -80,30 +70,35 @@ func (r *RegistryService) resolveImage(ctx context.Context, name string) (resolv
 		return resolvedImage{}, httpx.BadRequest(err)
 	}
 	ref := repositoryFor(id, parsed)
-	reference, tag := ref.Tag, ref.Tag
+	tag := ref.Tag
+	var digest oci.Digest
+	found := false
 	if parsed.Digest != "" {
 		// Any manifest in the repository can be named by digest, not only
 		// the ones stored under the tag form of their digest.
-		reference, tag = parsed.Digest.String(), ""
-	} else if reference == "" {
-		reference, tag = "latest", "latest"
+		tag = ""
+		record, ok, err := r.manifest(ctx, ref.Repository, oci.Digest(parsed.Digest))
+		if err != nil {
+			return resolvedImage{}, err
+		}
+		digest, found = record.Descriptor.Digest, ok
+	} else {
+		if tag == "" {
+			tag = "latest"
+		}
+		descriptor, err := r.index.ResolveTag(ctx, ref.Repository, tag)
+		if err != nil && !isNotFound(err) && !errors.Is(err, oci.ErrNameInvalid) {
+			return resolvedImage{}, err
+		}
+		digest, found = descriptor.Digest, err == nil
 	}
-
-	var data struct {
-		Image *struct {
-			Digest string `json:"digest"`
-		} `json:"image"`
-	}
-	if err := r.Query(ctx, resolveImageQuery, map[string]any{"repo": ref.Repository, "ref": reference}, &data); err != nil {
-		return resolvedImage{}, err
-	}
-	if data.Image == nil {
+	if !found {
 		return resolvedImage{}, httpx.NotFound(fmt.Errorf("no such image: %s", name))
 	}
 	return resolvedImage{
 		namespace:  id.Namespace,
 		repository: ref.Repository,
-		digest:     oci.Digest(data.Image.Digest),
+		digest:     digest,
 		tag:        tag,
 	}, nil
 }
@@ -118,37 +113,28 @@ func (r *RegistryService) imageByID(ctx context.Context, namespace, prefix strin
 	}
 	var matches []resolvedImage
 	for _, repo := range repos {
-		var after *string
+		after := ""
 		for {
-			var data struct {
-				Repository *struct {
-					Tags []struct {
-						Name   string `json:"name"`
-						Digest string `json:"digest"`
-					} `json:"tags"`
-				} `json:"repository"`
-			}
-			if err := r.Query(ctx, repositoryTagsQuery, map[string]any{"repo": repo, "after": after}, &data); err != nil {
-				return resolvedImage{}, false, err
-			}
-			if data.Repository == nil {
+			tags, err := r.index.TagRecords(ctx, repo, after, indexPage)
+			if isNotFound(err) {
 				break
 			}
-			for _, tag := range data.Repository.Tags {
-				digest := oci.Digest(tag.Digest)
-				if !strings.HasPrefix(digest.Encoded(), prefix) {
+			if err != nil {
+				return resolvedImage{}, false, err
+			}
+			for _, tag := range tags {
+				if !strings.HasPrefix(tag.Digest.Encoded(), prefix) {
 					continue
 				}
-				match := resolvedImage{namespace: namespace, repository: repo, digest: digest}
+				match := resolvedImage{namespace: namespace, repository: repo, digest: tag.Digest}
 				if !containsImage(matches, match) {
 					matches = append(matches, match)
 				}
 			}
-			if len(data.Repository.Tags) < queryPage {
+			if len(tags) < indexPage {
 				break
 			}
-			last := data.Repository.Tags[len(data.Repository.Tags)-1].Name
-			after = &last
+			after = tags[len(tags)-1].Tag
 		}
 	}
 	switch len(matches) {
