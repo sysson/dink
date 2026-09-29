@@ -59,23 +59,30 @@ spec:
             - name: registry
               containerPort: 5000
               protocol: TCP
+            - name: health
+              containerPort: 8080
+              protocol: TCP
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             privileged: false
             capabilities:
               drop: ["ALL"]
-          # Every registry request needs a pull credential, so probe the socket.
+          # Probe the plaintext health listener, not the TLS registry port.
           livenessProbe:
-            tcpSocket:
-              port: registry
+            httpGet:
+              path: /livez
+              port: health
+              scheme: HTTP
             initialDelaySeconds: 3
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
           readinessProbe:
-            tcpSocket:
-              port: registry
+            httpGet:
+              path: /readyz
+              port: health
+              scheme: HTTP
             initialDelaySeconds: 3
             periodSeconds: 10
             timeoutSeconds: 5

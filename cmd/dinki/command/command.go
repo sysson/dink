@@ -102,12 +102,30 @@ func serve(ctx context.Context, cfg config.Config, stderr io.Writer) error {
 	if tlsConfig == nil {
 		slog.WarnContext(ctx, "TLS is disabled; serving the registry in plaintext")
 	}
-	return serveAll(ctx, cfg, []*listenerServer{{
-		name:    "registry",
-		address: net.JoinHostPort(cfg.Server.Host, cfg.Server.Port),
-		tls:     tlsConfig,
-		handler: requestMiddleware(ctx, cfg, stderr, handler),
-	}})
+	return serveAll(ctx, cfg, []*listenerServer{
+		{
+			name:    "registry",
+			address: net.JoinHostPort(cfg.Server.Host, cfg.Server.Port),
+			tls:     tlsConfig,
+			handler: requestMiddleware(ctx, cfg, stderr, handler),
+		},
+		{
+			name:    "health",
+			address: net.JoinHostPort(cfg.Server.Host, cfg.Server.HealthPort),
+			handler: healthHandler(),
+		},
+	})
+}
+
+func healthHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	return mux
 }
 
 // newHandler serves the registry read-only to holders of a namespace pull

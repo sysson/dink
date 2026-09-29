@@ -23,9 +23,6 @@ func (d *Docker) ContainerStats(ctx context.Context, name string, config *backen
 	if err != nil {
 		return err
 	}
-	if d.k8s.MetricsV1Interface == nil {
-		return Unavailable(fmt.Errorf("kubernetes metrics API is unavailable"))
-	}
 	var previous container.StatsResponse
 	var previousPod string
 	var encoder *json.Encoder
@@ -47,57 +44,51 @@ func (d *Docker) ContainerStats(ctx context.Context, name string, config *backen
 		if pod == nil || len(pod.Spec.Containers) == 0 {
 			return NotFound(fmt.Errorf("no running pod found for container %s", name))
 		}
-		metrics, err := d.k8s.PodMetricses(deployment.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
-		if err != nil {
-			if apierrors.IsNotFound(err) || apierrors.IsServiceUnavailable(err) {
-				return Unavailable(fmt.Errorf("pod metrics unavailable for %s: %w", name, err))
+		read := time.Now().UTC()
+		window := time.Second
+		sample := corev1.ResourceList{}
+		if d.k8s.MetricsV1beta1Interface != nil {
+			metrics, err := d.k8s.PodMetricses(deployment.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+			if err != nil && !apierrors.IsNotFound(err) && !apierrors.IsServiceUnavailable(err) {
+				return kubeError(err)
 			}
-			return kubeError(err)
-		}
-		containerName := pod.Spec.Containers[0].Name
-		var sample *corev1.ResourceList
-		for index := range metrics.Containers {
-			if metrics.Containers[index].Name == containerName {
-				sample = &metrics.Containers[index].Usage
-				break
+			if err == nil {
+				containerName := pod.Spec.Containers[0].Name
+				for index := range metrics.Containers {
+					if metrics.Containers[index].Name == containerName {
+						sample = metrics.Containers[index].Usage
+						break
+					}
+				}
+				if (!config.Stream || config.OneShot) && !metrics.Timestamp.IsZero() {
+					read = metrics.Timestamp.Time
+				}
+				if metrics.Window.Duration > 0 {
+					window = metrics.Window.Duration
+				}
 			}
-		}
-		if sample == nil {
-			return Unavailable(fmt.Errorf("metrics unavailable for container %s", containerName))
 		}
 		if pod.Name != previousPod {
 			previous = container.StatsResponse{}
 			previousPod = pod.Name
 		}
-		if config.Stream && !config.OneShot && !previous.Read.IsZero() && !metrics.Timestamp.After(previous.Read) {
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-interval.C:
-				continue
-			}
-		}
-		window := metrics.Window.Duration
-		if window <= 0 {
-			window = time.Second
-		}
 		elapsed := window
 		if !previous.Read.IsZero() {
-			elapsed = metrics.Timestamp.Sub(previous.Read)
+			elapsed = read.Sub(previous.Read)
 			if elapsed <= 0 {
 				elapsed = window
 			}
 		}
 		stats := container.StatsResponse{
 			ID: identity.DockerIDFromUID(deployment.UID), Name: deployment.Name, OSType: "linux",
-			Read: metrics.Timestamp.Time, PreRead: previous.Read, PreCPUStats: previous.CPUStats,
+			Read: read, PreRead: previous.Read, PreCPUStats: previous.CPUStats,
 		}
-		if cpu := (*sample).Cpu(); cpu != nil {
+		if cpu := sample.Cpu(); cpu != nil {
 			stats.CPUStats.CPUUsage.TotalUsage = previous.CPUStats.CPUUsage.TotalUsage + uint64(float64(cpu.MilliValue())*1e6*elapsed.Seconds())
-			stats.CPUStats.SystemUsage = previous.CPUStats.SystemUsage + uint64(elapsed.Nanoseconds())
-			stats.CPUStats.OnlineCPUs = 1
 		}
-		if memory := (*sample).Memory(); memory != nil {
+		stats.CPUStats.SystemUsage = previous.CPUStats.SystemUsage + uint64(elapsed.Nanoseconds())
+		stats.CPUStats.OnlineCPUs = 1
+		if memory := sample.Memory(); memory != nil {
 			stats.MemoryStats.Usage = uint64(memory.Value())
 		}
 		if limit := pod.Spec.Containers[0].Resources.Limits.Memory(); limit != nil {

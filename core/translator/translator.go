@@ -48,6 +48,8 @@ type Docker struct {
 	execs        map[string]*containerExec
 	attachMu     sync.Mutex
 	attaches     map[string]map[*containerAttachSession]struct{}
+	eventsMu     sync.Mutex
+	eventCancels map[chan any]context.CancelFunc
 	podStream    func(context.Context, string, string, corev1.PodExecOptions, remotecommand.StreamOptions, bool) error
 }
 

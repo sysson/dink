@@ -125,6 +125,18 @@ func TestVerifyAPIClientRequiresDinkSubject(t *testing.T) {
 	}
 }
 
+func TestHealthHandlerServesProbeRoutesWithoutTLS(t *testing.T) {
+	handler := healthHandler()
+	for _, path := range []string{"/livez", "/readyz"} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusOK || response.Body.Len() != 0 {
+			t.Fatalf("GET %s = %d %q, want 200 with an empty body", path, response.Code, response.Body.String())
+		}
+	}
+}
+
 func TestHandlerRoutesAPIToDinkAndRegistryToPullCredentials(t *testing.T) {
 	cfg := dinkiconfig.Default()
 	cfg.GraphQL.Enabled = true

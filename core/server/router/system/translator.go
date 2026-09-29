@@ -17,7 +17,7 @@ type Translator interface {
 	SystemInfo(context.Context) (*system.Info, error)
 	SystemVersion(context.Context) (system.VersionResponse, error)
 	SystemDiskUsage(context.Context, backend.DiskUsageOptions) (*backend.DiskUsage, error)
-	SubscribeToEvents(context.Context, time.Time, time.Time, filters.Args) ([]events.Message, <-chan any, error)
+	SubscribeToEvents(context.Context, time.Time, time.Time, filters.Args) ([]events.Message, chan any, error)
 	UnsubscribeFromEvents(context.Context, chan any) error
 	AuthenticateToRegistry(ctx context.Context, auth *registry.AuthConfig) (string, error)
 }

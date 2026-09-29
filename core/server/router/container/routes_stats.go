@@ -30,9 +30,7 @@ func (cr *containerRouter) getContainersStats(w http.ResponseWriter, r *http.Req
 			return err
 		}
 	}
-	if !stream {
-		w.Header().Set("Content-Type", "application/json")
-	}
+	w.Header().Set("Content-Type", "application/json")
 	return cr.translator.ContainerStats(r.Context(), r.PathValue("name"), &backend.ContainerStatsConfig{
 		Stream: stream, OneShot: oneShot,
 		OutStream: func() io.Writer {

@@ -39,8 +39,9 @@ type AccessLog struct {
 }
 
 type Server struct {
-	Host string `json:"host"`
-	Port string `json:"port"`
+	Host       string `json:"host"`
+	Port       string `json:"port"`
+	HealthPort string `json:"healthPort"`
 }
 
 type TLS struct {
@@ -100,7 +101,8 @@ func Default() Config {
 		Log:       Log{Level: "info"},
 		AccessLog: AccessLog{Enabled: true, Level: "error"},
 		Server: Server{
-			Port: "5000",
+			Port:       "5000",
+			HealthPort: "8080",
 		},
 		TLS: TLS{
 			CertFile:      "/etc/dinki/tls/tls.crt",
@@ -149,6 +151,12 @@ func (c Config) Validate() error {
 	}
 	if _, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(c.Server.Host, c.Server.Port)); err != nil {
 		errs = append(errs, fmt.Errorf("server address: %w", err))
+	}
+	if _, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(c.Server.Host, c.Server.HealthPort)); err != nil {
+		errs = append(errs, fmt.Errorf("health server address: %w", err))
+	}
+	if c.Server.Port == c.Server.HealthPort {
+		errs = append(errs, errors.New("server.port and server.healthPort must differ"))
 	}
 	if !c.TLS.Disabled {
 		if c.TLS.CertFile == "" {
