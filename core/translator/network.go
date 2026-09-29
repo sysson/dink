@@ -9,7 +9,6 @@ import (
 	networktypes "github.com/moby/moby/api/types/network"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/pkg/filters"
-	"github.com/sysson/syskit/httpx"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -57,7 +56,7 @@ func (d *Docker) ensureBuiltinNetworks(ctx context.Context, namespace string, li
 func networkNamespace(ctx context.Context) (string, error) {
 	id, ok := identity.FromContext(ctx)
 	if !ok {
-		return "", httpx.Unauthorized(fmt.Errorf("missing identity in context"))
+		return "", Unauthenticated(fmt.Errorf("missing identity in context"))
 	}
 	return id.Namespace, nil
 }
@@ -120,12 +119,12 @@ func (d *Docker) findNetwork(ctx context.Context, nameOrID string) (*unstructure
 			continue
 		}
 		if match != nil {
-			return nil, httpx.Conflict(fmt.Errorf("network %s is ambiguous", nameOrID))
+			return nil, Conflict(fmt.Errorf("network %s is ambiguous", nameOrID))
 		}
 		match = obj
 	}
 	if match == nil || nameOrID == "" {
-		return nil, httpx.NotFound(fmt.Errorf("network %s not found", nameOrID))
+		return nil, NotFound(fmt.Errorf("network %s not found", nameOrID))
 	}
 	return match, nil
 }

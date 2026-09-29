@@ -6,19 +6,18 @@ import (
 
 	networktypes "github.com/moby/moby/api/types/network"
 	"github.com/sysson/dink/pkg/filters"
-	"github.com/sysson/syskit/httpx"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func (d *Docker) NetworkPrune(ctx context.Context, filters filters.Args) (networktypes.PruneReport, error) {
 	for _, key := range filters.Keys() {
 		if key != "label" && key != "label!" && key != "until" {
-			return networktypes.PruneReport{}, httpx.BadRequest(fmt.Errorf("unsupported network prune filter %q", key))
+			return networktypes.PruneReport{}, InvalidArgument(fmt.Errorf("unsupported network prune filter %q", key))
 		}
 	}
 	before, err := pruneBefore(filters.Get("until"))
 	if err != nil {
-		return networktypes.PruneReport{}, httpx.BadRequest(err)
+		return networktypes.PruneReport{}, InvalidArgument(err)
 	}
 	list, err := d.networkList(ctx)
 	if err != nil {

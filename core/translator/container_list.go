@@ -11,7 +11,6 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/v2/daemon/server/backend"
 	"github.com/sysson/dink/core/identity"
-	"github.com/sysson/syskit/httpx"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -19,16 +18,16 @@ import (
 func (d *Docker) Containers(ctx context.Context, options *backend.ContainerListOptions) ([]container.Summary, error) {
 	id, ok := identity.FromContext(ctx)
 	if !ok {
-		return nil, httpx.Unauthorized(fmt.Errorf("missing identity in context"))
+		return nil, Unauthenticated(fmt.Errorf("missing identity in context"))
 	}
 	if options == nil {
 		options = &backend.ContainerListOptions{}
 	}
 	if options.Limit < 0 {
-		return nil, httpx.BadRequest(fmt.Errorf("container list limit must not be negative"))
+		return nil, InvalidArgument(fmt.Errorf("container list limit must not be negative"))
 	}
 	if err := validateContainerListFilters(options.Filters); err != nil {
-		return nil, httpx.BadRequest(err)
+		return nil, InvalidArgument(err)
 	}
 	deployments, err := d.k8s.AppsV1().Deployments(id.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {

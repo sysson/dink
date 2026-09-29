@@ -7,14 +7,12 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net/http"
 	"reflect"
 	"strings"
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/v2/daemon/server/backend"
 	"github.com/sysson/dink/core/identity"
-	"github.com/sysson/syskit/httpx"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -31,7 +29,7 @@ func (d *Docker) streamPod(ctx context.Context, namespace, podName string, optio
 	}
 	config := d.k8s.RESTConfig()
 	if config == nil {
-		return httpx.NewHTTPError(http.StatusServiceUnavailable, fmt.Errorf("kubernetes streaming config is unavailable"))
+		return Unavailable(fmt.Errorf("kubernetes streaming config is unavailable"))
 	}
 	subresource := "exec"
 	var params runtime.Object = &options
@@ -122,10 +120,10 @@ func (d *Docker) CreateImageFromContainer(context.Context, string, *backend.Crea
 func (d *Docker) findDeployment(ctx context.Context, nameOrID string) (*appsv1.Deployment, error) {
 	id, ok := identity.FromContext(ctx)
 	if !ok {
-		return nil, httpx.Unauthorized(fmt.Errorf("missing identity in context"))
+		return nil, Unauthenticated(fmt.Errorf("missing identity in context"))
 	}
 	if nameOrID == "" {
-		return nil, httpx.BadRequest(fmt.Errorf("container name or ID is required"))
+		return nil, InvalidArgument(fmt.Errorf("container name or ID is required"))
 	}
 	deployments := d.k8s.AppsV1().Deployments(id.Namespace)
 	if deployment, err := deployments.Get(ctx, nameOrID, metav1.GetOptions{}); err == nil {
@@ -146,12 +144,12 @@ func (d *Docker) findDeployment(ctx context.Context, nameOrID string) (*appsv1.D
 			continue
 		}
 		if match != nil {
-			return nil, httpx.Conflict(fmt.Errorf("container ID %s is ambiguous", nameOrID))
+			return nil, Conflict(fmt.Errorf("container ID %s is ambiguous", nameOrID))
 		}
 		match = deployment
 	}
 	if match == nil {
-		return nil, httpx.NotFound(fmt.Errorf("container %s not found", nameOrID))
+		return nil, NotFound(fmt.Errorf("container %s not found", nameOrID))
 	}
 	return match, nil
 }

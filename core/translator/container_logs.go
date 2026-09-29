@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/moby/moby/v2/daemon/server/backend"
-	"github.com/sysson/syskit/httpx"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -21,10 +20,10 @@ func (d *Docker) ContainerLogs(ctx context.Context, name string, options *backen
 		return nil, false, err
 	}
 	if options == nil {
-		return nil, false, httpx.BadRequest(fmt.Errorf("log options are required"))
+		return nil, false, InvalidArgument(fmt.Errorf("log options are required"))
 	}
 	if options.Details || !options.ShowStdout || !options.ShowStderr {
-		return nil, false, httpx.NewHTTPError(501, fmt.Errorf("kubernetes pod logs cannot separate stdout and stderr or provide Docker log attributes"))
+		return nil, false, Unsupported(fmt.Errorf("kubernetes pod logs cannot separate stdout and stderr or provide Docker log attributes"))
 	}
 	pods, err := d.k8s.CoreV1().Pods(deployment.Namespace).List(ctx, metav1.ListOptions{LabelSelector: "app=" + deployment.Name})
 	if err != nil {
@@ -38,22 +37,22 @@ func (d *Docker) ContainerLogs(ctx context.Context, name string, options *backen
 		}
 	}
 	if selected == nil {
-		return nil, false, httpx.NotFound(fmt.Errorf("no pod found for container %s", name))
+		return nil, false, NotFound(fmt.Errorf("no pod found for container %s", name))
 	}
 	if len(selected.Spec.Containers) == 0 || len(deployment.Spec.Template.Spec.Containers) == 0 {
-		return nil, false, httpx.NotFound(fmt.Errorf("no container found in pod for %s", name))
+		return nil, false, NotFound(fmt.Errorf("no container found in pod for %s", name))
 	}
 	logOptions := &corev1.PodLogOptions{Container: selected.Spec.Containers[0].Name, Follow: options.Follow, Timestamps: true}
 	if !options.Since.IsZero() {
 		logOptions.SinceTime = &metav1.Time{Time: options.Since}
 	}
 	if !options.Until.IsZero() && options.Follow {
-		return nil, false, httpx.BadRequest(fmt.Errorf("following logs with an until timestamp is not supported"))
+		return nil, false, InvalidArgument(fmt.Errorf("following logs with an until timestamp is not supported"))
 	}
 	if options.Tail != "" && options.Tail != "all" {
 		lines, err := strconv.ParseInt(options.Tail, 10, 64)
 		if err != nil || lines < 0 {
-			return nil, false, httpx.BadRequest(fmt.Errorf("invalid log tail %q", options.Tail))
+			return nil, false, InvalidArgument(fmt.Errorf("invalid log tail %q", options.Tail))
 		}
 		logOptions.TailLines = &lines
 	}

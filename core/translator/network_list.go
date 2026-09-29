@@ -6,7 +6,6 @@ import (
 
 	networktypes "github.com/moby/moby/api/types/network"
 	"github.com/sysson/dink/pkg/filters"
-	"github.com/sysson/syskit/httpx"
 )
 
 func (d *Docker) GetNetworkSummaries(ctx context.Context, filters filters.Args) ([]networktypes.Summary, error) {
@@ -14,7 +13,7 @@ func (d *Docker) GetNetworkSummaries(ctx context.Context, filters filters.Args) 
 		switch key {
 		case "name", "id", "driver", "scope", "label", "label!", "type", "dangling":
 		default:
-			return nil, httpx.BadRequest(fmt.Errorf("unsupported network filter %q", key))
+			return nil, InvalidArgument(fmt.Errorf("unsupported network filter %q", key))
 		}
 	}
 	list, err := d.networkList(ctx)
@@ -23,7 +22,7 @@ func (d *Docker) GetNetworkSummaries(ctx context.Context, filters filters.Args) 
 	}
 	dangling, err := filters.GetBoolOrDefault("dangling", false)
 	if err != nil {
-		return nil, httpx.BadRequest(err)
+		return nil, InvalidArgument(err)
 	}
 	result := make([]networktypes.Summary, 0, len(list.Items))
 	for index := range list.Items {

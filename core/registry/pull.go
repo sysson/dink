@@ -13,6 +13,7 @@ import (
 
 	"github.com/containerd/platforms"
 	"github.com/docker/oci"
+	"github.com/docker/oci/ocidigest"
 	"github.com/docker/oci/ociref"
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	"github.com/sysson/dink/core/identity"
@@ -22,13 +23,101 @@ import (
 )
 
 func (r *RegistryService) GetImage()    {}
-func (r *RegistryService) TagImage()    {}
 func (r *RegistryService) ImagePrune()  {}
 func (r *RegistryService) LoadImage()   {}
 func (r *RegistryService) ImportImage() {}
 func (r *RegistryService) ExportImage() {}
 func (r *RegistryService) PushImage()   {}
 func (r *RegistryService) Search()      {}
+
+// TagImage copies an image into the target tenant repository and tags it.
+func (r *RegistryService) TagImage(ctx context.Context, name string, target ociref.Reference) error {
+	if target.Repository == "" || target.Tag == "" || target.Digest != "" {
+		return httpx.BadRequest(fmt.Errorf("tag target must include a repository and tag"))
+	}
+	id, ok := identity.FromContext(ctx)
+	if !ok {
+		return fmt.Errorf("missing identity in context")
+	}
+	internal, err := r.client()
+	if err != nil {
+		return err
+	}
+	source, err := r.resolveImage(ctx, name)
+	if err != nil {
+		return err
+	}
+	sourceRef := ociref.Reference{Repository: source.repository, Digest: source.digest}
+	destination := repositoryFor(id, target)
+	destination.Digest = source.digest
+	descriptor, err := internal.ResolveManifest(ctx, source.repository, source.digest)
+	if err != nil {
+		return err
+	}
+	var descriptors []oci.Descriptor
+	if isIndex(descriptor.MediaType) {
+		tree, err := r.imageTree(ctx, source.repository, source.digest)
+		if err != nil {
+			return err
+		}
+		manifestDescriptor, err := getManifest(ctx, internal, sourceRef)
+		if err != nil {
+			return err
+		}
+		index, err := readBlob[oci.IndexOrManifest](bytes.NewReader(manifestDescriptor.Data))
+		if err != nil {
+			return err
+		}
+		available := make(map[string]bool, len(tree.Manifests))
+		for _, child := range tree.Manifests {
+			available[child.Digest] = child.Manifest != nil
+		}
+		children := make([]oci.Descriptor, 0, len(index.Manifests))
+		for _, child := range index.Manifests {
+			if !available[string(child.Digest)] {
+				continue
+			}
+			children = append(children, child)
+			childDescriptor, err := internal.ResolveManifest(ctx, source.repository, child.Digest)
+			if err != nil {
+				return err
+			}
+			childManifests := &manifest{client: internal, ref: sourceRef, descriptor: childDescriptor}
+			childDescriptors, err := childManifests.AllDescriptors(ctx)
+			if err != nil {
+				return err
+			}
+			descriptors = append(descriptors, childDescriptors...)
+		}
+		if len(children) == 0 {
+			return httpx.NotFound(fmt.Errorf("image %s has no stored platform manifests", name))
+		}
+		index.Manifests = children
+		data, err := json.Marshal(index)
+		if err != nil {
+			return err
+		}
+		descriptor = oci.Descriptor{
+			MediaType: descriptor.MediaType,
+			Digest:    ocidigest.FromBytes(data),
+			Size:      int64(len(data)),
+			Data:      data,
+		}
+		destination.Digest = descriptor.Digest
+		descriptors = append(descriptors, descriptor)
+	} else {
+		manifests := &manifest{client: internal, ref: sourceRef, descriptor: descriptor}
+		descriptors, err = manifests.AllDescriptors(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	copier := &copier{client: internal, destination: internal, srcRef: sourceRef, dstRef: destination}
+	if _, err := copier.copyBlobs(ctx, blobsFromDescriptors(descriptors)); err != nil {
+		return err
+	}
+	return pushManifests(ctx, internal, destination, descriptors)
+}
 
 // PullImage pulls the image identified by ref from its source registry into
 // the internal registry, namespaced by the identity present in ctx, and
@@ -316,7 +405,9 @@ func (c *copier) copyBlob(ctx context.Context, desc oci.Descriptor) (bool, error
 	id := idForRef(desc.Digest)
 
 	report := func(msg string) {
-		stream.Update(c.out, id, msg)
+		if c.out != nil {
+			stream.Update(c.out, id, msg)
+		}
 	}
 
 	reportType := func() {
@@ -358,7 +449,7 @@ func (c *copier) copyBlob(ctx context.Context, desc oci.Descriptor) (bool, error
 
 	var reader io.Reader = blob
 
-	if !isConfig(desc.MediaType) {
+	if c.out != nil && !isConfig(desc.MediaType) {
 		msg := "Pulling"
 		if !isImageLayer(desc.MediaType) {
 			msg = "Downloading"

@@ -13,7 +13,6 @@ import (
 	"github.com/moby/moby/v2/daemon/server/backend"
 	"github.com/moby/term"
 	"github.com/sysson/dink/core/identity"
-	"github.com/sysson/syskit/httpx"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -75,14 +74,14 @@ func (reader *detachReader) Read(buffer []byte) (int, error) {
 
 func (d *Docker) ContainerExecCreate(ctx context.Context, name string, config *container.ExecCreateRequest) (string, error) {
 	if config == nil || len(config.Cmd) == 0 {
-		return "", httpx.BadRequest(fmt.Errorf("no exec command specified"))
+		return "", InvalidArgument(fmt.Errorf("no exec command specified"))
 	}
 	if config.User != "" || config.Privileged || config.WorkingDir != "" || len(config.Env) != 0 {
-		return "", httpx.BadRequest(fmt.Errorf("exec user, privilege, working directory and environment are not supported"))
+		return "", InvalidArgument(fmt.Errorf("exec user, privilege, working directory and environment are not supported"))
 	}
 	if config.DetachKeys != "" {
 		if _, err := term.ToBytes(config.DetachKeys); err != nil {
-			return "", httpx.BadRequest(fmt.Errorf("invalid detach keys: %w", err))
+			return "", InvalidArgument(fmt.Errorf("invalid detach keys: %w", err))
 		}
 	}
 	deployment, pod, err := d.runningContainerPod(ctx, name)
@@ -109,13 +108,13 @@ func (d *Docker) ContainerExecCreate(ctx context.Context, name string, config *c
 func (d *Docker) ContainerExecInspect(ctx context.Context, execID string) (*container.ExecInspectResponse, error) {
 	id, ok := identity.FromContext(ctx)
 	if !ok {
-		return nil, httpx.Unauthorized(fmt.Errorf("missing identity in context"))
+		return nil, Unauthenticated(fmt.Errorf("missing identity in context"))
 	}
 	d.execMu.Lock()
 	defer d.execMu.Unlock()
 	entry := d.execs[execID]
 	if entry == nil || entry.namespace != id.Namespace {
-		return nil, httpx.NotFound(fmt.Errorf("exec %s not found", execID))
+		return nil, NotFound(fmt.Errorf("exec %s not found", execID))
 	}
 	return &container.ExecInspectResponse{
 		ID: execID, Running: entry.running, ExitCode: entry.exitCode, ContainerID: entry.containerID,
@@ -139,26 +138,26 @@ func (d *Docker) runningContainerPod(ctx context.Context, name string) (*appsv1.
 			return deployment, pod, nil
 		}
 	}
-	return nil, nil, httpx.NotFound(fmt.Errorf("no running pod found for container %s", name))
+	return nil, nil, NotFound(fmt.Errorf("no running pod found for container %s", name))
 }
 
 func (d *Docker) ContainerExecResize(ctx context.Context, execID string, height, width uint32) error {
 	id, ok := identity.FromContext(ctx)
 	if !ok {
-		return httpx.Unauthorized(fmt.Errorf("missing identity in context"))
+		return Unauthenticated(fmt.Errorf("missing identity in context"))
 	}
 	if height > 65535 || width > 65535 {
-		return httpx.BadRequest(fmt.Errorf("exec terminal dimensions exceed Kubernetes limits"))
+		return InvalidArgument(fmt.Errorf("exec terminal dimensions exceed Kubernetes limits"))
 	}
 	d.execMu.Lock()
 	entry := d.execs[execID]
 	if entry == nil || entry.namespace != id.Namespace {
 		d.execMu.Unlock()
-		return httpx.NotFound(fmt.Errorf("exec %s not found", execID))
+		return NotFound(fmt.Errorf("exec %s not found", execID))
 	}
 	if !entry.running || !entry.config.Tty || entry.resize == nil {
 		d.execMu.Unlock()
-		return httpx.Conflict(fmt.Errorf("exec %s has no active TTY", execID))
+		return Conflict(fmt.Errorf("exec %s has no active TTY", execID))
 	}
 	queue := entry.resize
 	d.execMu.Unlock()
@@ -173,17 +172,17 @@ func (d *Docker) ContainerExecResize(ctx context.Context, execID string, height,
 func (d *Docker) ContainerExecStart(ctx context.Context, execID string, streams backend.ExecStartConfig) error {
 	id, ok := identity.FromContext(ctx)
 	if !ok {
-		return httpx.Unauthorized(fmt.Errorf("missing identity in context"))
+		return Unauthenticated(fmt.Errorf("missing identity in context"))
 	}
 	d.execMu.Lock()
 	entry := d.execs[execID]
 	if entry == nil || entry.namespace != id.Namespace {
 		d.execMu.Unlock()
-		return httpx.NotFound(fmt.Errorf("exec %s not found", execID))
+		return NotFound(fmt.Errorf("exec %s not found", execID))
 	}
 	if entry.running || entry.exitCode != nil {
 		d.execMu.Unlock()
-		return httpx.Conflict(fmt.Errorf("exec %s has already started", execID))
+		return Conflict(fmt.Errorf("exec %s has already started", execID))
 	}
 	entry.running = true
 	d.execMu.Unlock()
@@ -198,7 +197,7 @@ func (d *Docker) ContainerExecStart(ctx context.Context, execID string, streams 
 		return kubeError(err)
 	}
 	if string(pod.UID) != entry.podUID || pod.Status.Phase != corev1.PodRunning {
-		return httpx.Conflict(fmt.Errorf("exec target pod has changed or stopped"))
+		return Conflict(fmt.Errorf("exec target pod has changed or stopped"))
 	}
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -209,7 +208,7 @@ func (d *Docker) ContainerExecStart(ctx context.Context, execID string, streams 
 		if stdin != nil && entry.config.DetachKeys != "" {
 			keys, err := term.ToBytes(entry.config.DetachKeys)
 			if err != nil {
-				return httpx.BadRequest(fmt.Errorf("invalid detach keys: %w", err))
+				return InvalidArgument(fmt.Errorf("invalid detach keys: %w", err))
 			}
 			stdin = &detachReader{reader: term.NewEscapeProxy(stdin, keys), cancel: cancel, detached: &detached}
 		}
@@ -260,7 +259,7 @@ func (d *Docker) ContainerExecStart(ctx context.Context, execID string, streams 
 func (d *Docker) ExecExists(ctx context.Context, execID string) (bool, error) {
 	id, ok := identity.FromContext(ctx)
 	if !ok {
-		return false, httpx.Unauthorized(fmt.Errorf("missing identity in context"))
+		return false, Unauthenticated(fmt.Errorf("missing identity in context"))
 	}
 	d.execMu.Lock()
 	defer d.execMu.Unlock()

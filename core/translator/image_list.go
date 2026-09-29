@@ -8,7 +8,6 @@ import (
 	imagetypes "github.com/moby/moby/api/types/image"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/types"
-	"github.com/sysson/syskit/httpx"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -20,7 +19,7 @@ func (r *Registry) Images(ctx context.Context, options types.ImageListOptions) (
 	}
 	id, ok := identity.FromContext(ctx)
 	if !ok {
-		return nil, httpx.Unauthorized(fmt.Errorf("missing identity in context"))
+		return nil, Unauthenticated(fmt.Errorf("missing identity in context"))
 	}
 	deployments, err := r.k8s.AppsV1().Deployments(id.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {

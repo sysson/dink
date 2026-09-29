@@ -131,6 +131,20 @@ func (c *Client) ImageDelete(ctx context.Context, name string, options imageback
 	return records, nil
 }
 
+// TagImage assigns ref to the image identified by name in the caller's namespace.
+func (c *Client) TagImage(ctx context.Context, name string, ref ociref.Reference) error {
+	id, err := c.requestIdentity(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = c.rpc.TagImage(ctx, &registryv1.TagImageRequest{
+		Identity: id,
+		Name:     name,
+		Target:   ReferenceToProto(ref),
+	})
+	return FromConnectError(err)
+}
+
 // ImageInspect describes name in the caller's namespace.
 func (c *Client) ImageInspect(ctx context.Context, name string, options imagebackend.ImageInspectOpts) (*imagebackend.InspectData, error) {
 	id, err := c.requestIdentity(ctx)

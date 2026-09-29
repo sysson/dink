@@ -3,16 +3,13 @@ package translator
 import (
 	"context"
 	"crypto/sha256"
-	"errors"
 	"fmt"
-	"net/http"
 	"testing"
 
 	networktypes "github.com/moby/moby/api/types/network"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/k8s"
 	"github.com/sysson/dink/pkg/filters"
-	"github.com/sysson/syskit/httpx"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -55,8 +52,7 @@ func TestDockerNetworkLifecycle(t *testing.T) {
 			t.Fatalf("recreated built-in network %s", network.Name)
 		}
 		for _, reference := range []string{network.Name, network.ID} {
-			var httpError *httpx.HTTPError
-			if err := docker.DeleteNetwork(ctx, reference); !errors.As(err, &httpError) || httpError.StatusCode != http.StatusForbidden {
+			if err := docker.DeleteNetwork(ctx, reference); !IsKind(err, KindForbidden) {
 				t.Fatalf("delete built-in network %s: %v", reference, err)
 			}
 		}

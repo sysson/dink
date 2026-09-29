@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/docker/oci/ociref"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sysson/syskit/httpx"
 )
@@ -53,6 +54,26 @@ func (ir *imageRouter) postImagesPush(w http.ResponseWriter, r *http.Request) er
 }
 
 func (ir *imageRouter) postImagesTag(w http.ResponseWriter, r *http.Request) error {
+	name, err := imageName(r)
+	if err != nil {
+		return err
+	}
+	repository := strings.TrimSpace(r.URL.Query().Get("repo"))
+	if repository == "" {
+		return httpx.BadRequest(errors.New("repo parameter is required"))
+	}
+	tag := strings.TrimSpace(r.URL.Query().Get("tag"))
+	if tag == "" {
+		tag = "latest"
+	}
+	ref, err := ociref.ParseRelative(repository + ":" + tag)
+	if err != nil {
+		return httpx.BadRequest(err)
+	}
+	if err := ir.translator.TagImage(r.Context(), name, ref); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusCreated)
 	return nil
 }
 

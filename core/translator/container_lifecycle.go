@@ -2,6 +2,7 @@ package translator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -9,33 +10,36 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/v2/daemon/server/backend"
 	"github.com/sysson/dink/core/identity"
-	"github.com/sysson/syskit/httpx"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 )
 
 const containerSignalExitCodeAnnotation = "dink.io/signal-exit-code"
 
 func (d *Docker) ContainerKill(ctx context.Context, name, signal string) error {
 	if signal != "" && signal != "KILL" && signal != "SIGKILL" && signal != "INT" && signal != "SIGINT" {
-		return httpx.BadRequest(fmt.Errorf("container signal %q is not supported by the Kubernetes backend", signal))
+		return InvalidArgument(fmt.Errorf("container signal %q is not supported by the Kubernetes backend", signal))
 	}
 	deployment, err := d.findDeployment(ctx, name)
 	if err != nil {
 		return err
 	}
-	deployment.Spec.Replicas = new(int32(0))
-	if deployment.Annotations == nil {
-		deployment.Annotations = make(map[string]string)
-	}
 	code := "137"
 	if signal == "INT" || signal == "SIGINT" {
 		code = "130"
 	}
-	deployment.Annotations[containerSignalExitCodeAnnotation] = code
-	_, err = d.k8s.AppsV1().Deployments(deployment.Namespace).Update(ctx, deployment, metav1.UpdateOptions{})
-	return kubeError(err)
+	_, err = d.updateContainerDeployment(ctx, deployment, func(current *appsv1.Deployment) error {
+		current.Spec.Replicas = new(int32(0))
+		if current.Annotations == nil {
+			current.Annotations = make(map[string]string)
+		}
+		current.Annotations[containerSignalExitCodeAnnotation] = code
+		return nil
+	})
+	return err
 }
 
 func (d *Docker) ContainerPause(context.Context, string) error {
@@ -55,14 +59,14 @@ func (d *Docker) ContainerRestart(ctx context.Context, name string, options back
 
 func (d *Docker) ContainerRm(ctx context.Context, name string, config *backend.ContainerRmConfig) error {
 	if config != nil && (config.RemoveVolume || config.RemoveLink) {
-		return httpx.BadRequest(fmt.Errorf("volume and link removal are not supported by the Kubernetes backend"))
+		return InvalidArgument(fmt.Errorf("volume and link removal are not supported by the Kubernetes backend"))
 	}
 	deployment, err := d.findDeployment(ctx, name)
 	if err != nil {
 		return err
 	}
 	if (config == nil || !config.ForceRemove) && (deployment.Spec.Replicas == nil || *deployment.Spec.Replicas != 0) {
-		return httpx.Conflict(fmt.Errorf("cannot remove container %s: container is running: stop the container before removing or force remove", name))
+		return Conflict(fmt.Errorf("cannot remove container %s: container is running: stop the container before removing or force remove", name))
 	}
 	uid := deployment.UID
 	options := metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid}}
@@ -91,7 +95,7 @@ func (d *Docker) ContainerRm(ctx context.Context, name string, config *backend.C
 
 func (d *Docker) ContainerStart(ctx context.Context, name, checkpoint, checkpointDir string) error {
 	if checkpoint != "" || checkpointDir != "" {
-		return httpx.BadRequest(fmt.Errorf("container checkpoints are not supported by the Kubernetes backend"))
+		return InvalidArgument(fmt.Errorf("container checkpoints are not supported by the Kubernetes backend"))
 	}
 	return d.setContainerReplicas(ctx, name, 1, "")
 }
@@ -107,15 +111,56 @@ func (d *Docker) ContainerUnpause(context.Context, string) error {
 	return ErrNotImplemented
 }
 
-func (d *Docker) ContainerUpdate(context.Context, string, *container.HostConfig) (container.UpdateResponse, error) {
-	return container.UpdateResponse{}, ErrNotImplemented
+func (d *Docker) ContainerUpdate(ctx context.Context, name string, update *container.UpdateConfig) (container.UpdateResponse, error) {
+	if update == nil {
+		return container.UpdateResponse{}, InvalidArgument(fmt.Errorf("container update configuration is required"))
+	}
+	if update.RestartPolicy.Name != "" || update.RestartPolicy.MaximumRetryCount != 0 {
+		return container.UpdateResponse{}, InvalidArgument(fmt.Errorf("updating restart policy is not supported by the Kubernetes backend"))
+	}
+	resources, err := containerResources(&container.HostConfig{Resources: update.Resources})
+	if err != nil {
+		return container.UpdateResponse{}, InvalidArgument(err)
+	}
+	deployment, err := d.findDeployment(ctx, name)
+	if err != nil {
+		return container.UpdateResponse{}, err
+	}
+	updated, err := d.updateContainerDeployment(ctx, deployment, func(current *appsv1.Deployment) error {
+		if len(current.Spec.Template.Spec.Containers) == 0 {
+			return Conflict(fmt.Errorf("container %s has no pod template", name))
+		}
+		_, hostConfig, err := containerMetadata(current)
+		if err != nil {
+			return err
+		}
+		hostConfig.Resources = update.Resources
+		metadata, err := json.Marshal(hostConfig)
+		if err != nil {
+			return fmt.Errorf("encoding updated host config: %w", err)
+		}
+		if current.Annotations == nil {
+			current.Annotations = make(map[string]string)
+		}
+		current.Annotations[containerHostConfigAnnotation] = string(metadata)
+		current.Spec.Template.Spec.Containers[0].Resources = resources
+		return nil
+	})
+	if err != nil {
+		return container.UpdateResponse{}, err
+	}
+	response := container.UpdateResponse{}
+	if updated.Spec.Replicas != nil && *updated.Spec.Replicas > 0 {
+		response.Warnings = []string{"Applying resource updates replaces the Kubernetes Pod."}
+	}
+	return response, nil
 }
 
 func (d *Docker) ContainerWait(ctx context.Context, name string, condition container.WaitCondition) (container.WaitResponse, error) {
 	switch condition {
 	case container.WaitConditionNotRunning, container.WaitConditionNextExit, container.WaitConditionRemoved:
 	default:
-		return container.WaitResponse{}, httpx.BadRequest(fmt.Errorf("invalid wait condition %q", condition))
+		return container.WaitResponse{}, InvalidArgument(fmt.Errorf("invalid wait condition %q", condition))
 	}
 	deployment, err := d.findDeployment(ctx, name)
 	if err != nil {
@@ -195,7 +240,7 @@ func (d *Docker) ContainerWait(ctx context.Context, name string, condition conta
 			if condition == container.WaitConditionNotRunning && (exitCode != nil || stopped) ||
 				condition == container.WaitConditionNextExit && !firstCheck && seenRunning && (exitCode != nil || stopped) {
 				if exitCode == nil {
-					return container.WaitResponse{}, httpx.NewHTTPError(501, fmt.Errorf("container exit status is no longer available from Kubernetes"))
+					return container.WaitResponse{}, Unsupported(fmt.Errorf("container exit status is no longer available from Kubernetes"))
 				}
 				return container.WaitResponse{StatusCode: int64(*exitCode)}, nil
 			}
@@ -214,23 +259,47 @@ func (d *Docker) setContainerReplicas(ctx context.Context, name string, replicas
 	if err != nil {
 		return err
 	}
-	deployment.Spec.Replicas = &replicas
-	if replicas > 0 {
-		delete(deployment.Annotations, containerSignalExitCodeAnnotation)
-	}
-	if restartAt != "" {
-		if deployment.Spec.Template.Annotations == nil {
-			deployment.Spec.Template.Annotations = make(map[string]string)
+	_, err = d.updateContainerDeployment(ctx, deployment, func(current *appsv1.Deployment) error {
+		current.Spec.Replicas = &replicas
+		if replicas > 0 {
+			delete(current.Annotations, containerSignalExitCodeAnnotation)
 		}
-		deployment.Spec.Template.Annotations["dink.io/restarted-at"] = restartAt
+		if restartAt != "" {
+			if current.Spec.Template.Annotations == nil {
+				current.Spec.Template.Annotations = make(map[string]string)
+			}
+			current.Spec.Template.Annotations["dink.io/restarted-at"] = restartAt
+		}
+		return nil
+	})
+	return err
+}
+
+func (d *Docker) updateContainerDeployment(ctx context.Context, original *appsv1.Deployment, mutate func(*appsv1.Deployment) error) (*appsv1.Deployment, error) {
+	var updated *appsv1.Deployment
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		current, err := d.k8s.AppsV1().Deployments(original.Namespace).Get(ctx, original.Name, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		if current.UID != original.UID {
+			return apierrors.NewNotFound(appsv1.Resource("deployments"), original.Name)
+		}
+		if err := mutate(current); err != nil {
+			return err
+		}
+		updated, err = d.k8s.AppsV1().Deployments(current.Namespace).Update(ctx, current, metav1.UpdateOptions{})
+		return err
+	})
+	if err != nil {
+		return nil, kubeError(err)
 	}
-	_, err = d.k8s.AppsV1().Deployments(deployment.Namespace).Update(ctx, deployment, metav1.UpdateOptions{})
-	return kubeError(err)
+	return updated, nil
 }
 
 func validateStopOptions(options backend.ContainerStopOptions) error {
 	if options.Signal != "" || options.Timeout != nil {
-		return httpx.BadRequest(fmt.Errorf("custom signal and timeout are not supported by the Kubernetes backend"))
+		return InvalidArgument(fmt.Errorf("custom signal and timeout are not supported by the Kubernetes backend"))
 	}
 	return nil
 }

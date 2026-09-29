@@ -193,7 +193,6 @@ func TestPullListQueryRemove(t *testing.T) {
 	if want := []string{display + ":v1", display + ":v2"}; !slices.Equal(tags, want) {
 		t.Fatalf("image tags = %v, want %v", tags, want)
 	}
-
 	other := identity.NewContext(context.Background(), identity.Identity{Namespace: "other"})
 	if images, err := client.Images(other, types.ImageListOptions{}); err != nil || len(images) != 0 {
 		t.Fatalf("other namespace Images() = %v, %v; want none", images, err)
@@ -262,6 +261,41 @@ func TestPullListQueryRemove(t *testing.T) {
 	_, err = client.ImageDelete(ctx, up.host+"/app:v1", imagebackend.RemoveOptions{})
 	if status := statusCode(err); status != http.StatusNotFound {
 		t.Fatalf("second ImageDelete() error = %v (status %d), want 404", err, status)
+	}
+}
+
+func TestTagImageCopiesIntoTargetRepository(t *testing.T) {
+	up := newUpstream(t)
+	amd64Layer := up.blob("app", layerType, []byte("amd64 layer"))
+	s390xLayer := up.blob("app", layerType, []byte("s390x layer"))
+	amd64 := up.platformImage("app", "amd64", amd64Layer)
+	s390x := up.platformImage("app", "s390x", s390xLayer)
+	image := up.index("app", "source", amd64, s390x)
+	client := newAPI(t)
+	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
+	if err := client.PullImage(ctx, ociref.Reference{Host: up.host, Repository: "app", Tag: "source"}, imagebackend.PullOptions{
+		Platforms: []ocispec.Platform{{OS: "linux", Architecture: "amd64"}},
+	}); err != nil {
+		t.Fatalf("PullImage() error = %v", err)
+	}
+	target := ociref.Reference{Host: "docker.io", Repository: "alias/app", Tag: "release"}
+	if err := client.TagImage(ctx, image.Digest.String(), target); err != nil {
+		t.Fatalf("TagImage() error = %v", err)
+	}
+	aliased, err := client.ImageInspect(ctx, "alias/app:release", imagebackend.ImageInspectOpts{})
+	if err != nil || aliased.ID == string(image.Digest) || aliased.Architecture != "amd64" || !slices.Equal(aliased.RepoTags, []string{"alias/app:release"}) {
+		t.Fatalf("tagged image inspect = %+v, %v", aliased, err)
+	}
+	if _, err := client.ImageInspect(ctx, "alias/app:release", imagebackend.ImageInspectOpts{Platform: &ocispec.Platform{OS: "linux", Architecture: "s390x"}}); statusCode(err) != http.StatusNotFound {
+		t.Fatalf("ImageInspect(unpulled platform) error = %v, want 404", err)
+	}
+	byID, err := client.ImageInspect(ctx, image.Digest.String(), imagebackend.ImageInspectOpts{})
+	if err != nil || byID.ID != string(image.Digest) {
+		t.Fatalf("ImageInspect(by ID) after tagging = %+v, %v", byID, err)
+	}
+	other := identity.NewContext(context.Background(), identity.Identity{Namespace: "other"})
+	if _, err := client.ImageInspect(other, "alias/app:release", imagebackend.ImageInspectOpts{}); statusCode(err) != http.StatusNotFound {
+		t.Fatalf("other namespace ImageInspect() error = %v, want 404", err)
 	}
 }
 

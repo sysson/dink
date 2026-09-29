@@ -52,6 +52,9 @@ const (
 	// RegistryServiceRemoveImageProcedure is the fully-qualified name of the RegistryService's
 	// RemoveImage RPC.
 	RegistryServiceRemoveImageProcedure = "/sdk.registry.v1.RegistryService/RemoveImage"
+	// RegistryServiceTagImageProcedure is the fully-qualified name of the RegistryService's TagImage
+	// RPC.
+	RegistryServiceTagImageProcedure = "/sdk.registry.v1.RegistryService/TagImage"
 	// RegistryServiceQueryProcedure is the fully-qualified name of the RegistryService's Query RPC.
 	RegistryServiceQueryProcedure = "/sdk.registry.v1.RegistryService/Query"
 	// RegistryServiceIssuePullCredentialProcedure is the fully-qualified name of the RegistryService's
@@ -81,6 +84,8 @@ type RegistryServiceClient interface {
 	// manifests and blobs from the repository. Garbage collection reclaims
 	// content that is no longer referenced anywhere.
 	RemoveImage(context.Context, *v1.RemoveImageRequest) (*v1.RemoveImageResponse, error)
+	// TagImage copies an image to the target repository and assigns its tag.
+	TagImage(context.Context, *v1.TagImageRequest) (*v1.TagImageResponse, error)
 	// Query executes a read-only GraphQL document against dinki metadata.
 	Query(context.Context, *v1.QueryRequest) (*v1.QueryResponse, error)
 	// IssuePullCredential creates, or replaces, the Basic credential that
@@ -144,6 +149,12 @@ func NewRegistryServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(registryServiceMethods.ByName("RemoveImage")),
 			connect.WithClientOptions(opts...),
 		),
+		tagImage: connect.NewClient[v1.TagImageRequest, v1.TagImageResponse](
+			httpClient,
+			baseURL+RegistryServiceTagImageProcedure,
+			connect.WithSchema(registryServiceMethods.ByName("TagImage")),
+			connect.WithClientOptions(opts...),
+		),
 		query: connect.NewClient[v1.QueryRequest, v1.QueryResponse](
 			httpClient,
 			baseURL+RegistryServiceQueryProcedure,
@@ -174,6 +185,7 @@ type registryServiceClient struct {
 	imageHistory         *connect.Client[v1.ImageHistoryRequest, v1.ImageHistoryResponse]
 	imageAttestations    *connect.Client[v1.ImageAttestationsRequest, v1.ImageAttestationsResponse]
 	removeImage          *connect.Client[v1.RemoveImageRequest, v1.RemoveImageResponse]
+	tagImage             *connect.Client[v1.TagImageRequest, v1.TagImageResponse]
 	query                *connect.Client[v1.QueryRequest, v1.QueryResponse]
 	issuePullCredential  *connect.Client[v1.IssuePullCredentialRequest, v1.IssuePullCredentialResponse]
 	revokePullCredential *connect.Client[v1.RevokePullCredentialRequest, v1.RevokePullCredentialResponse]
@@ -238,6 +250,15 @@ func (c *registryServiceClient) RemoveImage(ctx context.Context, req *v1.RemoveI
 	return nil, err
 }
 
+// TagImage calls sdk.registry.v1.RegistryService.TagImage.
+func (c *registryServiceClient) TagImage(ctx context.Context, req *v1.TagImageRequest) (*v1.TagImageResponse, error) {
+	response, err := c.tagImage.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
 // Query calls sdk.registry.v1.RegistryService.Query.
 func (c *registryServiceClient) Query(ctx context.Context, req *v1.QueryRequest) (*v1.QueryResponse, error) {
 	response, err := c.query.CallUnary(ctx, connect.NewRequest(req))
@@ -284,6 +305,8 @@ type RegistryServiceHandler interface {
 	// manifests and blobs from the repository. Garbage collection reclaims
 	// content that is no longer referenced anywhere.
 	RemoveImage(context.Context, *v1.RemoveImageRequest) (*v1.RemoveImageResponse, error)
+	// TagImage copies an image to the target repository and assigns its tag.
+	TagImage(context.Context, *v1.TagImageRequest) (*v1.TagImageResponse, error)
 	// Query executes a read-only GraphQL document against dinki metadata.
 	Query(context.Context, *v1.QueryRequest) (*v1.QueryResponse, error)
 	// IssuePullCredential creates, or replaces, the Basic credential that
@@ -343,6 +366,12 @@ func NewRegistryServiceHandler(svc RegistryServiceHandler, opts ...connect.Handl
 		connect.WithSchema(registryServiceMethods.ByName("RemoveImage")),
 		connect.WithHandlerOptions(opts...),
 	)
+	registryServiceTagImageHandler := connect.NewUnaryHandlerSimple(
+		RegistryServiceTagImageProcedure,
+		svc.TagImage,
+		connect.WithSchema(registryServiceMethods.ByName("TagImage")),
+		connect.WithHandlerOptions(opts...),
+	)
 	registryServiceQueryHandler := connect.NewUnaryHandlerSimple(
 		RegistryServiceQueryProcedure,
 		svc.Query,
@@ -377,6 +406,8 @@ func NewRegistryServiceHandler(svc RegistryServiceHandler, opts ...connect.Handl
 			registryServiceImageAttestationsHandler.ServeHTTP(w, r)
 		case RegistryServiceRemoveImageProcedure:
 			registryServiceRemoveImageHandler.ServeHTTP(w, r)
+		case RegistryServiceTagImageProcedure:
+			registryServiceTagImageHandler.ServeHTTP(w, r)
 		case RegistryServiceQueryProcedure:
 			registryServiceQueryHandler.ServeHTTP(w, r)
 		case RegistryServiceIssuePullCredentialProcedure:
@@ -418,6 +449,10 @@ func (UnimplementedRegistryServiceHandler) ImageAttestations(context.Context, *v
 
 func (UnimplementedRegistryServiceHandler) RemoveImage(context.Context, *v1.RemoveImageRequest) (*v1.RemoveImageResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sdk.registry.v1.RegistryService.RemoveImage is not implemented"))
+}
+
+func (UnimplementedRegistryServiceHandler) TagImage(context.Context, *v1.TagImageRequest) (*v1.TagImageResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sdk.registry.v1.RegistryService.TagImage is not implemented"))
 }
 
 func (UnimplementedRegistryServiceHandler) Query(context.Context, *v1.QueryRequest) (*v1.QueryResponse, error) {
