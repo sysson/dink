@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/url"
 	"os"
@@ -12,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/sysson/dink/core/types"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 type Log struct {
@@ -24,9 +27,66 @@ type AccessLog struct {
 }
 
 type Kubernetes struct {
-	SystemNamespace  string `json:"systemNamespace,omitempty"`
-	DefaultNamespace string `json:"defaultNamespace,omitempty"`
-	HealthPort       string `json:"healthPort,omitempty"`
+	SystemNamespace  string           `json:"systemNamespace,omitempty"`
+	DefaultNamespace string           `json:"defaultNamespace,omitempty"`
+	HealthPort       string           `json:"healthPort,omitempty"`
+	DefaultResources ResourceDefaults `json:"defaultResources"`
+}
+
+type ResourceValues struct {
+	CPU    string `json:"cpu,omitempty"`
+	Memory string `json:"memory,omitempty"`
+}
+
+type ResourceDefaults struct {
+	Limits   ResourceValues `json:"limits"`
+	Requests ResourceValues `json:"requests"`
+}
+
+func (defaults ResourceDefaults) Validate() error {
+	var errs []error
+	for _, entry := range []struct {
+		name     string
+		value    string
+		resource corev1.ResourceName
+	}{
+		{"limits.cpu", defaults.Limits.CPU, corev1.ResourceCPU},
+		{"limits.memory", defaults.Limits.Memory, corev1.ResourceMemory},
+		{"requests.cpu", defaults.Requests.CPU, corev1.ResourceCPU},
+		{"requests.memory", defaults.Requests.Memory, corev1.ResourceMemory},
+	} {
+		if entry.value == "" {
+			continue
+		}
+		quantity, err := resource.ParseQuantity(entry.value)
+		if err != nil || quantity.Sign() <= 0 {
+			errs = append(errs, fmt.Errorf("%s must be a positive Kubernetes quantity", entry.name))
+			continue
+		}
+		if entry.resource == corev1.ResourceCPU {
+			if quantity.Cmp(*resource.NewMilliQuantity(math.MaxInt64/1_000_000, resource.DecimalSI)) > 0 ||
+				quantity.Cmp(*resource.NewMilliQuantity(quantity.MilliValue(), resource.DecimalSI)) != 0 {
+				errs = append(errs, fmt.Errorf("%s must fit Docker NanoCPUs in whole millicores", entry.name))
+			}
+		} else if quantity.Cmp(*resource.NewQuantity(math.MaxInt64, resource.BinarySI)) > 0 ||
+			quantity.Cmp(*resource.NewQuantity(quantity.Value(), resource.BinarySI)) != 0 {
+			errs = append(errs, fmt.Errorf("%s must fit Docker memory in whole bytes", entry.name))
+		}
+	}
+	for _, pair := range []struct{ name, request, limit string }{
+		{"cpu", defaults.Requests.CPU, defaults.Limits.CPU},
+		{"memory", defaults.Requests.Memory, defaults.Limits.Memory},
+	} {
+		if pair.request == "" || pair.limit == "" {
+			continue
+		}
+		request, reqErr := resource.ParseQuantity(pair.request)
+		limit, limErr := resource.ParseQuantity(pair.limit)
+		if reqErr == nil && limErr == nil && request.Cmp(limit) > 0 {
+			errs = append(errs, fmt.Errorf("%s request exceeds limit", pair.name))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 type TLS struct {
@@ -94,6 +154,10 @@ func Default() *Config {
 			SystemNamespace:  types.DefaultSystemNamespace,
 			DefaultNamespace: types.DefaultNamespace,
 			HealthPort:       "8080",
+			DefaultResources: ResourceDefaults{
+				Limits:   ResourceValues{CPU: "500m", Memory: "512Mi"},
+				Requests: ResourceValues{CPU: "100m", Memory: "128Mi"},
+			},
 		},
 		TLS: TLS{
 			CertFile:      "/etc/dink/certs/server.crt",
@@ -136,6 +200,9 @@ func (k *Kubernetes) Validate() error {
 		errs = append(errs, errors.New("defaultNamespace must not be empty"))
 	}
 	if err := validatePort("healthPort", k.HealthPort); err != nil {
+		errs = append(errs, err)
+	}
+	if err := k.DefaultResources.Validate(); err != nil {
 		errs = append(errs, err)
 	}
 	if len(errs) > 0 {

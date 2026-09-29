@@ -14,10 +14,13 @@ import (
 func TestLoadCLIConfigPrecedence(t *testing.T) {
 	configFile := filepath.Join(t.TempDir(), "config.json")
 	fileConfig := map[string]any{
-		"kubernetes": map[string]any{"systemNamespace": "from-file"},
-		"server":     map[string]any{"port": "2375", "disableTLS": true},
-		"log":        map[string]any{"level": "warn"},
-		"accessLog":  map[string]any{"level": "error"},
+		"kubernetes": map[string]any{
+			"systemNamespace":  "from-file",
+			"defaultResources": map[string]any{"limits": map[string]any{"cpu": "750m"}},
+		},
+		"server":    map[string]any{"port": "2375", "disableTLS": true},
+		"log":       map[string]any{"level": "warn"},
+		"accessLog": map[string]any{"level": "error"},
 	}
 	data, err := json.Marshal(fileConfig)
 	if err != nil {
@@ -73,6 +76,10 @@ func TestLoadCLIConfigPrecedence(t *testing.T) {
 	}
 	if opts.cfg.Server.TLSPort != "2376" {
 		t.Fatalf("tls port = %q, want the default because it was omitted from the file", opts.cfg.Server.TLSPort)
+	}
+	resources := opts.cfg.Kubernetes.DefaultResources
+	if resources.Limits.CPU != "750m" || resources.Limits.Memory != "512Mi" || resources.Requests.CPU != "100m" || resources.Requests.Memory != "128Mi" {
+		t.Fatalf("resource policy merge = %+v", resources)
 	}
 }
 

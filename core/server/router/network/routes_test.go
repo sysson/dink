@@ -48,6 +48,8 @@ func TestNetworkResponses(t *testing.T) {
 		{"create", api.postNetworkCreate, http.MethodPost, "/networks/create", `{"Name":"sample"}`, http.StatusCreated, "Id"},
 		{"list", api.getNetworksList, http.MethodGet, "/networks", "", http.StatusOK, ""},
 		{"inspect", api.getNetwork, http.MethodGet, "/networks/abc", "", http.StatusOK, "Containers"},
+		{"connect", api.postNetworkConnect, http.MethodPost, "/networks/abc/connect", `{"Container":"web","EndpointConfig":{}}`, http.StatusNoContent, ""},
+		{"disconnect", api.postNetworkDisconnect, http.MethodPost, "/networks/abc/disconnect", `{"Container":"web","Force":true}`, http.StatusNoContent, ""},
 		{"prune", api.postNetworkPrune, http.MethodPost, "/networks/prune", "", http.StatusOK, "NetworksDeleted"},
 		{"delete", api.deleteNetwork, http.MethodDelete, "/networks/abc", "", http.StatusNoContent, ""},
 	}

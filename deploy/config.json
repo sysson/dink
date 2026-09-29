@@ -8,7 +8,17 @@
     "kubernetes": {
         "systemNamespace": "dink-system",
         "defaultNamespace": "dink-default",
-        "healthPort": "8080"
+        "healthPort": "8080",
+        "defaultResources": {
+            "limits": {
+                "cpu": "500m",
+                "memory": "512Mi"
+            },
+            "requests": {
+                "cpu": "100m",
+                "memory": "128Mi"
+            }
+        }
     },
     "server": {
         "port": "2375",

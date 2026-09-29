@@ -19,7 +19,9 @@ import (
 	api "github.com/sysson/dink/core/registry/api"
 	"github.com/sysson/syskit/httpx"
 	"github.com/sysson/syskit/logx"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/remotecommand"
 )
 
 // dockerRegistry is what Docker needs from dinki.
@@ -38,11 +40,17 @@ type Translator struct {
 }
 
 type Docker struct {
-	k8s      *k8s.KubeClient
-	registry dockerRegistry
+	k8s              *k8s.KubeClient
+	registry         dockerRegistry
+	defaultResources config.ResourceDefaults
 	// pullHost is where nodes pull tenant images from.
 	pullHost     string
 	pullSecretMu sync.Mutex
+	execMu       sync.Mutex
+	execs        map[string]*containerExec
+	attachMu     sync.Mutex
+	attaches     map[string]map[*containerAttachSession]struct{}
+	podStream    func(context.Context, string, string, corev1.PodExecOptions, remotecommand.StreamOptions, bool) error
 }
 
 type Swarm struct {
@@ -69,7 +77,7 @@ func New(ctx context.Context, cfg *config.Config) (*Translator, error) {
 
 	t := &Translator{
 		k8s:      k,
-		docker:   Docker{k8s: k, registry: r, pullHost: cfg.Registry.PullHost},
+		docker:   Docker{k8s: k, registry: r, pullHost: cfg.Registry.PullHost, defaultResources: cfg.Kubernetes.DefaultResources},
 		swarm:    Swarm{k8s: k},
 		builder:  Builder{k8s: k},
 		registry: Registry{registry: r, k8s: k},

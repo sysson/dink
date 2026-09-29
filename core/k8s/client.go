@@ -63,16 +63,27 @@ func New(ctx context.Context, kubePath string) (*KubeClient, error) {
 	if err != nil {
 		metricsClient = nil
 	}
+	var metricsInterface metricsv1.MetricsV1Interface
+	if metricsClient != nil {
+		metricsInterface = metricsClient.MetricsV1()
+	}
 
 	return &KubeClient{
 		Interface:          client,
 		Dynamic:            dynamicClient,
 		metricsAvailable:   metricsClient != nil,
-		MetricsV1Interface: metricsClient.MetricsV1(),
+		MetricsV1Interface: metricsInterface,
 		restConfig:         restConfig,
 	}, nil
 }
 
 func (k *KubeClient) MetricsAvailable() bool {
 	return k.metricsAvailable
+}
+
+func (k *KubeClient) RESTConfig() *rest.Config {
+	if k.restConfig == nil {
+		return nil
+	}
+	return rest.CopyConfig(k.restConfig)
 }
