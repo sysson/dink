@@ -43,7 +43,7 @@ import (
 	ktesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/remotecommand"
 	kubeexec "k8s.io/client-go/util/exec"
-	metricsv1 "k8s.io/metrics/pkg/apis/metrics/v1"
+	metricsv1beta1 "k8s.io/metrics/pkg/apis/metrics/v1beta1"
 	metricsfake "k8s.io/metrics/pkg/client/clientset/versioned/fake"
 )
 
@@ -506,6 +506,70 @@ func TestContainerCreateMergesImageDefaults(t *testing.T) {
 	}
 	if inspect.Config.Labels["from-image"] != "yes" || inspect.Config.Labels["owner"] != "request" || inspect.Config.Env[0] != "MODE=request" {
 		t.Fatalf("merged inspect config = %+v", inspect.Config)
+	}
+}
+
+func TestContainerCreateMapsHealthcheckToReadinessProbe(t *testing.T) {
+	const digest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
+	client := kubernetesfake.NewClientset()
+	registry := &fakeRegistry{
+		digests: map[string]string{"nginx": digest},
+		configs: map[string]*dockerspec.DockerOCIImageConfig{
+			"nginx": {
+				ImageConfig: ocispec.ImageConfig{},
+				Healthcheck: &dockerspec.HealthcheckConfig{
+					Test:          []string{"CMD-SHELL", "curl -fsS http://localhost/health"},
+					Interval:      1500 * time.Millisecond,
+					Timeout:       250 * time.Millisecond,
+					StartPeriod:   2 * time.Second,
+					StartInterval: 200 * time.Millisecond,
+					Retries:       5,
+				},
+				Shell: []string{"/custom-shell"},
+			},
+		},
+	}
+	docker := &Docker{k8s: &k8s.KubeClient{Interface: client}, registry: registry, pullHost: "localhost:5000"}
+	response, err := docker.ContainerCreate(ctx, backend.ContainerCreateConfig{
+		Name:   "healthchecked",
+		Config: &container.Config{Image: "nginx"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deployment, err := client.AppsV1().Deployments("tenant").Get(ctx, "healthchecked", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	podContainer := deployment.Spec.Template.Spec.Containers[0]
+	probe := podContainer.ReadinessProbe
+	if probe == nil || probe.Exec == nil {
+		t.Fatalf("readiness probe = %+v, want exec probe", probe)
+	}
+	wantCommand := []string{"/custom-shell", "-c", "curl -fsS http://localhost/health"}
+	if strings.Join(probe.Exec.Command, "\x00") != strings.Join(wantCommand, "\x00") {
+		t.Fatalf("probe command = %q", probe.Exec.Command)
+	}
+	if probe.PeriodSeconds != 2 || probe.TimeoutSeconds != 1 || probe.InitialDelaySeconds != 2 || probe.FailureThreshold != 5 || probe.SuccessThreshold != 1 {
+		t.Fatalf("probe timing = %+v", probe)
+	}
+	if podContainer.LivenessProbe != nil {
+		t.Fatal("Docker healthcheck unexpectedly configured a liveness probe")
+	}
+	if len(response.Warnings) != 3 {
+		t.Fatalf("warnings = %v, want start-period, start-interval, and sub-second timing caveats", response.Warnings)
+	}
+}
+
+func TestDockerHealthProbeDisableAndInvalidTest(t *testing.T) {
+	probe, warnings, err := dockerHealthProbe(&container.HealthConfig{Test: []string{"NONE"}}, nil)
+	if err != nil || probe != nil || len(warnings) != 0 {
+		t.Fatalf("disabled healthcheck = %+v, %v, %v; want no probe or warnings", probe, warnings, err)
+	}
+	if _, _, err := dockerHealthProbe(&container.HealthConfig{Test: []string{"HTTP", "/health"}}, nil); err == nil {
+		t.Fatal("unsupported healthcheck test was accepted")
 	}
 }
 
@@ -1194,19 +1258,26 @@ func TestContainerWaitAutoRemoveAfterSignal(t *testing.T) {
 	}
 }
 
+type statsSampleStream chan []byte
+
+func (w statsSampleStream) Write(value []byte) (int, error) {
+	w <- append([]byte(nil), value...)
+	return len(value), nil
+}
+
 func TestContainerStats(t *testing.T) {
 	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
 	client := kubernetesfake.NewClientset()
 	metricsClient := metricsfake.NewSimpleClientset()
-	metric := &metricsv1.PodMetrics{
-		APIVersion: "metrics.k8s.io/v1", Kind: "PodMetrics",
+	metric := &metricsv1beta1.PodMetrics{
+		APIVersion: "metrics.k8s.io/v1beta1", Kind: "PodMetrics",
 		Name: "web-pod", Namespace: "tenant",
 		Timestamp: metav1.NewTime(time.Unix(100, 0)), Window: metav1.Duration{Duration: 2 * time.Second},
-		Containers: []metricsv1.ContainerMetrics{{Name: "web", Usage: corev1.ResourceList{
+		Containers: []metricsv1beta1.ContainerMetrics{{Name: "web", Usage: corev1.ResourceList{
 			corev1.ResourceCPU: resource.MustParse("250m"), corev1.ResourceMemory: resource.MustParse("64Mi"),
 		}}},
 	}
-	if err := metricsClient.Tracker().Create(metricsv1.SchemeGroupVersion.WithResource("pods"), metric, "tenant"); err != nil {
+	if err := metricsClient.Tracker().Create(metricsv1beta1.SchemeGroupVersion.WithResource("pods"), metric, "tenant"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := client.AppsV1().Deployments("tenant").Create(ctx, &appsv1.Deployment{
@@ -1223,7 +1294,7 @@ func TestContainerStats(t *testing.T) {
 	}, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	docker := &Docker{k8s: &k8s.KubeClient{Interface: client, MetricsV1Interface: metricsClient.MetricsV1()}}
+	docker := &Docker{k8s: &k8s.KubeClient{Interface: client, MetricsV1beta1Interface: metricsClient.MetricsV1beta1()}}
 	var output bytes.Buffer
 	if err := docker.ContainerStats(ctx, "web", &backend.ContainerStatsConfig{OutStream: func() io.Writer { return &output }}); err != nil {
 		t.Fatal(err)
@@ -1242,18 +1313,55 @@ func TestContainerStats(t *testing.T) {
 	if bytes.Count(output.Bytes(), []byte(`"read"`)) != 1 {
 		t.Fatalf("one-shot stats output = %q", output.String())
 	}
-	output.Reset()
-	deadline, cancel := context.WithTimeout(ctx, 30*time.Millisecond)
-	defer cancel()
-	if err := docker.ContainerStats(deadline, "web", &backend.ContainerStatsConfig{Stream: true, OutStream: func() io.Writer { return &output }}); err != nil {
+	streamCtx, cancelStream := context.WithCancel(ctx)
+	samples := make(statsSampleStream, 2)
+	streamDone := make(chan error, 1)
+	go func() {
+		streamDone <- docker.ContainerStats(streamCtx, "web", &backend.ContainerStatsConfig{
+			Stream: true, OutStream: func() io.Writer { return samples },
+		})
+	}()
+	streamed := make([]container.StatsResponse, 0, 2)
+	for range 2 {
+		select {
+		case sample := <-samples:
+			var stats container.StatsResponse
+			if err := json.Unmarshal(sample, &stats); err != nil {
+				t.Fatal(err)
+			}
+			streamed = append(streamed, stats)
+		case <-time.After(5 * time.Second):
+			cancelStream()
+			t.Fatal("stats stream did not emit a fresh sample for an unchanged Metrics Server timestamp")
+		}
+	}
+	cancelStream()
+	if err := <-streamDone; err != nil {
 		t.Fatalf("cancelled stats stream: %v", err)
 	}
-	if bytes.Count(output.Bytes(), []byte(`"read"`)) != 1 {
-		t.Fatalf("stats stream emitted duplicate samples: %q", output.String())
+	if !streamed[1].Read.After(streamed[0].Read) || streamed[1].CPUStats.CPUUsage.TotalUsage <= streamed[0].CPUStats.CPUUsage.TotalUsage {
+		t.Fatalf("stats stream did not advance timestamps/counters: %+v then %+v", streamed[0], streamed[1])
 	}
-	docker.k8s.MetricsV1Interface = nil
-	if err := docker.ContainerStats(ctx, "web", &backend.ContainerStatsConfig{OutStream: func() io.Writer { return &output }}); err == nil {
-		t.Fatal("missing metrics API reported successful stats")
+	output.Reset()
+	docker.k8s.MetricsV1beta1Interface = nil
+	if err := docker.ContainerStats(ctx, "web", &backend.ContainerStatsConfig{OutStream: func() io.Writer { return &output }}); err != nil {
+		t.Fatalf("missing metrics API returned an error: %v", err)
+	}
+	stats = container.StatsResponse{}
+	if err := json.Unmarshal(output.Bytes(), &stats); err != nil {
+		t.Fatalf("missing metrics API did not return a stats sample: %v", err)
+	}
+	if stats.MemoryStats.Usage != 0 || stats.CPUStats.CPUUsage.TotalUsage != 0 || stats.MemoryStats.Limit != 128<<20 {
+		t.Fatalf("unexpected fallback stats: %+v", stats)
+	}
+	output.Reset()
+	docker.k8s.MetricsV1beta1Interface = metricsfake.NewSimpleClientset().MetricsV1beta1()
+	if err := docker.ContainerStats(ctx, "web", &backend.ContainerStatsConfig{OutStream: func() io.Writer { return &output }}); err != nil {
+		t.Fatalf("missing PodMetrics returned an error: %v", err)
+	}
+	stats = container.StatsResponse{}
+	if err := json.Unmarshal(output.Bytes(), &stats); err != nil || stats.MemoryStats.Usage != 0 {
+		t.Fatalf("missing PodMetrics fallback = %+v, err = %v", stats, err)
 	}
 }
 

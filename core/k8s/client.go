@@ -10,14 +10,14 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/metrics/pkg/client/clientset/versioned"
-	metricsv1 "k8s.io/metrics/pkg/client/clientset/versioned/typed/metrics/v1"
+	metricsv1beta1 "k8s.io/metrics/pkg/client/clientset/versioned/typed/metrics/v1beta1"
 )
 
 type KubeClient struct {
 	kubernetes.Interface
 	Dynamic          dynamic.Interface
 	metricsAvailable bool
-	metricsv1.MetricsV1Interface
+	metricsv1beta1.MetricsV1beta1Interface
 	restConfig *rest.Config
 }
 
@@ -63,17 +63,17 @@ func New(ctx context.Context, kubePath string) (*KubeClient, error) {
 	if err != nil {
 		metricsClient = nil
 	}
-	var metricsInterface metricsv1.MetricsV1Interface
+	var metricsInterface metricsv1beta1.MetricsV1beta1Interface
 	if metricsClient != nil {
-		metricsInterface = metricsClient.MetricsV1()
+		metricsInterface = metricsClient.MetricsV1beta1()
 	}
 
 	return &KubeClient{
-		Interface:          client,
-		Dynamic:            dynamicClient,
-		metricsAvailable:   metricsClient != nil,
-		MetricsV1Interface: metricsInterface,
-		restConfig:         restConfig,
+		Interface:               client,
+		Dynamic:                 dynamicClient,
+		metricsAvailable:        metricsClient != nil,
+		MetricsV1beta1Interface: metricsInterface,
+		restConfig:              restConfig,
 	}, nil
 }
 

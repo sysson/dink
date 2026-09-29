@@ -8,7 +8,6 @@ import (
 	"github.com/sysson/dink/core/k8s"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubernetesfake "k8s.io/client-go/kubernetes/fake"
 )
 
@@ -17,7 +16,7 @@ func TestSystemInfoIsNamespaceScoped(t *testing.T) {
 	stopped := int32(0)
 	client := kubernetesfake.NewClientset(
 		&appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{Name: "running", Namespace: "tenant"},
+			Name: "running", Namespace: "tenant",
 			Spec: appsv1.DeploymentSpec{
 				Replicas: &replicas,
 				Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
@@ -27,7 +26,7 @@ func TestSystemInfoIsNamespaceScoped(t *testing.T) {
 			Status: appsv1.DeploymentStatus{ReadyReplicas: 1},
 		},
 		&appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{Name: "stopped", Namespace: "tenant"},
+			Name: "stopped", Namespace: "tenant",
 			Spec: appsv1.DeploymentSpec{
 				Replicas: &stopped,
 				Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
@@ -37,12 +36,12 @@ func TestSystemInfoIsNamespaceScoped(t *testing.T) {
 			},
 		},
 		&appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{Name: "pending", Namespace: "tenant"},
-			Spec:       appsv1.DeploymentSpec{Replicas: &replicas},
+			Name: "pending", Namespace: "tenant",
+			Spec: appsv1.DeploymentSpec{Replicas: &replicas},
 		},
 		&appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{Name: "other-tenant", Namespace: "other"},
-			Spec:       appsv1.DeploymentSpec{Replicas: &replicas},
+			Name: "other-tenant", Namespace: "other",
+			Spec: appsv1.DeploymentSpec{Replicas: &replicas},
 		},
 	)
 	translator := &Docker{k8s: &k8s.KubeClient{Interface: client}}

@@ -6,7 +6,6 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/moby/moby/api/types/events"
 	"github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/api/types/swarm"
 	"github.com/moby/moby/api/types/system"
@@ -14,7 +13,6 @@ import (
 	"github.com/moby/moby/v2/daemon/server/buildbackend"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/version"
-	"github.com/sysson/dink/pkg/filters"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -108,14 +106,6 @@ func (d *Docker) SystemVersion(context.Context) (system.VersionResponse, error) 
 
 func (d *Docker) SystemDiskUsage(context.Context, backend.DiskUsageOptions) (*backend.DiskUsage, error) {
 	return nil, ErrNotImplemented
-}
-
-func (d *Docker) SubscribeToEvents(context.Context, time.Time, time.Time, filters.Args) ([]events.Message, <-chan any, error) {
-	return nil, nil, ErrNotImplemented
-}
-
-func (d *Docker) UnsubscribeFromEvents(context.Context, chan any) error {
-	return ErrNotImplemented
 }
 
 func (d *Docker) AuthenticateToRegistry(ctx context.Context, auth *registry.AuthConfig) (string, error) {

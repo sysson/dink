@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/api/types/container"
@@ -64,6 +65,11 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 	if err != nil {
 		return container.CreateResponse{}, InvalidArgument(err)
 	}
+	readinessProbe, probeWarnings, err := dockerHealthProbe(cfg.Config.Healthcheck, cfg.Config.Shell)
+	if err != nil {
+		return container.CreateResponse{}, InvalidArgument(err)
+	}
+	warnings = append(warnings, probeWarnings...)
 	volumes, volumeMounts, err := d.containerVolumes(ctx, cfg.Config, cfg.HostConfig)
 	if err != nil {
 		return container.CreateResponse{}, err
@@ -107,17 +113,18 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 						ImagePullSecrets: []corev1.LocalObjectReference{{Name: pullSecretName}},
 						Containers: []corev1.Container{
 							{
-								Name:         cfg.Name,
-								Image:        image,
-								Ports:        podPorts(ports),
-								Command:      cfg.Config.Entrypoint,
-								Args:         cfg.Config.Cmd,
-								Env:          containerEnv(cfg.Config.Env),
-								WorkingDir:   cfg.Config.WorkingDir,
-								TTY:          cfg.Config.Tty,
-								Stdin:        cfg.Config.OpenStdin,
-								Resources:    resources,
-								VolumeMounts: volumeMounts,
+								Name:           cfg.Name,
+								Image:          image,
+								Ports:          podPorts(ports),
+								Command:        cfg.Config.Entrypoint,
+								Args:           cfg.Config.Cmd,
+								Env:            containerEnv(cfg.Config.Env),
+								WorkingDir:     cfg.Config.WorkingDir,
+								TTY:            cfg.Config.Tty,
+								Stdin:          cfg.Config.OpenStdin,
+								Resources:      resources,
+								VolumeMounts:   volumeMounts,
+								ReadinessProbe: readinessProbe,
 								// Checks the credential on every start, so a node's cached copy is not shared across namespaces.
 								ImagePullPolicy: corev1.PullAlways,
 							},
@@ -583,6 +590,7 @@ func mergeImageConfig(request, image *container.Config) (*container.Config, erro
 	merged.Env = slices.Clone(request.Env)
 	merged.Cmd = slices.Clone(request.Cmd)
 	merged.Entrypoint = slices.Clone(request.Entrypoint)
+	merged.Shell = slices.Clone(request.Shell)
 	merged.ExposedPorts = maps.Clone(request.ExposedPorts)
 	merged.Labels = maps.Clone(request.Labels)
 	merged.Volumes = maps.Clone(request.Volumes)
@@ -601,6 +609,9 @@ func mergeImageConfig(request, image *container.Config) (*container.Config, erro
 
 	if merged.User == "" {
 		merged.User = image.User
+	}
+	if len(merged.Shell) == 0 {
+		merged.Shell = slices.Clone(image.Shell)
 	}
 	for port := range image.ExposedPorts {
 		merged.ExposedPorts[port] = struct{}{}
@@ -667,6 +678,97 @@ func mergeImageConfig(request, image *container.Config) (*container.Config, erro
 		merged.StopSignal = image.StopSignal
 	}
 	return &merged, nil
+}
+
+func dockerHealthProbe(healthcheck *container.HealthConfig, shell []string) (*corev1.Probe, []string, error) {
+	if healthcheck == nil || len(healthcheck.Test) == 0 {
+		return nil, nil, nil
+	}
+
+	var command []string
+	switch healthcheck.Test[0] {
+	case "NONE":
+		if len(healthcheck.Test) != 1 {
+			return nil, nil, fmt.Errorf("Docker healthcheck NONE cannot include a command")
+		}
+		return nil, nil, nil
+	case "CMD":
+		if len(healthcheck.Test) < 2 {
+			return nil, nil, fmt.Errorf("Docker healthcheck CMD requires a command")
+		}
+		command = slices.Clone(healthcheck.Test[1:])
+	case "CMD-SHELL":
+		if len(healthcheck.Test) < 2 {
+			return nil, nil, fmt.Errorf("Docker healthcheck CMD-SHELL requires a command")
+		}
+		if len(shell) == 0 {
+			shell = []string{"/bin/sh"}
+		}
+		command = append(slices.Clone(shell), "-c", strings.Join(healthcheck.Test[1:], " "))
+	default:
+		return nil, nil, fmt.Errorf("unsupported Docker healthcheck test %q", healthcheck.Test[0])
+	}
+
+	interval, err := dockerProbeSeconds("interval", healthcheck.Interval, 30*time.Second)
+	if err != nil {
+		return nil, nil, err
+	}
+	timeout, err := dockerProbeSeconds("timeout", healthcheck.Timeout, 30*time.Second)
+	if err != nil {
+		return nil, nil, err
+	}
+	initialDelay, err := dockerProbeSeconds("start period", healthcheck.StartPeriod, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	retries := healthcheck.Retries
+	if retries == 0 {
+		retries = 3
+	}
+	if retries < 0 || int64(retries) > int64(1<<31-1) {
+		return nil, nil, fmt.Errorf("Docker healthcheck retries must be between 1 and %d", int64(1<<31-1))
+	}
+	probe := &corev1.Probe{
+		Exec:             &corev1.ExecAction{Command: command},
+		PeriodSeconds:    interval,
+		TimeoutSeconds:   timeout,
+		FailureThreshold: int32(retries),
+		SuccessThreshold: 1,
+	}
+	if healthcheck.StartPeriod > 0 {
+		probe.InitialDelaySeconds = initialDelay
+	}
+	warnings := make([]string, 0, 3)
+	if healthcheck.StartPeriod > 0 {
+		warnings = append(warnings, "Docker healthcheck start period is approximated with Kubernetes readiness-probe initial delay.")
+	}
+	if healthcheck.Interval%time.Second != 0 || healthcheck.Timeout%time.Second != 0 || healthcheck.StartPeriod%time.Second != 0 {
+		warnings = append(warnings, "Sub-second Docker healthcheck timings are rounded up to whole seconds for Kubernetes probes.")
+	}
+	if healthcheck.StartInterval < 0 {
+		return nil, nil, fmt.Errorf("Docker healthcheck start interval cannot be negative")
+	}
+	if healthcheck.StartInterval > 0 {
+		warnings = append(warnings, "Docker healthcheck start interval is not supported by Kubernetes probes; the regular interval is used during startup.")
+	}
+	return probe, warnings, nil
+}
+
+func dockerProbeSeconds(name string, duration, defaultDuration time.Duration) (int32, error) {
+	if duration == 0 {
+		duration = defaultDuration
+	}
+	if duration < 0 {
+		return 0, fmt.Errorf("Docker healthcheck %s cannot be negative", name)
+	}
+	if duration == 0 {
+		return 0, nil
+	}
+	seconds := int64((duration-1)/time.Second + 1)
+	if seconds > int64(1<<31-1) {
+		return 0, fmt.Errorf("Docker healthcheck %s exceeds Kubernetes probe limits", name)
+	}
+	return int32(seconds), nil
 }
 
 // ensurePullSecret creates the namespace's pull Secret if it is missing. An

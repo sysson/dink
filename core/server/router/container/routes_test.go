@@ -498,6 +498,13 @@ func TestContainerStatsRoute(t *testing.T) {
 		stub.statsOptions.Stream || !stub.statsOptions.OneShot || !strings.Contains(response.Body.String(), `"read"`) {
 		t.Fatalf("stats response = %d %q, options = %+v", response.Code, response.Body.String(), stub.statsOptions)
 	}
+	streamResponse := httptest.NewRecorder()
+	if err := api.getContainersStats(streamResponse, httptest.NewRequest(http.MethodGet, "/containers/web/stats", nil)); err != nil {
+		t.Fatal(err)
+	}
+	if streamResponse.Header().Get("Content-Type") != "application/json" {
+		t.Fatalf("stream content type = %q, want application/json", streamResponse.Header().Get("Content-Type"))
+	}
 	defaultRequest := httptest.NewRequest(http.MethodGet, "/containers/web/stats", nil)
 	if err := api.getContainersStats(httptest.NewRecorder(), defaultRequest); err != nil || !stub.statsOptions.Stream {
 		t.Fatalf("default stats stream = %+v, err = %v", stub.statsOptions, err)

@@ -25,6 +25,9 @@ func TestLoadMergesFileWithDefaults(t *testing.T) {
 	if cfg.Server.Port != "5002" {
 		t.Fatalf("server port = %q, want 5002", cfg.Server.Port)
 	}
+	if cfg.Server.HealthPort != "8080" {
+		t.Fatalf("server health port = %q, want inherited default 8080", cfg.Server.HealthPort)
+	}
 	if cfg.Log.Level != "info" {
 		t.Fatalf("log level = %q, want inherited default info", cfg.Log.Level)
 	}
@@ -76,6 +79,12 @@ func TestValidateAPI(t *testing.T) {
 			c.API.ClientCAFile = ""
 			c.API.ClientOrganization = ""
 			c.API.ClientCommonName = ""
+		}, wantErr: true},
+		"duplicate server ports": {mutate: func(c *Config) {
+			c.Server.HealthPort = c.Server.Port
+		}, wantErr: true},
+		"invalid health port": {mutate: func(c *Config) {
+			c.Server.HealthPort = "invalid"
 		}, wantErr: true},
 		"graphql without api": {mutate: func(c *Config) {
 			c.API.Disabled = true
