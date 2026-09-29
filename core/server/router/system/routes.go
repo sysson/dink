@@ -1,10 +1,11 @@
 package system
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
-	"github.com/moby/moby/api/pkg/authconfig"
 	"github.com/moby/moby/api/types/registry"
 	"github.com/sysson/syskit/httpx"
 )
@@ -48,11 +49,14 @@ func (s *systemRouter) getDiskUsage(w http.ResponseWriter, r *http.Request) erro
 }
 
 func (s *systemRouter) postAuth(w http.ResponseWriter, r *http.Request) error {
-	auth, err := authconfig.Decode(r.Header.Get(registry.AuthHeader))
-	if err != nil {
+	var auth registry.AuthConfig
+	if err := json.NewDecoder(r.Body).Decode(&auth); err != nil {
 		return httpx.BadRequest(fmt.Errorf("decoding auth config: %w", err))
 	}
-	identityToken, err := s.translator.AuthenticateToRegistry(r.Context(), auth)
+	if auth.ServerAddress == "" {
+		return httpx.BadRequest(errors.New("serveraddress is required"))
+	}
+	identityToken, err := s.translator.AuthenticateToRegistry(r.Context(), &auth)
 	if err != nil {
 		return httpx.Unauthorized(fmt.Errorf("authenticating to %s: %w", auth.ServerAddress, err))
 	}

@@ -26,15 +26,16 @@ import (
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/k8s"
 	"github.com/sysson/dink/pkg/filters"
-	"github.com/sysson/syskit/httpx"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes"
 	kubernetesfake "k8s.io/client-go/kubernetes/fake"
@@ -88,8 +89,8 @@ func TestContainerCreatePullsFromDinki(t *testing.T) {
 		t.Fatalf("credential issued %d times, want once per namespace", registry.issued)
 	}
 	_, err := docker.ContainerCreate(ctx, backend.ContainerCreateConfig{Name: "web", Config: &container.Config{Image: "nginx"}})
-	if httpErr, ok := errors.AsType[*httpx.HTTPError](err); !ok || httpErr.StatusCode != http.StatusConflict {
-		t.Fatalf("duplicate ContainerCreate error = %v, want 409", err)
+	if !IsKind(err, KindConflict) {
+		t.Fatalf("duplicate ContainerCreate error = %v, want conflict", err)
 	}
 
 	deployment, err := client.AppsV1().Deployments("tenant").Get(ctx, "web", metav1.GetOptions{})
@@ -135,6 +136,39 @@ func TestContainerCreatePullsFromDinki(t *testing.T) {
 	}
 	if _, err := client.AppsV1().Deployments("tenant").Get(ctx, "missing", metav1.GetOptions{}); err == nil {
 		t.Fatal("deployment created for a missing image")
+	}
+}
+
+func TestContainerCreateGeneratesNameWhenMissing(t *testing.T) {
+	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
+	client := kubernetesfake.NewClientset()
+	docker := &Docker{
+		k8s:      &k8s.KubeClient{Interface: client},
+		registry: &fakeRegistry{digests: map[string]string{"nginx": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}},
+		pullHost: "localhost:5000",
+	}
+	if _, err := docker.ContainerCreate(ctx, backend.ContainerCreateConfig{Config: &container.Config{Image: "nginx"}}); err != nil {
+		t.Fatal(err)
+	}
+	deployments, err := client.AppsV1().Deployments("tenant").List(ctx, metav1.ListOptions{})
+	if err != nil || len(deployments.Items) != 1 {
+		t.Fatalf("created Deployments = %d, err = %v; want one", len(deployments.Items), err)
+	}
+	deployment := deployments.Items[0]
+	name := deployment.Name
+	if problems := validation.IsDNS1123Label(name); len(problems) > 0 {
+		t.Fatalf("generated name %q is not a DNS label: %v", name, problems)
+	}
+	parts := strings.Split(name, "-")
+	if len(parts) != 3 || len(parts[2]) != 8 {
+		t.Fatalf("generated name = %q, want friendly adjective-noun-number form", name)
+	}
+	if deployment.Labels["app"] != name || deployment.Spec.Selector.MatchLabels["app"] != name || deployment.Spec.Template.Spec.Containers[0].Name != name {
+		t.Fatalf("Deployment name %q does not match its labels, selector, and container", name)
+	}
+	service, err := client.CoreV1().Services("tenant").Get(ctx, name, metav1.GetOptions{})
+	if err != nil || service.Spec.Selector["app"] != name {
+		t.Fatalf("generated-name Service = %+v, err = %v", service, err)
 	}
 }
 
@@ -205,6 +239,102 @@ func TestContainerCreateResources(t *testing.T) {
 				t.Fatalf("pod resources = %+v, want cpu=%s memory=%s request=%s", resources, test.wantCPU, test.wantMemory, test.wantRequest)
 			}
 		})
+	}
+}
+
+func TestContainerUpdateResources(t *testing.T) {
+	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
+	client := kubernetesfake.NewClientset(&appsv1.Deployment{
+		Name: "web", Namespace: "tenant",
+		Annotations: map[string]string{
+			containerHostConfigAnnotation: `{"NetworkMode":"bridge"}`,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: new(int32(1)),
+			Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "web"}}}},
+		},
+	})
+	docker := &Docker{k8s: &k8s.KubeClient{Interface: client}}
+	response, err := docker.ContainerUpdate(ctx, "web", &container.UpdateConfig{
+		NanoCPUs: 500_000_000, Memory: 128 << 20, MemoryReservation: 64 << 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Warnings) != 1 {
+		t.Fatalf("update warnings = %v, want Pod replacement warning", response.Warnings)
+	}
+	deployment, err := client.AppsV1().Deployments("tenant").Get(ctx, "web", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resources := deployment.Spec.Template.Spec.Containers[0].Resources
+	if resources.Limits.Cpu().MilliValue() != 500 || resources.Limits.Memory().Value() != 128<<20 || resources.Requests.Memory().Value() != 64<<20 {
+		t.Fatalf("updated Pod resources = %+v", resources)
+	}
+	_, hostConfig, err := containerMetadata(deployment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hostConfig.NetworkMode != "bridge" || hostConfig.NanoCPUs != 500_000_000 || hostConfig.Memory != 128<<20 || hostConfig.MemoryReservation != 64<<20 {
+		t.Fatalf("updated host config = %+v", hostConfig)
+	}
+}
+
+func TestContainerStartRetriesOnConflict(t *testing.T) {
+	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
+	client := kubernetesfake.NewClientset(&appsv1.Deployment{
+		Name: "web", Namespace: "tenant",
+	})
+	updates := 0
+	client.PrependReactor("update", "deployments", func(ktesting.Action) (bool, runtime.Object, error) {
+		updates++
+		if updates == 1 {
+			return true, nil, apierrors.NewConflict(schema.GroupResource{Group: "apps", Resource: "deployments"}, "web", errors.New("stale resource version"))
+		}
+		return false, nil, nil
+	})
+	docker := &Docker{k8s: &k8s.KubeClient{Interface: client}}
+	if err := docker.ContainerStart(ctx, "web", "", ""); err != nil {
+		t.Fatalf("ContainerStart() error = %v", err)
+	}
+	if updates != 2 {
+		t.Fatalf("Deployment update attempts = %d, want 2", updates)
+	}
+	deployment, err := client.AppsV1().Deployments("tenant").Get(ctx, "web", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deployment.Spec.Replicas == nil || *deployment.Spec.Replicas != 1 {
+		t.Fatalf("replicas = %v, want 1", deployment.Spec.Replicas)
+	}
+}
+
+func TestContainerKillRetriesOnConflict(t *testing.T) {
+	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
+	client := kubernetesfake.NewClientset(&appsv1.Deployment{
+		Name: "web", Namespace: "tenant",
+	})
+	updates := 0
+	client.PrependReactor("update", "deployments", func(ktesting.Action) (bool, runtime.Object, error) {
+		updates++
+		if updates == 1 {
+			return true, nil, apierrors.NewConflict(schema.GroupResource{Group: "apps", Resource: "deployments"}, "web", errors.New("stale resource version"))
+		}
+		return false, nil, nil
+	})
+	docker := &Docker{k8s: &k8s.KubeClient{Interface: client}}
+	if err := docker.ContainerKill(ctx, "web", "SIGINT"); err != nil {
+		t.Fatalf("ContainerKill() error = %v", err)
+	}
+	if updates != 2 {
+		t.Fatalf("Deployment update attempts = %d, want 2", updates)
+	}
+	deployment, err := client.AppsV1().Deployments("tenant").Get(ctx, "web", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deployment.Spec.Replicas == nil || *deployment.Spec.Replicas != 0 || deployment.Annotations[containerSignalExitCodeAnnotation] != "130" {
+		t.Fatalf("killed Deployment = replicas %v, annotations %+v", deployment.Spec.Replicas, deployment.Annotations)
 	}
 }
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -17,7 +16,6 @@ import (
 	"github.com/sysson/dink/core/config"
 	"github.com/sysson/dink/core/k8s"
 	api "github.com/sysson/dink/core/registry/api"
-	"github.com/sysson/syskit/httpx"
 	"github.com/sysson/syskit/logx"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -111,8 +109,6 @@ func (t *Translator) Builder() *Builder {
 func (t *Translator) Registry() *Registry {
 	return &t.registry
 }
-
-var ErrNotImplemented = httpx.NewHTTPError(http.StatusNotImplemented, errors.New("not implemented"))
 
 func (t *Translator) EnsureNamespace(ctx context.Context, namespace string) error {
 	_, err := t.k8s.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})

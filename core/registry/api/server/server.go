@@ -173,6 +173,24 @@ func (s *Server) RemoveImage(ctx context.Context, request *registryv1.RemoveImag
 	return response, nil
 }
 
+func (s *Server) TagImage(ctx context.Context, request *registryv1.TagImageRequest) (*registryv1.TagImageResponse, error) {
+	ctx, err := withIdentity(ctx, request.GetIdentity())
+	if err != nil {
+		return nil, err
+	}
+	if request.GetTarget() == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("tag target is required"))
+	}
+	target, err := api.ReferenceFromProto(request.GetTarget())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if err := s.images.TagImage(ctx, request.GetName(), target); err != nil {
+		return nil, api.ToConnectError(err)
+	}
+	return &registryv1.TagImageResponse{}, nil
+}
+
 func (s *Server) InspectImage(ctx context.Context, request *registryv1.InspectImageRequest) (*registryv1.InspectImageResponse, error) {
 	ctx, err := withIdentity(ctx, request.GetIdentity())
 	if err != nil {

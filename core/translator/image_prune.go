@@ -8,20 +8,19 @@ import (
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	"github.com/sysson/dink/core/types"
 	"github.com/sysson/dink/pkg/filters"
-	"github.com/sysson/syskit/httpx"
 )
 
 func (r *Registry) ImagePrune(ctx context.Context, pruneFilters filters.Args) (*imagetypes.PruneReport, error) {
 	if err := pruneFilters.Validate(map[string]bool{"dangling": true, "label": true, "label!": true, "until": true}); err != nil {
-		return nil, httpx.BadRequest(err)
+		return nil, InvalidArgument(err)
 	}
 	danglingOnly, err := pruneFilters.GetBoolOrDefault("dangling", true)
 	if err != nil {
-		return nil, httpx.BadRequest(err)
+		return nil, InvalidArgument(err)
 	}
 	before, err := pruneBefore(pruneFilters.Get("until"))
 	if err != nil {
-		return nil, httpx.BadRequest(err)
+		return nil, InvalidArgument(err)
 	}
 	report := &imagetypes.PruneReport{ImagesDeleted: []imagetypes.DeleteResponse{}}
 	if danglingOnly {

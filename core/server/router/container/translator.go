@@ -36,7 +36,7 @@ type stateTranslator interface {
 	ContainerStart(context.Context, string, string, string) error
 	ContainerStop(context.Context, string, backend.ContainerStopOptions) error
 	ContainerUnpause(context.Context, string) error
-	ContainerUpdate(context.Context, string, *container.HostConfig) (container.UpdateResponse, error)
+	ContainerUpdate(context.Context, string, *container.UpdateConfig) (container.UpdateResponse, error)
 	ContainerWait(context.Context, string, container.WaitCondition) (container.WaitResponse, error)
 }
 

@@ -149,7 +149,7 @@ func (r *RegistryService) imageByID(ctx context.Context, namespace, prefix strin
 
 func containsImage(images []resolvedImage, image resolvedImage) bool {
 	for _, existing := range images {
-		if existing.repository == image.repository && existing.digest == image.digest {
+		if existing.digest == image.digest {
 			return true
 		}
 	}

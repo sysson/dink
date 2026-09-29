@@ -86,6 +86,40 @@ func (d *Docker) inspectDeployment(ctx context.Context, deployment *appsv1.Deplo
 			Networks: networks,
 		},
 	}
+	for _, podVolume := range deployment.Spec.Template.Spec.Volumes {
+		if podVolume.PersistentVolumeClaim == nil {
+			continue
+		}
+		claimName := podVolume.PersistentVolumeClaim.ClaimName
+		pvc, err := d.k8s.CoreV1().PersistentVolumeClaims(deployment.Namespace).Get(ctx, claimName, metav1.GetOptions{})
+		if err != nil {
+			return nil, kubeError(err)
+		}
+		name := pvc.Annotations[volumeNameAnnotation]
+		if name == "" {
+			name = claimName
+		}
+		for _, podContainer := range deployment.Spec.Template.Spec.Containers {
+			for _, volumeMount := range podContainer.VolumeMounts {
+				if volumeMount.Name != podVolume.Name {
+					continue
+				}
+				mode := "rw"
+				if volumeMount.ReadOnly {
+					mode = "ro"
+				}
+				response.Mounts = append(response.Mounts, container.MountPoint{
+					Type:        "volume",
+					Name:        name,
+					Source:      volumeMountpointBase + "/" + claimName,
+					Destination: volumeMount.MountPath,
+					Driver:      "local",
+					Mode:        mode,
+					RW:          !volumeMount.ReadOnly,
+				})
+			}
+		}
+	}
 	return response, nil
 }
 

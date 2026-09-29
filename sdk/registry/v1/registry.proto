@@ -27,6 +27,8 @@ service RegistryService {
   // manifests and blobs from the repository. Garbage collection reclaims
   // content that is no longer referenced anywhere.
   rpc RemoveImage(RemoveImageRequest) returns (RemoveImageResponse);
+  // TagImage copies an image to the target repository and assigns its tag.
+  rpc TagImage(TagImageRequest) returns (TagImageResponse);
   // Query executes a read-only GraphQL document against dinki metadata.
   rpc Query(QueryRequest) returns (QueryResponse);
   // IssuePullCredential creates, or replaces, the Basic credential that
@@ -182,6 +184,14 @@ message RemoveImageRecord {
 message RemoveImageResponse {
   repeated RemoveImageRecord records = 1;
 }
+
+message TagImageRequest {
+  Identity identity = 1;
+  string name = 2;
+  Reference target = 3;
+}
+
+message TagImageResponse {}
 
 message QueryRequest {
   string query = 1;

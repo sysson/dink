@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math/rand/v2"
 	"slices"
 	"sort"
 	"strconv"
@@ -19,7 +20,6 @@ import (
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	"github.com/sysson/dink/core/config"
 	"github.com/sysson/dink/core/identity"
-	"github.com/sysson/syskit/httpx"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -31,10 +31,13 @@ import (
 func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreateConfig) (container.CreateResponse, error) {
 	id, ok := identity.FromContext(ctx)
 	if !ok {
-		return container.CreateResponse{}, httpx.Unauthorized(fmt.Errorf("missing identity in context"))
+		return container.CreateResponse{}, Unauthenticated(fmt.Errorf("missing identity in context"))
 	}
 	if cfg.Config == nil {
-		return container.CreateResponse{}, httpx.BadRequest(fmt.Errorf("container configuration is required"))
+		return container.CreateResponse{}, InvalidArgument(fmt.Errorf("container configuration is required"))
+	}
+	if cfg.Name == "" {
+		cfg.Name = generatedContainerName()
 	}
 	// A missing image is reported as not found, which makes the docker CLI pull and retry.
 	image, imageConfig, err := d.podImage(ctx, id.Namespace, cfg.Config.Image)
@@ -43,23 +46,27 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 	}
 	mergedConfig, err := mergeImageConfig(cfg.Config, imageConfig)
 	if err != nil {
-		return container.CreateResponse{}, httpx.BadRequest(err)
+		return container.CreateResponse{}, InvalidArgument(err)
 	}
 	cfg.Config = mergedConfig
 	resources, err := containerResources(cfg.HostConfig)
 	if err != nil {
-		return container.CreateResponse{}, httpx.BadRequest(err)
+		return container.CreateResponse{}, InvalidArgument(err)
 	}
 	defaults, err := d.tenantResourceDefaults(ctx, id.Namespace)
 	if err != nil {
 		return container.CreateResponse{}, err
 	}
 	if err := applyResourceDefaults(&cfg, &resources, defaults); err != nil {
-		return container.CreateResponse{}, httpx.BadRequest(err)
+		return container.CreateResponse{}, InvalidArgument(err)
 	}
 	ports, serviceType, warnings, err := resolvePublishedPorts(cfg.Config, cfg.HostConfig)
 	if err != nil {
-		return container.CreateResponse{}, httpx.BadRequest(err)
+		return container.CreateResponse{}, InvalidArgument(err)
+	}
+	volumes, volumeMounts, err := d.containerVolumes(ctx, cfg.Config, cfg.HostConfig)
+	if err != nil {
+		return container.CreateResponse{}, err
 	}
 	networkLabels, hostNetwork, err := d.containerNetworkLabels(ctx, cfg)
 	if err != nil {
@@ -70,7 +77,7 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 	}
 	annotations, err := containerAnnotations(cfg)
 	if err != nil {
-		return container.CreateResponse{}, httpx.BadRequest(fmt.Errorf("encoding container metadata: %w", err))
+		return container.CreateResponse{}, InvalidArgument(fmt.Errorf("encoding container metadata: %w", err))
 	}
 	podLabels := map[string]string{"app": cfg.Name}
 	maps.Copy(podLabels, networkLabels)
@@ -96,19 +103,21 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 					Spec: corev1.PodSpec{
 						HostNetwork:      hostNetwork,
 						DNSPolicy:        podDNSPolicy(hostNetwork),
+						Volumes:          volumes,
 						ImagePullSecrets: []corev1.LocalObjectReference{{Name: pullSecretName}},
 						Containers: []corev1.Container{
 							{
-								Name:       cfg.Name,
-								Image:      image,
-								Ports:      podPorts(ports),
-								Command:    cfg.Config.Entrypoint,
-								Args:       cfg.Config.Cmd,
-								Env:        containerEnv(cfg.Config.Env),
-								WorkingDir: cfg.Config.WorkingDir,
-								TTY:        cfg.Config.Tty,
-								Stdin:      cfg.Config.OpenStdin,
-								Resources:  resources,
+								Name:         cfg.Name,
+								Image:        image,
+								Ports:        podPorts(ports),
+								Command:      cfg.Config.Entrypoint,
+								Args:         cfg.Config.Cmd,
+								Env:          containerEnv(cfg.Config.Env),
+								WorkingDir:   cfg.Config.WorkingDir,
+								TTY:          cfg.Config.Tty,
+								Stdin:        cfg.Config.OpenStdin,
+								Resources:    resources,
+								VolumeMounts: volumeMounts,
 								// Checks the credential on every start, so a node's cached copy is not shared across namespaces.
 								ImagePullPolicy: corev1.PullAlways,
 							},
@@ -139,6 +148,24 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 		ID:       identity.DockerIDFromUID(deployment.UID),
 		Warnings: warnings,
 	}, nil
+}
+
+var containerNameAdjectives = [...]string{
+	"amber", "brisk", "calm", "clever", "crisp", "eager", "gentle", "happy", "keen",
+	"lively", "mellow", "nimble", "quiet", "rapid", "steady", "sunny", "tidy", "vivid",
+}
+
+var containerNameNouns = [...]string{
+	"arch", "beacon", "birch", "brook", "canyon", "cedar", "comet", "delta", "ember", "grove",
+	"harbor", "meadow", "mesa", "orbit", "quartz", "ridge", "river", "summit", "willow", "zenith",
+}
+
+func generatedContainerName() string {
+	return fmt.Sprintf("%s-%s-%08d",
+		containerNameAdjectives[rand.IntN(len(containerNameAdjectives))],
+		containerNameNouns[rand.IntN(len(containerNameNouns))],
+		rand.IntN(100_000_000),
+	)
 }
 
 func (d *Docker) tenantResourceDefaults(ctx context.Context, namespace string) (config.ResourceDefaults, error) {
@@ -264,19 +291,19 @@ func (d *Docker) containerNetworkLabels(ctx context.Context, cfg backend.Contain
 	}
 	if mode == "host" {
 		if len(endpoints) != 0 {
-			return nil, false, httpx.BadRequest(fmt.Errorf("host network mode cannot be combined with network endpoints"))
+			return nil, false, InvalidArgument(fmt.Errorf("host network mode cannot be combined with network endpoints"))
 		}
 		return nil, true, nil
 	}
 	if strings.HasPrefix(mode, "container:") {
-		return nil, false, httpx.BadRequest(fmt.Errorf("container network mode is not supported by the Kubernetes backend"))
+		return nil, false, InvalidArgument(fmt.Errorf("container network mode is not supported by the Kubernetes backend"))
 	}
 
 	networkNames := make([]string, 0, len(endpoints)+1)
 	switch mode {
 	case "none":
 		if len(endpoints) != 0 {
-			return nil, false, httpx.BadRequest(fmt.Errorf("none network mode cannot be combined with network endpoints"))
+			return nil, false, InvalidArgument(fmt.Errorf("none network mode cannot be combined with network endpoints"))
 		}
 		networkNames = append(networkNames, "none")
 	case "", "default", "bridge":

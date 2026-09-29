@@ -38,6 +38,7 @@ type lifecycleStub struct {
 	waitRelease    chan struct{}
 	waitError      error
 	statsOptions   *backend.ContainerStatsConfig
+	updateConfig   *dockertypes.UpdateConfig
 	execRequest    *dockertypes.ExecCreateRequest
 	execHeight     uint32
 	execWidth      uint32
@@ -58,6 +59,11 @@ func (s *lifecycleStub) ContainerResize(_ context.Context, _ string, height, wid
 func (s *lifecycleStub) ContainerExecCreate(_ context.Context, _ string, request *dockertypes.ExecCreateRequest) (string, error) {
 	s.execRequest = request
 	return "exec-id", nil
+}
+
+func (s *lifecycleStub) ContainerUpdate(_ context.Context, _ string, config *dockertypes.UpdateConfig) (dockertypes.UpdateResponse, error) {
+	s.updateConfig = config
+	return dockertypes.UpdateResponse{Warnings: []string{"updated"}}, nil
 }
 
 func (s *lifecycleStub) ContainerExecInspect(_ context.Context, _ string) (*dockertypes.ExecInspectResponse, error) {
@@ -203,6 +209,24 @@ func TestContainerLifecycleRoutes(t *testing.T) {
 	}
 	if !stub.remove.ForceRemove || stub.remove.RemoveVolume || stub.remove.RemoveLink {
 		t.Fatalf("remove options = %+v", stub.remove)
+	}
+}
+
+func TestContainerUpdateRoute(t *testing.T) {
+	stub := &lifecycleStub{}
+	api := &containerRouter{translator: stub}
+	request := httptest.NewRequest(http.MethodPost, "/containers/web/update", strings.NewReader(`{"Memory":128,"MemoryReservation":64}`))
+	request.SetPathValue("name", "web")
+	response := httptest.NewRecorder()
+	if err := api.postContainerUpdate(response, request); err != nil {
+		t.Fatal(err)
+	}
+	var updateResponse dockertypes.UpdateResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &updateResponse); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK || len(updateResponse.Warnings) != 1 || stub.updateConfig == nil || stub.updateConfig.Memory != 128 || stub.updateConfig.MemoryReservation != 64 {
+		t.Fatalf("update response = %d %q, config = %+v", response.Code, response.Body.String(), stub.updateConfig)
 	}
 }
 

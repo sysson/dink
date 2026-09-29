@@ -5,13 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"time"
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/v2/daemon/server/backend"
 	"github.com/sysson/dink/core/identity"
-	"github.com/sysson/syskit/httpx"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,14 +17,14 @@ import (
 
 func (d *Docker) ContainerStats(ctx context.Context, name string, config *backend.ContainerStatsConfig) error {
 	if config == nil || config.OutStream == nil {
-		return httpx.BadRequest(fmt.Errorf("stats output is required"))
+		return InvalidArgument(fmt.Errorf("stats output is required"))
 	}
 	deployment, err := d.findDeployment(ctx, name)
 	if err != nil {
 		return err
 	}
 	if d.k8s.MetricsV1Interface == nil {
-		return httpx.NewHTTPError(http.StatusServiceUnavailable, fmt.Errorf("kubernetes metrics API is unavailable"))
+		return Unavailable(fmt.Errorf("kubernetes metrics API is unavailable"))
 	}
 	var previous container.StatsResponse
 	var previousPod string
@@ -47,12 +45,12 @@ func (d *Docker) ContainerStats(ctx context.Context, name string, config *backen
 			}
 		}
 		if pod == nil || len(pod.Spec.Containers) == 0 {
-			return httpx.NotFound(fmt.Errorf("no running pod found for container %s", name))
+			return NotFound(fmt.Errorf("no running pod found for container %s", name))
 		}
 		metrics, err := d.k8s.PodMetricses(deployment.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 		if err != nil {
 			if apierrors.IsNotFound(err) || apierrors.IsServiceUnavailable(err) {
-				return httpx.NewHTTPError(http.StatusServiceUnavailable, fmt.Errorf("pod metrics unavailable for %s: %w", name, err))
+				return Unavailable(fmt.Errorf("pod metrics unavailable for %s: %w", name, err))
 			}
 			return kubeError(err)
 		}
@@ -65,7 +63,7 @@ func (d *Docker) ContainerStats(ctx context.Context, name string, config *backen
 			}
 		}
 		if sample == nil {
-			return httpx.NewHTTPError(http.StatusServiceUnavailable, fmt.Errorf("metrics unavailable for container %s", containerName))
+			return Unavailable(fmt.Errorf("metrics unavailable for container %s", containerName))
 		}
 		if pod.Name != previousPod {
 			previous = container.StatsResponse{}

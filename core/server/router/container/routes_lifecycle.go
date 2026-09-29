@@ -117,7 +117,15 @@ func (cr *containerRouter) postContainerRename(w http.ResponseWriter, r *http.Re
 }
 
 func (cr *containerRouter) postContainerUpdate(w http.ResponseWriter, r *http.Request) error {
-	return unsupportedContainerEndpoint(r)
+	var config container.UpdateConfig
+	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+		return httpx.BadRequest(err)
+	}
+	response, err := cr.translator.ContainerUpdate(r.Context(), r.PathValue("name"), &config)
+	if err != nil {
+		return err
+	}
+	return httpx.WriteJSON(w, http.StatusOK, response)
 }
 
 func (cr *containerRouter) deleteContainers(w http.ResponseWriter, r *http.Request) error {

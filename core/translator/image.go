@@ -12,7 +12,6 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sysson/dink/core/types"
 	"github.com/sysson/dink/pkg/filters"
-	"github.com/sysson/syskit/httpx"
 )
 
 func (r *Registry) ImageDelete(ctx context.Context, name string, options imagebackend.RemoveOptions) ([]imagetypes.DeleteResponse, error) {
@@ -25,7 +24,7 @@ func (r *Registry) ImageDelete(ctx context.Context, name string, options imageba
 		return nil, err
 	}
 	if count := imageContainerCount(images, image.ID); count > 0 {
-		return nil, httpx.Conflict(fmt.Errorf("unable to remove %s: image is used by %d container(s)", name, count))
+		return nil, Conflict(fmt.Errorf("unable to remove %s: image is used by %d container(s)", name, count))
 	}
 	return r.registry.ImageDelete(ctx, name, options)
 }
@@ -46,8 +45,8 @@ func (r *Registry) GetImage(ctx context.Context, name string, options imagebacke
 	return r.registry.ImageInspect(ctx, name, imagebackend.ImageInspectOpts{Platform: options.Platform})
 }
 
-func (r *Registry) TagImage(context.Context, string, ociref.Reference) error {
-	return ErrNotImplemented
+func (r *Registry) TagImage(ctx context.Context, name string, ref ociref.Reference) error {
+	return r.registry.TagImage(ctx, name, ref)
 }
 
 func (r *Registry) LoadImage(context.Context, io.ReadCloser, []ocispec.Platform, io.Writer, bool) error {

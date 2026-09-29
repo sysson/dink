@@ -2,7 +2,6 @@ package translator
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -16,7 +15,6 @@ import (
 	"github.com/sysson/dink/pkg/filters"
 	registryv1 "github.com/sysson/dink/sdk/registry/v1"
 	"github.com/sysson/dink/sdk/registry/v1/registryconnect"
-	"github.com/sysson/syskit/httpx"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	kubernetesfake "k8s.io/client-go/kubernetes/fake"
@@ -86,7 +84,7 @@ func TestImageUsageInNamespace(t *testing.T) {
 	}
 	for _, name := range []string{"web", "sha256:used"} {
 		_, err := translator.ImageDelete(ctx, name, imagebackend.RemoveOptions{Force: true})
-		if httpErr, ok := errors.AsType[*httpx.HTTPError](err); !ok || httpErr.StatusCode != http.StatusConflict {
+		if !IsKind(err, KindConflict) {
 			t.Fatalf("ImageDelete(%q) = %v, want conflict", name, err)
 		}
 	}
@@ -157,8 +155,8 @@ func TestImagePrune(t *testing.T) {
 	}
 	for _, filter := range []filters.KeyValuePair{filters.Arg("dangling", "invalid"), filters.Arg("unsupported", "true")} {
 		_, err := translator.ImagePrune(ctx, filters.NewArgs(filter))
-		if httpErr, ok := errors.AsType[*httpx.HTTPError](err); !ok || httpErr.StatusCode != http.StatusBadRequest {
-			t.Fatalf("prune with %q = %v, want bad request", filter.Key, err)
+		if !IsKind(err, KindInvalidArgument) {
+			t.Fatalf("prune with %q = %v, want invalid-argument", filter.Key, err)
 		}
 	}
 }

@@ -21,8 +21,8 @@ func (cr *checkpointRouter) Routes() []router.Route {
 }
 func (cr *checkpointRouter) initRoutes() {
 	cr.routes = []router.Route{
-		router.NewGetRoute("/containers/{name:.*}/checkpoints", cr.postCheckpointCreate),
-		router.NewPostRoute("/containers/{name:.*}/checkpoints", cr.postCheckpointDelete, router.WithMinAPIVersion("1.31")),
-		router.NewDeleteRoute("/containers/{name}/checkpoints/{checkpoint}", cr.postCheckpointList),
+		router.NewGetRoute("/containers/{name:.*}/checkpoints", cr.getContainerCheckpoints),
+		router.NewPostRoute("/containers/{name:.*}/checkpoints", cr.postContainerCheckpoint, router.WithMinAPIVersion("1.31")),
+		router.NewDeleteRoute("/containers/{name}/checkpoints/{checkpoint}", cr.deleteContainerCheckpoint),
 	}
 }

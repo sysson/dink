@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"time"
 
 	"github.com/moby/moby/v2/daemon/server/backend"
-	"github.com/sysson/syskit/httpx"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -22,7 +20,7 @@ type containerAttachSession struct {
 
 func (d *Docker) ContainerResize(ctx context.Context, name string, height, width uint32) error {
 	if height > 65535 || width > 65535 {
-		return httpx.BadRequest(fmt.Errorf("container terminal dimensions exceed Kubernetes limits"))
+		return InvalidArgument(fmt.Errorf("container terminal dimensions exceed Kubernetes limits"))
 	}
 	deployment, err := d.findDeployment(ctx, name)
 	if err != nil {
@@ -32,7 +30,7 @@ func (d *Docker) ContainerResize(ctx context.Context, name string, height, width
 	d.attachMu.Lock()
 	defer d.attachMu.Unlock()
 	if len(d.attaches[key]) == 0 {
-		return httpx.Conflict(fmt.Errorf("container %s has no active TTY attach", name))
+		return Conflict(fmt.Errorf("container %s has no active TTY attach", name))
 	}
 	size := remotecommand.TerminalSize{Height: uint16(height), Width: uint16(width)}
 	for session := range d.attaches[key] {
@@ -51,21 +49,21 @@ func (d *Docker) ContainerResize(ctx context.Context, name string, height, width
 
 func (d *Docker) ContainerAttach(ctx context.Context, name string, config *backend.ContainerAttachConfig) (attachErr error) {
 	if config == nil || config.GetStreams == nil {
-		return httpx.BadRequest(fmt.Errorf("attach streams are required"))
+		return InvalidArgument(fmt.Errorf("attach streams are required"))
 	}
 	if !config.Stream || config.Logs || config.DetachKeys != "" {
-		return httpx.NewHTTPError(http.StatusNotImplemented, fmt.Errorf("attach requires a live stream without historical logs or detach keys"))
+		return Unsupported(fmt.Errorf("attach requires a live stream without historical logs or detach keys"))
 	}
 	deployment, err := d.findDeployment(ctx, name)
 	if err != nil {
 		return err
 	}
 	if len(deployment.Spec.Template.Spec.Containers) == 0 {
-		return httpx.Conflict(fmt.Errorf("container %s has no pod template", name))
+		return Conflict(fmt.Errorf("container %s has no pod template", name))
 	}
 	containerSpec := deployment.Spec.Template.Spec.Containers[0]
 	if config.UseStdin && !containerSpec.Stdin {
-		return httpx.BadRequest(fmt.Errorf("container stdin was not enabled at creation"))
+		return InvalidArgument(fmt.Errorf("container stdin was not enabled at creation"))
 	}
 	var session *containerAttachSession
 	if containerSpec.TTY {
@@ -193,7 +191,7 @@ func (d *Docker) waitAttachPod(ctx context.Context, deployment *appsv1.Deploymen
 			if hostConfig.AutoRemove {
 				return nil, nil
 			}
-			return nil, httpx.NotFound(fmt.Errorf("container %s no longer exists", deployment.Name))
+			return nil, NotFound(fmt.Errorf("container %s no longer exists", deployment.Name))
 		}
 		if err != nil {
 			return nil, kubeError(err)
