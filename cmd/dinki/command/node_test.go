@@ -18,17 +18,17 @@ func TestWriteHostsConfig(t *testing.T) {
 	if err := os.WriteFile(caFile, []byte("first CA"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeHostsConfig(certsDir, "localhost:5000", caFile); err != nil {
+	if err := writeHostsConfig(certsDir, "dinki.io", "127.0.0.1:5000", caFile); err != nil {
 		t.Fatal(err)
 	}
-	hostDir := filepath.Join(certsDir, "localhost:5000")
+	hostDir := filepath.Join(certsDir, "dinki.io")
 	hosts, err := os.ReadFile(filepath.Join(hostDir, "hosts.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`server = "https://localhost:5000"`,
-		`[host."https://localhost:5000"]`,
+		`server = "https://127.0.0.1:5000"`,
+		`[host."https://127.0.0.1:5000"]`,
 		`capabilities = ["pull", "resolve"]`,
 		`ca = "` + filepath.Join(hostDir, "ca.crt") + `"`,
 	} {
@@ -40,8 +40,12 @@ func TestWriteHostsConfig(t *testing.T) {
 	if err := os.WriteFile(caFile, []byte("rotated CA"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeHostsConfig(certsDir, "localhost:5000", caFile); err != nil {
+	if err := writeHostsConfig(certsDir, "dinki.io", "127.0.0.1:5001", caFile); err != nil {
 		t.Fatal(err)
+	}
+	hosts, err = os.ReadFile(filepath.Join(hostDir, "hosts.toml"))
+	if err != nil || !strings.Contains(string(hosts), `server = "https://127.0.0.1:5001"`) {
+		t.Fatalf("updated hosts.toml = %q, %v", hosts, err)
 	}
 	if ca, err := os.ReadFile(filepath.Join(hostDir, "ca.crt")); err != nil || string(ca) != "rotated CA" {
 		t.Fatalf("ca.crt = %q, %v; want the rotated CA", ca, err)

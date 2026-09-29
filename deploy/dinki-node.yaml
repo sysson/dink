@@ -1,9 +1,8 @@
 ---
-# Runs on every node so the container runtime can pull tenant images from
-# dinki as localhost:5000. It forwards 127.0.0.1:5000 to the dinki Service
-# (TLS stays end to end) and writes containerd's hosts.toml trusting dinki's
-# CA. containerd must have its registry config_path set to
-# /etc/containerd/certs.d.
+# Runs on every node so containerd can pull dinki.io images through a local
+# TLS proxy. By default it forwards 127.0.0.1:5000 to the dinki Service and
+# writes /etc/containerd/certs.d/dinki.io/hosts.toml pointing at that endpoint.
+# containerd must have its registry config_path set to /etc/containerd/certs.d.
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:

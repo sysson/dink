@@ -26,7 +26,7 @@ type nodeOptions struct {
 }
 
 // newNodeCommand runs on every node, as a hostNetwork DaemonSet. It lets
-// containerd pull from dinki as registryHost: it proxies that address to
+// containerd pull from dinki as registryHost: it proxies the local endpoint to
 // dinki's Service and writes the containerd hosts.toml trusting dinki's CA.
 func newNodeCommand() *cli.Command {
 	var opts nodeOptions
@@ -51,7 +51,7 @@ func newNodeCommand() *cli.Command {
 			&cli.StringFlag{
 				Name:        "registryHost",
 				Usage:       "Registry host that image references and pull secrets name",
-				Value:       "localhost:5000",
+				Value:       "dinki.io",
 				Sources:     cli.EnvVars("DINKI_NODE_REGISTRY_HOST"),
 				Destination: &opts.registryHost,
 			},
@@ -87,7 +87,7 @@ func serveNode(ctx context.Context, opts nodeOptions) error {
 	if opts.caPoll <= 0 {
 		return errors.New("caPoll must be positive")
 	}
-	if err := writeHostsConfig(opts.certsDir, opts.registryHost, opts.caFile); err != nil {
+	if err := writeHostsConfig(opts.certsDir, opts.registryHost, opts.listen, opts.caFile); err != nil {
 		return err
 	}
 	listener, err := net.Listen("tcp", opts.listen)
@@ -106,7 +106,7 @@ func serveNode(ctx context.Context, opts nodeOptions) error {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := writeHostsConfig(opts.certsDir, opts.registryHost, opts.caFile); err != nil {
+				if err := writeHostsConfig(opts.certsDir, opts.registryHost, opts.listen, opts.caFile); err != nil {
 					slog.ErrorContext(ctx, "refreshing containerd registry config", "error", err)
 				}
 			}
@@ -117,7 +117,7 @@ func serveNode(ctx context.Context, opts nodeOptions) error {
 
 // writeHostsConfig writes containerd's hosts.toml and CA for registryHost,
 // replacing files only when their content changed.
-func writeHostsConfig(certsDir, registryHost, caFile string) error {
+func writeHostsConfig(certsDir, registryHost, listen, caFile string) error {
 	ca, err := os.ReadFile(caFile)
 	if err != nil {
 		return fmt.Errorf("reading CA bundle: %w", err)
@@ -133,7 +133,7 @@ server = "https://%[1]s"
 [host."https://%[1]s"]
   capabilities = ["pull", "resolve"]
   ca = %[2]q
-`, registryHost, caPath)
+`, listen, caPath)
 	if err := replaceFile(caPath, ca); err != nil {
 		return err
 	}

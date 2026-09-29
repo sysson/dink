@@ -7,12 +7,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/netip"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/v2/daemon/server/backend"
@@ -73,10 +76,15 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 		return container.CreateResponse{}, httpx.BadRequest(fmt.Errorf("container configuration is required"))
 	}
 	// A missing image is reported as not found, which makes the docker CLI pull and retry.
-	image, err := d.podImage(ctx, id.Namespace, cfg.Config.Image)
+	image, imageConfig, err := d.podImage(ctx, id.Namespace, cfg.Config.Image)
 	if err != nil {
 		return container.CreateResponse{}, err
 	}
+	mergedConfig, err := mergeImageConfig(cfg.Config, imageConfig)
+	if err != nil {
+		return container.CreateResponse{}, httpx.BadRequest(err)
+	}
+	cfg.Config = mergedConfig
 	ports, serviceType, warnings, err := resolvePublishedPorts(cfg.Config, cfg.HostConfig)
 	if err != nil {
 		return container.CreateResponse{}, httpx.BadRequest(err)
@@ -93,9 +101,7 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 		return container.CreateResponse{}, httpx.BadRequest(fmt.Errorf("encoding container metadata: %w", err))
 	}
 	podLabels := map[string]string{"app": cfg.Name}
-	for key, value := range networkLabels {
-		podLabels[key] = value
-	}
+	maps.Copy(podLabels, networkLabels)
 	deployment, err := d.k8s.AppsV1().Deployments(id.Namespace).Create(ctx,
 		&appsv1.Deployment{
 			Name: cfg.Name,
@@ -105,7 +111,7 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 			Annotations: annotations,
 			Namespace:   id.Namespace,
 			Spec: appsv1.DeploymentSpec{
-				Replicas: new(int32(1)),
+				Replicas: new(int32(0)),
 				Selector: &metav1.LabelSelector{
 					MatchLabels: map[string]string{
 						"app": cfg.Name,
@@ -868,18 +874,16 @@ func containerDNSService(deployment *appsv1.Deployment, ports []publishedPort) *
 		spec.ClusterIP = corev1.ClusterIPNone
 	}
 	return &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      deployment.Name,
-			Namespace: deployment.Namespace,
-			Labels:    map[string]string{"app": deployment.Name},
-			OwnerReferences: []metav1.OwnerReference{{
-				APIVersion: "apps/v1",
-				Kind:       "Deployment",
-				Name:       deployment.Name,
-				UID:        deployment.UID,
-				Controller: new(true),
-			}},
-		},
+		Name:      deployment.Name,
+		Namespace: deployment.Namespace,
+		Labels:    map[string]string{"app": deployment.Name},
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: "apps/v1",
+			Kind:       "Deployment",
+			Name:       deployment.Name,
+			UID:        deployment.UID,
+			Controller: new(true),
+		}},
 		Spec: spec,
 	}
 }
@@ -899,18 +903,16 @@ func publishedPortsService(deployment *appsv1.Deployment, serviceType corev1.Ser
 		})
 	}
 	return &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      publishedPortsServiceName(deployment.Name),
-			Namespace: deployment.Namespace,
-			Labels:    map[string]string{"app": deployment.Name},
-			OwnerReferences: []metav1.OwnerReference{{
-				APIVersion: "apps/v1",
-				Kind:       "Deployment",
-				Name:       deployment.Name,
-				UID:        deployment.UID,
-				Controller: new(true),
-			}},
-		},
+		Name:      publishedPortsServiceName(deployment.Name),
+		Namespace: deployment.Namespace,
+		Labels:    map[string]string{"app": deployment.Name},
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: "apps/v1",
+			Kind:       "Deployment",
+			Name:       deployment.Name,
+			UID:        deployment.UID,
+			Controller: new(true),
+		}},
 		Spec: corev1.ServiceSpec{
 			Type:     serviceType,
 			Selector: map[string]string{"app": deployment.Name},
@@ -930,15 +932,144 @@ const (
 
 // podImage returns the reference nodes pull name from: the namespace's
 // repository on pullHost, pinned to the digest name resolves to now.
-func (d *Docker) podImage(ctx context.Context, namespace, name string) (string, error) {
+func (d *Docker) podImage(ctx context.Context, namespace, name string) (string, *container.Config, error) {
 	image, err := d.registry.ImageInspect(ctx, name, imagebackend.ImageInspectOpts{})
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if len(image.RepoDigests) == 0 {
-		return "", fmt.Errorf("image %s has no repository digest", name)
+		return "", nil, fmt.Errorf("image %s has no repository digest", name)
 	}
-	return d.pullHost + "/" + namespace + "/" + image.RepoDigests[0], nil
+	return d.pullHost + "/" + namespace + "/" + image.RepoDigests[0], containerConfigFromImage(image.Config), nil
+}
+
+func containerConfigFromImage(image *dockerspec.DockerOCIImageConfig) *container.Config {
+	if image == nil {
+		return nil
+	}
+	config := image.ImageConfig
+	result := &container.Config{
+		User:       config.User,
+		Env:        slices.Clone(config.Env),
+		Cmd:        slices.Clone(config.Cmd),
+		Entrypoint: slices.Clone(config.Entrypoint),
+		WorkingDir: config.WorkingDir,
+		Volumes:    maps.Clone(config.Volumes),
+		Labels:     maps.Clone(config.Labels),
+		StopSignal: config.StopSignal,
+		OnBuild:    slices.Clone(image.OnBuild),
+		Shell:      slices.Clone(image.Shell),
+	}
+	if image.Healthcheck != nil {
+		healthcheck := *image.Healthcheck
+		healthcheck.Test = slices.Clone(image.Healthcheck.Test)
+		result.Healthcheck = &healthcheck
+	}
+	if len(config.ExposedPorts) > 0 {
+		result.ExposedPorts = make(network.PortSet, len(config.ExposedPorts))
+		for value := range config.ExposedPorts {
+			port, err := network.ParsePort(value)
+			if err != nil {
+				continue
+			}
+			result.ExposedPorts[port] = struct{}{}
+		}
+	}
+	return result
+}
+
+func mergeImageConfig(request, image *container.Config) (*container.Config, error) {
+	if request == nil {
+		return nil, fmt.Errorf("container configuration is required")
+	}
+	merged := *request
+	merged.Env = slices.Clone(request.Env)
+	merged.Cmd = slices.Clone(request.Cmd)
+	merged.Entrypoint = slices.Clone(request.Entrypoint)
+	merged.ExposedPorts = maps.Clone(request.ExposedPorts)
+	merged.Labels = maps.Clone(request.Labels)
+	merged.Volumes = maps.Clone(request.Volumes)
+	if merged.ExposedPorts == nil {
+		merged.ExposedPorts = make(network.PortSet)
+	}
+	if merged.Labels == nil {
+		merged.Labels = make(map[string]string)
+	}
+	if merged.Volumes == nil {
+		merged.Volumes = make(map[string]struct{})
+	}
+	if image == nil {
+		return &merged, nil
+	}
+
+	if merged.User == "" {
+		merged.User = image.User
+	}
+	for port := range image.ExposedPorts {
+		merged.ExposedPorts[port] = struct{}{}
+	}
+	imageEnvKeys := make(map[string]struct{}, len(merged.Env))
+	for _, env := range merged.Env {
+		key, _, _ := strings.Cut(env, "=")
+		imageEnvKeys[key] = struct{}{}
+	}
+	for _, env := range image.Env {
+		key, _, _ := strings.Cut(env, "=")
+		if _, overridden := imageEnvKeys[key]; !overridden {
+			merged.Env = append(merged.Env, env)
+		}
+	}
+	for key, value := range image.Labels {
+		if _, overridden := merged.Labels[key]; !overridden {
+			merged.Labels[key] = value
+		}
+	}
+	if len(merged.Entrypoint) == 0 {
+		if len(merged.Cmd) == 0 {
+			merged.Cmd = slices.Clone(image.Cmd)
+		}
+		if request.Entrypoint == nil {
+			merged.Entrypoint = slices.Clone(image.Entrypoint)
+		}
+	}
+	if image.Healthcheck != nil {
+		if merged.Healthcheck == nil {
+			healthcheck := *image.Healthcheck
+			merged.Healthcheck = &healthcheck
+			if healthcheck.Test != nil {
+				merged.Healthcheck.Test = append([]string(nil), healthcheck.Test...)
+			}
+		} else {
+			if len(merged.Healthcheck.Test) == 0 {
+				merged.Healthcheck.Test = append([]string(nil), image.Healthcheck.Test...)
+			}
+			if merged.Healthcheck.Interval == 0 {
+				merged.Healthcheck.Interval = image.Healthcheck.Interval
+			}
+			if merged.Healthcheck.Timeout == 0 {
+				merged.Healthcheck.Timeout = image.Healthcheck.Timeout
+			}
+			if merged.Healthcheck.StartPeriod == 0 {
+				merged.Healthcheck.StartPeriod = image.Healthcheck.StartPeriod
+			}
+			if merged.Healthcheck.StartInterval == 0 {
+				merged.Healthcheck.StartInterval = image.Healthcheck.StartInterval
+			}
+			if merged.Healthcheck.Retries == 0 {
+				merged.Healthcheck.Retries = image.Healthcheck.Retries
+			}
+		}
+	}
+	if merged.WorkingDir == "" {
+		merged.WorkingDir = image.WorkingDir
+	}
+	for volume := range image.Volumes {
+		merged.Volumes[volume] = struct{}{}
+	}
+	if merged.StopSignal == "" {
+		merged.StopSignal = image.StopSignal
+	}
+	return &merged, nil
 }
 
 // ensurePullSecret creates the namespace's pull Secret if it is missing. An

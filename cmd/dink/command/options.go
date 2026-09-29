@@ -176,7 +176,7 @@ func (o *options) addFlags(flags *[]cli.Flag) {
 		},
 		&cli.StringFlag{
 			Name:        "registryPullHost",
-			Usage:       "Registry host nodes pull tenant images from (dinki serve-node)",
+			Usage:       "Stable registry name in tenant image references (dinki serve-node registryHost)",
 			DefaultText: o.defaults.Registry.PullHost,
 			Sources:     cli.EnvVars(types.DefaultEnvPrefix+"_REGISTRY_PULLHOST", types.DefaultEnvPrefix+"_REGISTRY_PULL_HOST"),
 			Destination: &o.cfg.Registry.PullHost,

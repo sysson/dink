@@ -9,11 +9,13 @@ import (
 	"testing"
 	"time"
 
+	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/v2/daemon/server/backend"
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/k8s"
 	"github.com/sysson/syskit/httpx"
@@ -29,6 +31,7 @@ import (
 
 type fakeRegistry struct {
 	digests map[string]string
+	configs map[string]*dockerspec.DockerOCIImageConfig
 	issued  int
 }
 
@@ -41,7 +44,9 @@ func (f *fakeRegistry) ImageInspect(_ context.Context, name string, _ imagebacke
 	if !ok {
 		return nil, errors.New("no such image: " + name)
 	}
-	return &imagebackend.InspectData{ID: digest, RepoDigests: []string{name + "@" + digest}}, nil
+	result := &imagebackend.InspectData{ID: digest, RepoDigests: []string{name + "@" + digest}}
+	result.Config = f.configs[name]
+	return result, nil
 }
 
 func (f *fakeRegistry) IssuePullCredential(ctx context.Context) (string, string, error) {
@@ -113,6 +118,74 @@ func TestContainerCreatePullsFromDinki(t *testing.T) {
 	}
 	if _, err := client.AppsV1().Deployments("tenant").Get(ctx, "missing", metav1.GetOptions{}); err == nil {
 		t.Fatal("deployment created for a missing image")
+	}
+}
+
+func TestContainerCreateMergesImageDefaults(t *testing.T) {
+	const digest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
+	client := kubernetesfake.NewClientset()
+	registry := &fakeRegistry{
+		digests: map[string]string{"nginx": digest},
+		configs: map[string]*dockerspec.DockerOCIImageConfig{
+			"nginx": {
+				ImageConfig: ocispec.ImageConfig{
+					User:       "1000:1000",
+					Env:        []string{"MODE=image", "IMAGE_ONLY=present"},
+					Entrypoint: []string{"/image-entrypoint"},
+					Cmd:        []string{"--image-default"},
+					WorkingDir: "/image-workdir",
+					ExposedPorts: map[string]struct{}{
+						"8080/tcp": {},
+					},
+					Labels: map[string]string{"from-image": "yes", "owner": "image"},
+				},
+			},
+		},
+	}
+	docker := &Docker{k8s: &k8s.KubeClient{Interface: client}, registry: registry, pullHost: "localhost:5000"}
+	_, err := docker.ContainerCreate(ctx, backend.ContainerCreateConfig{
+		Name: "web",
+		Config: &container.Config{
+			Image:  "nginx",
+			Env:    []string{"MODE=request", "REQUEST_ONLY=present"},
+			Labels: map[string]string{"owner": "request"},
+		},
+		HostConfig: &container.HostConfig{PublishAllPorts: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deployment, err := client.AppsV1().Deployments("tenant").Get(ctx, "web", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	podContainer := deployment.Spec.Template.Spec.Containers[0]
+	if podContainer.Command == nil || len(podContainer.Command) != 1 || podContainer.Command[0] != "/image-entrypoint" || len(podContainer.Args) != 1 || podContainer.Args[0] != "--image-default" || podContainer.WorkingDir != "/image-workdir" {
+		t.Fatalf("pod command defaults = %+v", podContainer)
+	}
+	env := make(map[string]string, len(podContainer.Env))
+	for _, value := range podContainer.Env {
+		env[value.Name] = value.Value
+	}
+	if env["MODE"] != "request" || env["IMAGE_ONLY"] != "present" || env["REQUEST_ONLY"] != "present" {
+		t.Fatalf("pod env defaults/overrides = %v", env)
+	}
+	if len(podContainer.Ports) != 1 || podContainer.Ports[0].ContainerPort != 8080 {
+		t.Fatalf("image exposed ports not published: %+v", podContainer.Ports)
+	}
+	service, err := client.CoreV1().Services("tenant").Get(ctx, publishedPortsServiceName("web"), metav1.GetOptions{})
+	if err != nil || service.Spec.Type != corev1.ServiceTypeNodePort || len(service.Spec.Ports) != 1 {
+		t.Fatalf("image exposed port Service = %+v, err = %v", service, err)
+	}
+
+	inspect, _, err := docker.ContainerInspect(ctx, "web", backend.ContainerInspectOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspect.Config.Labels["from-image"] != "yes" || inspect.Config.Labels["owner"] != "request" || inspect.Config.Env[0] != "MODE=request" {
+		t.Fatalf("merged inspect config = %+v", inspect.Config)
 	}
 }
 
@@ -196,7 +269,7 @@ func TestContainerInspectAndList(t *testing.T) {
 		t.Fatal(err)
 	}
 	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: "web-pod", Namespace: "tenant", Labels: deployment.Spec.Template.Labels},
+		Name: "web-pod", Namespace: "tenant", Labels: deployment.Spec.Template.Labels,
 		Status: corev1.PodStatus{
 			Phase:     corev1.PodRunning,
 			PodIP:     "10.1.2.3",
@@ -382,8 +455,8 @@ func TestContainerLifecycle(t *testing.T) {
 	docker := &Docker{k8s: &k8s.KubeClient{Interface: client}}
 	replicas := int32(1)
 	deployment, err := client.AppsV1().Deployments("tenant").Create(ctx, &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "tenant", UID: "12345678-1234-1234-1234-123456789abc"},
-		Spec:       appsv1.DeploymentSpec{Replicas: &replicas},
+		Name: "web", Namespace: "tenant", UID: "12345678-1234-1234-1234-123456789abc",
+		Spec: appsv1.DeploymentSpec{Replicas: &replicas},
 	}, metav1.CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -414,7 +487,7 @@ func TestContainerLifecycle(t *testing.T) {
 		t.Fatal("ContainerStop crossed tenant namespace")
 	}
 	for _, serviceName := range []string{"web", publishedPortsServiceName("web")} {
-		if _, err := client.CoreV1().Services("tenant").Create(ctx, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: serviceName, Namespace: "tenant"}}, metav1.CreateOptions{}); err != nil {
+		if _, err := client.CoreV1().Services("tenant").Create(ctx, &corev1.Service{Name: serviceName, Namespace: "tenant"}, metav1.CreateOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}
