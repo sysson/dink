@@ -26,16 +26,16 @@ func (ir *imageRouter) getImagesJSON(w http.ResponseWriter, r *http.Request) err
 		manifests = types.ParseBool(r.URL.Query().Get("manifests"), false)
 	}
 
-	var idenity bool
+	var identity bool
 	if versions.GreaterThanOrEqualTo(version, "1.54") {
-		idenity = types.ParseBool(r.URL.Query().Get("idenity"), false)
+		identity = types.ParseBool(r.URL.Query().Get("identity"), false)
 	}
 
 	images, err := ir.translator.Images(r.Context(), types.ImageListOptions{
 		Filters:    imageFilters,
 		SharedSize: sharedSize,
 		Manifests:  manifests,
-		Identity:   idenity,
+		Identity:   identity,
 	})
 	if err != nil {
 		return err
