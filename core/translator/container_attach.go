@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/moby/moby/v2/daemon/server/backend"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -22,7 +21,7 @@ func (d *Docker) ContainerResize(ctx context.Context, name string, height, width
 	if height > 65535 || width > 65535 {
 		return InvalidArgument(fmt.Errorf("container terminal dimensions exceed Kubernetes limits"))
 	}
-	deployment, err := d.findDeployment(ctx, name)
+	deployment, err := d.findContainer(ctx, name)
 	if err != nil {
 		return err
 	}
@@ -54,14 +53,14 @@ func (d *Docker) ContainerAttach(ctx context.Context, name string, config *backe
 	if !config.Stream || config.Logs || config.DetachKeys != "" {
 		return Unsupported(fmt.Errorf("attach requires a live stream without historical logs or detach keys"))
 	}
-	deployment, err := d.findDeployment(ctx, name)
+	deployment, err := d.findContainer(ctx, name)
 	if err != nil {
 		return err
 	}
-	if len(deployment.Spec.Template.Spec.Containers) == 0 {
+	if len(deployment.Template.Spec.Containers) == 0 {
 		return Conflict(fmt.Errorf("container %s has no pod template", name))
 	}
-	containerSpec := deployment.Spec.Template.Spec.Containers[0]
+	containerSpec := deployment.Template.Spec.Containers[0]
 	if config.UseStdin && !containerSpec.Stdin {
 		return InvalidArgument(fmt.Errorf("container stdin was not enabled at creation"))
 	}
@@ -145,7 +144,7 @@ func (d *Docker) ContainerAttach(ctx context.Context, name string, config *backe
 	return err
 }
 
-func (d *Docker) attachTargetExited(ctx context.Context, deployment *appsv1.Deployment, podName string) bool {
+func (d *Docker) attachTargetExited(ctx context.Context, deployment *containerWorkload, podName string) bool {
 	_, hostConfig, err := containerMetadata(deployment)
 	if err != nil || ctx.Err() != nil {
 		return false
@@ -161,7 +160,7 @@ func (d *Docker) attachTargetExited(ctx context.Context, deployment *appsv1.Depl
 		}
 		if err == nil {
 			for _, status := range pod.Status.ContainerStatuses {
-				if status.Name == deployment.Spec.Template.Spec.Containers[0].Name &&
+				if status.Name == deployment.Template.Spec.Containers[0].Name &&
 					(status.State.Terminated != nil || hostConfig.AutoRemove && status.LastTerminationState.Terminated != nil) {
 					return true
 				}
@@ -177,17 +176,17 @@ func (d *Docker) attachTargetExited(ctx context.Context, deployment *appsv1.Depl
 	}
 }
 
-func (d *Docker) waitAttachPod(ctx context.Context, deployment *appsv1.Deployment) (*corev1.Pod, error) {
+func (d *Docker) waitAttachPod(ctx context.Context, deployment *containerWorkload) (*corev1.Pod, error) {
 	_, hostConfig, err := containerMetadata(deployment)
 	if err != nil {
 		return nil, err
 	}
-	containerName := deployment.Spec.Template.Spec.Containers[0].Name
+	containerName := deployment.Template.Spec.Containers[0].Name
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		current, err := d.k8s.AppsV1().Deployments(deployment.Namespace).Get(ctx, deployment.Name, metav1.GetOptions{})
-		if apierrors.IsNotFound(err) || err == nil && current.UID != deployment.UID {
+		_, err := d.refreshWorkload(ctx, deployment)
+		if apierrors.IsNotFound(err) {
 			if hostConfig.AutoRemove {
 				return nil, nil
 			}

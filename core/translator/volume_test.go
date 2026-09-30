@@ -85,8 +85,12 @@ func TestVolumeRemovalAndPruneRespectWorkloadReferences(t *testing.T) {
 		t.Fatalf("remove in-use volume error = %v, want conflict", err)
 	}
 	report, err := docker.PruneVolumes(ctx, filters.NewArgs())
+	if err != nil || len(report.VolumesDeleted) != 0 {
+		t.Fatalf("default PruneVolumes() = %+v, %v; want named volumes kept", report, err)
+	}
+	report, err = docker.PruneVolumes(ctx, filters.NewArgs(filters.Arg("all", "true")))
 	if err != nil || len(report.VolumesDeleted) != 1 || report.VolumesDeleted[0] != "unused" {
-		t.Fatalf("PruneVolumes() = %+v, %v", report, err)
+		t.Fatalf("PruneVolumes(all) = %+v, %v", report, err)
 	}
 	if err := docker.RemoveVolume(ctx, "used", true); err != nil {
 		t.Fatalf("forced RemoveVolume() error = %v", err)
@@ -152,6 +156,18 @@ func TestContainerCreateMountsLocalVolumes(t *testing.T) {
 		pvc, err := client.CoreV1().PersistentVolumeClaims("tenant").Get(ctx, claim, metav1.GetOptions{})
 		if err != nil || pvc.Labels[volumeManagedLabel] != volumeManagedValue {
 			t.Fatalf("PVC %q = %+v, err = %v", claim, pvc, err)
+		}
+	}
+
+	if err := docker.ContainerRm(ctx, "web", &backend.ContainerRmConfig{ForceRemove: true, RemoveVolume: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.CoreV1().PersistentVolumeClaims("tenant").Get(ctx, mounts["/image-data"].Name, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("anonymous volume after rm -v: err = %v, want not found", err)
+	}
+	for _, claim := range []string{"cache-data", "logs"} {
+		if _, err := client.CoreV1().PersistentVolumeClaims("tenant").Get(ctx, claim, metav1.GetOptions{}); err != nil {
+			t.Fatalf("named volume %q removed by rm -v: %v", claim, err)
 		}
 	}
 }

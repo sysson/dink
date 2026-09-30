@@ -3,21 +3,15 @@ package translator
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"io"
 	"math"
 	"reflect"
-	"strings"
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/v2/daemon/server/backend"
-	"github.com/sysson/dink/core/identity"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/remotecommand"
@@ -43,48 +37,6 @@ func (d *Docker) streamPod(ctx context.Context, namespace, podName string, optio
 		return err
 	}
 	return executor.StreamWithContext(ctx, streams)
-}
-
-func (d *Docker) containerPods(ctx context.Context, deployment *appsv1.Deployment) ([]corev1.Pod, error) {
-	pods, err := d.k8s.CoreV1().Pods(deployment.Namespace).List(ctx, metav1.ListOptions{LabelSelector: "app=" + deployment.Name})
-	if err != nil {
-		return nil, kubeError(err)
-	}
-	var owned []corev1.Pod
-	for _, pod := range pods.Items {
-		if pod.DeletionTimestamp != nil {
-			continue
-		}
-		if len(pod.OwnerReferences) == 0 {
-			if deployment.CreationTimestamp.IsZero() && pod.CreationTimestamp.IsZero() {
-				owned = append(owned, pod)
-			}
-			continue
-		}
-		for _, owner := range pod.OwnerReferences {
-			if owner.Kind != "ReplicaSet" {
-				continue
-			}
-			replicaSet, err := d.k8s.AppsV1().ReplicaSets(deployment.Namespace).Get(ctx, owner.Name, metav1.GetOptions{})
-			if apierrors.IsNotFound(err) {
-				continue
-			}
-			if err != nil {
-				return nil, kubeError(err)
-			}
-			if replicaSet.UID != owner.UID {
-				continue
-			}
-			for _, parent := range replicaSet.OwnerReferences {
-				if parent.Kind == "Deployment" && parent.UID == deployment.UID {
-					owned = append(owned, pod)
-					break
-				}
-			}
-			break
-		}
-	}
-	return owned, nil
 }
 
 func (d *Docker) ContainerArchivePath(context.Context, string, string) (io.ReadCloser, *container.PathStat, error) {
@@ -115,43 +67,6 @@ func (d *Docker) ContainerTop(context.Context, string, string) (*container.TopRe
 
 func (d *Docker) CreateImageFromContainer(context.Context, string, *backend.CreateImageConfig) (string, error) {
 	return "", ErrNotImplemented
-}
-
-func (d *Docker) findDeployment(ctx context.Context, nameOrID string) (*appsv1.Deployment, error) {
-	id, ok := identity.FromContext(ctx)
-	if !ok {
-		return nil, Unauthenticated(fmt.Errorf("missing identity in context"))
-	}
-	if nameOrID == "" {
-		return nil, InvalidArgument(fmt.Errorf("container name or ID is required"))
-	}
-	deployments := d.k8s.AppsV1().Deployments(id.Namespace)
-	if deployment, err := deployments.Get(ctx, nameOrID, metav1.GetOptions{}); err == nil {
-		return deployment, nil
-	} else if !apierrors.IsNotFound(err) {
-		return nil, kubeError(err)
-	}
-
-	list, err := deployments.List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, kubeError(err)
-	}
-	var match *appsv1.Deployment
-	for index := range list.Items {
-		deployment := &list.Items[index]
-		dockerID := identity.DockerIDFromUID(deployment.UID)
-		if dockerID == "" || !strings.HasPrefix(dockerID, nameOrID) {
-			continue
-		}
-		if match != nil {
-			return nil, Conflict(fmt.Errorf("container ID %s is ambiguous", nameOrID))
-		}
-		match = deployment
-	}
-	if match == nil {
-		return nil, NotFound(fmt.Errorf("container %s not found", nameOrID))
-	}
-	return match, nil
 }
 
 // pullSecretName is the dockerconfigjson Secret, one per tenant namespace,
@@ -238,20 +153,4 @@ func publishedPortsServiceName(deploymentName string) string {
 	}
 	hash := sha256.Sum256([]byte(deploymentName))
 	return fmt.Sprintf("%.44s-%x%s", deploymentName, hash[:4], suffix)
-}
-
-func containerMetadata(deployment *appsv1.Deployment) (*container.Config, *container.HostConfig, error) {
-	config := &container.Config{}
-	if value := deployment.Annotations[containerConfigAnnotation]; value != "" {
-		if err := json.Unmarshal([]byte(value), config); err != nil {
-			return nil, nil, fmt.Errorf("decoding container config for %s: %w", deployment.Name, err)
-		}
-	}
-	hostConfig := &container.HostConfig{}
-	if value := deployment.Annotations[containerHostConfigAnnotation]; value != "" {
-		if err := json.Unmarshal([]byte(value), hostConfig); err != nil {
-			return nil, nil, fmt.Errorf("decoding host config for %s: %w", deployment.Name, err)
-		}
-	}
-	return config, hostConfig, nil
 }

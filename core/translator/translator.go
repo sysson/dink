@@ -11,11 +11,13 @@ import (
 	"sync"
 	"time"
 
+	imagetypes "github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	"github.com/sysson/dink/core/config"
 	"github.com/sysson/dink/core/k8s"
 	api "github.com/sysson/dink/core/registry/api"
+	"github.com/sysson/dink/core/types"
 	"github.com/sysson/syskit/logx"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,6 +29,7 @@ type dockerRegistry interface {
 	Authenticate(ctx context.Context, auth *registry.AuthConfig) (string, error)
 	ImageInspect(ctx context.Context, name string, options imagebackend.ImageInspectOpts) (*imagebackend.InspectData, error)
 	IssuePullCredential(ctx context.Context) (string, string, error)
+	Images(ctx context.Context, options types.ImageListOptions) ([]imagetypes.Summary, error)
 }
 
 type Translator struct {

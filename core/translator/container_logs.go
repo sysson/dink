@@ -15,7 +15,7 @@ import (
 )
 
 func (d *Docker) ContainerLogs(ctx context.Context, name string, options *backend.ContainerLogsOptions) (<-chan *backend.LogMessage, bool, error) {
-	deployment, err := d.findDeployment(ctx, name)
+	deployment, err := d.findContainer(ctx, name)
 	if err != nil {
 		return nil, false, err
 	}
@@ -39,7 +39,7 @@ func (d *Docker) ContainerLogs(ctx context.Context, name string, options *backen
 	if selected == nil {
 		return nil, false, NotFound(fmt.Errorf("no pod found for container %s", name))
 	}
-	if len(selected.Spec.Containers) == 0 || len(deployment.Spec.Template.Spec.Containers) == 0 {
+	if len(selected.Spec.Containers) == 0 || len(deployment.Template.Spec.Containers) == 0 {
 		return nil, false, NotFound(fmt.Errorf("no container found in pod for %s", name))
 	}
 	logOptions := &corev1.PodLogOptions{Container: selected.Spec.Containers[0].Name, Follow: options.Follow, Timestamps: true}
@@ -97,5 +97,5 @@ func (d *Docker) ContainerLogs(ctx context.Context, name string, options *backen
 			}
 		}
 	}()
-	return messages, deployment.Spec.Template.Spec.Containers[0].TTY, nil
+	return messages, deployment.Template.Spec.Containers[0].TTY, nil
 }

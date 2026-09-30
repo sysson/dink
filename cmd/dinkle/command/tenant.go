@@ -81,7 +81,7 @@ func tenantDeleteCmd(o *Options) *cli.Command {
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:        "force",
-				Usage:       "Delete the tenant even if it has running deployments",
+				Usage:       "Delete the tenant even if it has containers",
 				Destination: &force,
 			},
 		},

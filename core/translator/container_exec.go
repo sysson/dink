@@ -13,7 +13,6 @@ import (
 	"github.com/moby/moby/v2/daemon/server/backend"
 	"github.com/moby/term"
 	"github.com/sysson/dink/core/identity"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/remotecommand"
@@ -123,8 +122,8 @@ func (d *Docker) ContainerExecInspect(ctx context.Context, execID string) (*cont
 	}, nil
 }
 
-func (d *Docker) runningContainerPod(ctx context.Context, name string) (*appsv1.Deployment, *corev1.Pod, error) {
-	deployment, err := d.findDeployment(ctx, name)
+func (d *Docker) runningContainerPod(ctx context.Context, name string) (*containerWorkload, *corev1.Pod, error) {
+	deployment, err := d.findContainer(ctx, name)
 	if err != nil {
 		return nil, nil, err
 	}

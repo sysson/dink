@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/moby/moby/api/types/events"
+	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/api/types/registry"
 	systemtypes "github.com/moby/moby/api/types/system"
+	"github.com/moby/moby/v2/daemon/server/backend"
 	"github.com/sysson/dink/pkg/filters"
 )
 
@@ -207,5 +209,74 @@ func TestGetEventsFlushesHeadersBeforeFirstEvent(t *testing.T) {
 	}
 	if translator.closed != stream {
 		t.Fatal("event subscription was not closed after client cancellation")
+	}
+}
+
+type diskUsageTranslatorStub struct {
+	Translator
+	options backend.DiskUsageOptions
+}
+
+func (s *diskUsageTranslatorStub) SystemDiskUsage(_ context.Context, options backend.DiskUsageOptions) (*backend.DiskUsage, error) {
+	s.options = options
+	usage := &backend.DiskUsage{}
+	if options.Images {
+		usage.Images = &backend.ImageDiskUsage{TotalCount: 1, TotalSize: 10, Items: []image.Summary{{ID: "sha256:a", Size: 10}}}
+	}
+	if options.Volumes {
+		usage.Volumes = &backend.VolumeDiskUsage{TotalCount: 1}
+	}
+	return usage, nil
+}
+
+func TestGetDiskUsage(t *testing.T) {
+	for _, test := range []struct {
+		name, apiVersion, query string
+		check                   func(t *testing.T, body map[string]json.RawMessage, options backend.DiskUsageOptions)
+	}{
+		{
+			name: "legacy", apiVersion: "1.51",
+			check: func(t *testing.T, body map[string]json.RawMessage, options backend.DiskUsageOptions) {
+				if !options.Containers || !options.Images || !options.Volumes || !options.Verbose {
+					t.Fatalf("options = %+v, want everything verbose", options)
+				}
+				if string(body["LayersSize"]) != "10" || body["Images"] == nil || body["ImageUsage"] != nil {
+					t.Fatalf("legacy body = %v", body)
+				}
+			},
+		},
+		{
+			name: "typed verbose", apiVersion: "1.52", query: "type=image&verbose=1",
+			check: func(t *testing.T, body map[string]json.RawMessage, options backend.DiskUsageOptions) {
+				if options.Containers || !options.Images || options.Volumes || !options.Verbose {
+					t.Fatalf("options = %+v, want verbose images only", options)
+				}
+				if body["ImageUsage"] == nil || body["Images"] != nil || body["VolumeUsage"] != nil {
+					t.Fatalf("body = %v", body)
+				}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			translator := &diskUsageTranslatorStub{}
+			api := &systemRouter{translator: translator}
+			request := httptest.NewRequest(http.MethodGet, "/system/df?"+test.query, nil)
+			request.SetPathValue("version", test.apiVersion)
+			response := httptest.NewRecorder()
+			if err := api.getDiskUsage(response, request); err != nil {
+				t.Fatal(err)
+			}
+			var body map[string]json.RawMessage
+			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			test.check(t, body, translator.options)
+		})
+	}
+
+	api := &systemRouter{translator: &diskUsageTranslatorStub{}}
+	request := httptest.NewRequest(http.MethodGet, "/system/df?type=bogus", nil)
+	if err := api.getDiskUsage(httptest.NewRecorder(), request); err == nil {
+		t.Fatal("unknown object type was accepted")
 	}
 }
