@@ -86,11 +86,30 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 	if err := d.ensurePullSecret(ctx, id.Namespace); err != nil {
 		return container.CreateResponse{}, err
 	}
+	if err := d.ensureNamespaceIsolation(ctx, id.Namespace); err != nil {
+		return container.CreateResponse{}, err
+	}
 	annotations, err := containerAnnotations(cfg)
 	if err != nil {
 		return container.CreateResponse{}, InvalidArgument(fmt.Errorf("encoding container metadata: %w", err))
 	}
-	podLabels := map[string]string{"app": cfg.Name}
+	var endpoints map[string]*network.EndpointSettings
+	if cfg.NetworkingConfig != nil {
+		endpoints = cfg.NetworkingConfig.EndpointsConfig
+	}
+	aliases, err := aliasesFromEndpoints(endpoints)
+	if err != nil {
+		return container.CreateResponse{}, err
+	}
+	if hostNetwork && len(aliases) > 0 {
+		return container.CreateResponse{}, InvalidArgument(fmt.Errorf("network aliases cannot be used with host networking"))
+	}
+	if encoded, err := encodeContainerAliases(aliases); err != nil {
+		return container.CreateResponse{}, err
+	} else if encoded != "" {
+		annotations[containerAliasAnnotation] = encoded
+	}
+	podLabels := dinkPodLabels(cfg.Name)
 	maps.Copy(podLabels, networkLabels)
 	template := corev1.PodTemplateSpec{
 		Labels: podLabels,
@@ -123,7 +142,7 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 	meta := metav1.ObjectMeta{
 		Name:        cfg.Name,
 		Namespace:   id.Namespace,
-		Labels:      map[string]string{"app": cfg.Name},
+		Labels:      dinkPodLabels(cfg.Name),
 		Annotations: annotations,
 	}
 	var workload *containerWorkload
@@ -180,13 +199,26 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 			return container.CreateResponse{}, kubeError(err)
 		}
 	}
+	// Host-network Pods bypass NetworkPolicy, so they need no published-port rule.
+	if !hostNetwork {
+		if err := d.applyPublishedPortsPolicy(ctx, id.Namespace, cfg.Name, workload.ownerReference(), podPorts(ports)); err != nil {
+			_ = d.deleteWorkload(ctx, workload, true)
+			return container.CreateResponse{}, err
+		}
+	}
+	if len(aliases) > 0 {
+		if err := d.applyAliasServices(ctx, workload, distinctAliases(aliases), ports); err != nil {
+			_ = d.deleteWorkload(ctx, workload, true)
+			return container.CreateResponse{}, err
+		}
+	}
 	return container.CreateResponse{
 		ID:       identity.DockerIDFromUID(workload.UID),
 		Warnings: warnings,
 	}, nil
 }
 
-// ensureNameAvailable enforces Docker's unique container names across Deployments and Jobs.
+// ensureNameAvailable enforces Docker's unique container names across Deployments, Jobs and network aliases.
 func (d *Docker) ensureNameAvailable(ctx context.Context, namespace, name string) error {
 	inUse := Conflict(fmt.Errorf("the container name %q is already in use", name))
 	if _, err := d.k8s.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
@@ -195,6 +227,14 @@ func (d *Docker) ensureNameAvailable(ctx context.Context, namespace, name string
 		return kubeError(err)
 	}
 	if _, err := d.k8s.BatchV1().Jobs(namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
+		return inUse
+	} else if !apierrors.IsNotFound(err) {
+		return kubeError(err)
+	}
+	if service, err := d.k8s.CoreV1().Services(namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
+		if owner := service.Labels[aliasOfLabel]; owner != "" {
+			return Conflict(fmt.Errorf("the container name %q is already a network alias of %s", name, owner))
+		}
 		return inUse
 	} else if !apierrors.IsNotFound(err) {
 		return kubeError(err)

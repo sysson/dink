@@ -296,6 +296,10 @@ func (d *Docker) containerNetworkState(ctx context.Context, deployment *containe
 	if deployment.Template.Spec.HostNetwork {
 		return networks, nil
 	}
+	aliases, err := decodeContainerAliases(deployment.Annotations)
+	if err != nil {
+		return nil, err
+	}
 	var networkObjects *unstructured.UnstructuredList
 	if d.k8s.Dynamic != nil {
 		list, err := d.networkList(ctx)
@@ -329,6 +333,10 @@ func (d *Docker) containerNetworkState(ctx context.Context, deployment *containe
 			}
 		}
 		endpoint := &network.EndpointSettings{NetworkID: id}
+		if names := aliases[name]; len(names) > 0 {
+			endpoint.Aliases = names
+			endpoint.DNSNames = names
+		}
 		if ip, err := netip.ParseAddr(podIP); err == nil {
 			endpoint.IPAddress = ip
 		}
