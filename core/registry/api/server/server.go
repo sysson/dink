@@ -17,10 +17,10 @@ import (
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/registry"
 	"github.com/sysson/dink/core/registry/api"
+	registryv1 "github.com/sysson/dink/core/registry/api/v1"
+	"github.com/sysson/dink/core/registry/api/v1/registryconnect"
 	"github.com/sysson/dink/core/registry/pullauth"
 	"github.com/sysson/dink/core/types"
-	registryv1 "github.com/sysson/dink/sdk/registry/v1"
-	"github.com/sysson/dink/sdk/registry/v1/registryconnect"
 )
 
 // Querier executes GraphQL documents against the registry metadata. It is

@@ -1,0 +1,119 @@
+# Runs the example secrets plugin for tenant "dev" and registers it as provider
+# "files", so containers in "dev" can use FOO=se://files/<key>.
+#
+#   docker build -f examples/Dockerfile --build-arg PLUGIN=secrets-plugin -t dink-example-secrets .
+#   dinkle plugin issue files-plugin -n dev                 # writes Secret dev/files-plugin-tls
+#   kubectl apply -f examples/secrets-plugin/deploy.yaml
+#   dinkle plugin list -n dev
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: files-plugin-data
+  namespace: dev
+stringData:
+  password: s3cret
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: files-plugin
+  namespace: dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: files-plugin
+  template:
+    metadata:
+      labels:
+        app: files-plugin
+    spec:
+      # The plugin needs no Kubernetes API access.
+      automountServiceAccountToken: false
+      containers:
+        - name: plugin
+          image: dink-example-secrets
+          imagePullPolicy: IfNotPresent
+          args: ["-root", "/data", "-tls-dir", "/etc/plugin/tls"]
+          ports:
+            - name: plugin
+              containerPort: 8443
+            - name: health
+              containerPort: 8081
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+          volumeMounts:
+            - name: data
+              # Files are read from <root>/<namespace>/<key>.
+              mountPath: /data/dev
+              readOnly: true
+            - name: tls
+              mountPath: /etc/plugin/tls
+              readOnly: true
+      volumes:
+        - name: data
+          secret:
+            secretName: files-plugin-data
+        - name: tls
+          secret:
+            secretName: files-plugin-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: files-plugin
+  namespace: dev
+spec:
+  selector:
+    app: files-plugin
+  ports:
+    - name: plugin
+      port: 8443
+      targetPort: plugin
+---
+# Only dink may reach the plugin port, so the tenant's own containers cannot read its secrets directly.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: files-plugin
+  namespace: dev
+spec:
+  podSelector:
+    matchLabels:
+      app: files-plugin
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: dink-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: dink
+      ports:
+        - port: plugin
+    - ports:
+        - port: health
+---
+apiVersion: dink.io/v1alpha1
+kind: Plugin
+metadata:
+  # The provider name used in se://files/<key>.
+  name: files
+  namespace: dev
+spec:
+  types: [secrets]
+  service:
+    name: files-plugin
+    port: 8443
+  timeout: 2s

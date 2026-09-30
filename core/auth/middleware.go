@@ -5,22 +5,29 @@ import (
 	"net/http"
 
 	"github.com/sysson/dink/core/identity"
+	"github.com/sysson/dink/core/plugins"
 	"github.com/sysson/syskit/httpx"
 	"github.com/sysson/syskit/iox"
 )
 
-func Middleware(chain *AuthChain) func(next http.Handler) http.Handler {
+func Middleware(registry *plugins.Registry) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
-		if chain.Len() == 0 {
-			return next
-		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authMethod := "TLS"
 			id, ok := identity.FromContext(r.Context())
 			if !ok {
 				authMethod = ""
 			}
-			authCtx := NewCtx(chain, &Request{
+			authPlugins, err := registry.Auth(r.Context(), id.Namespace)
+			if err != nil {
+				_ = httpx.Forbidden(fmt.Errorf("authorization plugins unavailable: %w", err)).WriteJSON(w)
+				return
+			}
+			if len(authPlugins) == 0 {
+				next.ServeHTTP(w, r)
+				return
+			}
+			authCtx := NewCtx(authPlugins, &Request{
 				Namespace:       id.Namespace,
 				User:            id.CommonName,
 				UserAuthNMethod: authMethod,

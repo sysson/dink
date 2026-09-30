@@ -129,20 +129,7 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 	}
 	translator, err := translator.New(ctx, c.cfg)
 	if err != nil {
-		return fmt.Errorf("unable to create Kubernetes client: %w", err)
-	}
-
-	ap := []auth.AuthPlugin{}
-	for _, p := range c.cfg.Auth.Plugins {
-		ap = append(ap, auth.AuthPlugin{
-			Name: p.Name,
-			Path: p.Path,
-		})
-	}
-
-	authChain, err := auth.NewChain(ap)
-	if err != nil {
-		return fmt.Errorf("configuring auth plugins: %w", err)
+		return fmt.Errorf("unable to create translator: %w", err)
 	}
 
 	httpServer := &http.Server{
@@ -200,7 +187,7 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 		SystemNamespace:  c.cfg.Kubernetes.SystemNamespace,
 		Ensurer:          translator,
 	}))
-	server.Use(auth.Middleware(authChain))
+	server.Use(auth.Middleware(translator.Plugins()))
 	router := buildRouters(translator)
 	gs := grpc.NewServer()
 

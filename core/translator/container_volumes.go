@@ -15,10 +15,9 @@ import (
 
 // containerVolumes also returns the claims it created as anonymous volumes.
 func (d *Docker) containerVolumes(ctx context.Context, config *container.Config, hostConfig *container.HostConfig) ([]corev1.Volume, []corev1.VolumeMount, []string, error) {
+	defaultDriver := ""
 	if hostConfig != nil {
-		if hostConfig.VolumeDriver != "" && hostConfig.VolumeDriver != "local" {
-			return nil, nil, nil, Unsupported(fmt.Errorf("volume driver %q is not supported", hostConfig.VolumeDriver))
-		}
+		defaultDriver = hostConfig.VolumeDriver
 		if len(hostConfig.Tmpfs) > 0 || len(hostConfig.VolumesFrom) > 0 {
 			return nil, nil, nil, Unsupported(fmt.Errorf("tmpfs and volumes-from mounts are not supported"))
 		}
@@ -26,11 +25,11 @@ func (d *Docker) containerVolumes(ctx context.Context, config *container.Config,
 	volumesByName := make(map[string]corev1.Volume)
 	mountsByTarget := make(map[string]corev1.VolumeMount)
 	var anonymous []string
-	addMount := func(target, source string, readOnly bool, subPath string) error {
+	addMount := func(target, source string, readOnly bool, subPath, driver string, driverOpts map[string]string) error {
 		if !path.IsAbs(target) {
 			return InvalidArgument(fmt.Errorf("volume mount target %q must be an absolute path", target))
 		}
-		pvcName, err := d.ensureContainerVolume(ctx, source)
+		pvcName, err := d.ensureContainerVolume(ctx, source, driver, driverOpts)
 		if err != nil {
 			return err
 		}
@@ -55,14 +54,12 @@ func (d *Docker) containerVolumes(ctx context.Context, config *container.Config,
 			}
 			switch mountType {
 			case mount.TypeVolume:
+				driver, driverOpts := defaultDriver, map[string]string(nil)
 				if requested.VolumeOptions != nil && requested.VolumeOptions.DriverConfig != nil {
-					driver := requested.VolumeOptions.DriverConfig.Name
-					if driver != "" && driver != "local" {
-						return nil, nil, nil, Unsupported(fmt.Errorf("volume driver %q is not supported", driver))
+					if requested.VolumeOptions.DriverConfig.Name != "" {
+						driver = requested.VolumeOptions.DriverConfig.Name
 					}
-					if len(requested.VolumeOptions.DriverConfig.Options) > 0 {
-						return nil, nil, nil, Unsupported(fmt.Errorf("volume driver options are not supported"))
-					}
+					driverOpts = requested.VolumeOptions.DriverConfig.Options
 				}
 				subPath := ""
 				if requested.VolumeOptions != nil {
@@ -71,7 +68,7 @@ func (d *Docker) containerVolumes(ctx context.Context, config *container.Config,
 					}
 					subPath = requested.VolumeOptions.Subpath
 				}
-				if err := addMount(requested.Target, requested.Source, requested.ReadOnly, subPath); err != nil {
+				if err := addMount(requested.Target, requested.Source, requested.ReadOnly, subPath, driver, driverOpts); err != nil {
 					return nil, nil, nil, err
 				}
 			case mount.TypeBind:
@@ -101,7 +98,7 @@ func (d *Docker) containerVolumes(ctx context.Context, config *container.Config,
 					}
 				}
 			}
-			if err := addMount(target, source, readOnly, ""); err != nil {
+			if err := addMount(target, source, readOnly, "", defaultDriver, nil); err != nil {
 				return nil, nil, nil, err
 			}
 		}
@@ -110,7 +107,7 @@ func (d *Docker) containerVolumes(ctx context.Context, config *container.Config,
 		if _, overridden := mountsByTarget[target]; overridden {
 			continue
 		}
-		if err := addMount(target, "", false, ""); err != nil {
+		if err := addMount(target, "", false, "", defaultDriver, nil); err != nil {
 			return nil, nil, nil, err
 		}
 	}
@@ -136,7 +133,8 @@ func (d *Docker) containerVolumes(ctx context.Context, config *container.Config,
 	return volumes, volumeMounts, anonymous, nil
 }
 
-func (d *Docker) ensureContainerVolume(ctx context.Context, name string) (string, error) {
+// ensureContainerVolume reuses a named volume or creates it with driver, as Docker does on first mount.
+func (d *Docker) ensureContainerVolume(ctx context.Context, name, driver string, driverOpts map[string]string) (string, error) {
 	var labels map[string]string
 	if name == "" {
 		name = generatedContainerName()
@@ -149,7 +147,7 @@ func (d *Docker) ensureContainerVolume(ctx context.Context, name string) (string
 	if !IsKind(err, KindNotFound) {
 		return "", err
 	}
-	_, err = d.CreateVolume(ctx, volumetypes.CreateRequest{Name: name, Labels: labels})
+	_, err = d.CreateVolume(ctx, volumetypes.CreateRequest{Name: name, Labels: labels, Driver: driver, DriverOpts: driverOpts})
 	if err != nil {
 		if !IsKind(err, KindConflict) {
 			return "", err

@@ -47,6 +47,8 @@ func New(stdout, stderr io.Writer) (*cli.Command, error) {
 			serverCmd(o),
 			tenantCmd(o),
 			clientCmd(o),
+			pluginCmd(o),
+			secretCmd(o),
 		},
 	}, nil
 }
