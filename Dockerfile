@@ -22,12 +22,14 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     chown 65532:65532 /out/dinki-data
 
 FROM gcr.io/distroless/static-debian12:nonroot AS dink
+LABEL org.opencontainers.image.description="Dink translates Docker Engine API requests into Kubernetes workloads."
 COPY --from=build /out/dink /usr/local/bin/dink
 USER 65532:65532
 EXPOSE 2375 2376
 ENTRYPOINT ["/usr/local/bin/dink"]
 
 FROM gcr.io/distroless/static-debian12:nonroot AS dinki
+LABEL org.opencontainers.image.description="Dinki is the tenant OCI registry used by Dink to store and serve container images."
 COPY --from=build /out/dinki /usr/local/bin/dinki
 COPY --from=build --chown=65532:65532 /out/dinki-data /var/lib/dinki
 USER 65532:65532

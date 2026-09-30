@@ -1,6 +1,8 @@
 .github
 .devcontainer
 .certs
+deploy
+docs
 *.md
 LICENSE
 Tiltfile
