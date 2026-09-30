@@ -1,0 +1,100 @@
+# Runs the example auth plugin for every tenant. Place it in a tenant
+# namespace instead to apply it to that tenant only.
+#
+#   docker build -f examples/Dockerfile --build-arg PLUGIN=auth-plugin -t dink-example-auth .
+#   dinkle plugin issue no-privileged                       # writes Secret dink-system/no-privileged-tls
+#   kubectl apply -f examples/auth-plugin/deploy.yaml
+#   dinkle plugin add no-privileged --type auth             # or apply the Plugin below
+#   dinkle plugin list
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: no-privileged
+  namespace: dink-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: no-privileged
+  template:
+    metadata:
+      labels:
+        app: no-privileged
+    spec:
+      # The plugin needs no Kubernetes API access.
+      automountServiceAccountToken: false
+      containers:
+        - name: plugin
+          image: dink-example-auth
+          imagePullPolicy: IfNotPresent
+          args: ["-tls-dir", "/etc/plugin/tls"]
+          ports:
+            - name: plugin
+              containerPort: 8443
+            - name: health
+              containerPort: 8081
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/plugin/tls
+              readOnly: true
+      volumes:
+        - name: tls
+          secret:
+            secretName: no-privileged-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: no-privileged
+  namespace: dink-system
+spec:
+  selector:
+    app: no-privileged
+  ports:
+    - name: plugin
+      port: 8443
+      targetPort: plugin
+---
+# Only dink may reach the plugin port; mutual TLS enforces the same thing.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: no-privileged
+  namespace: dink-system
+spec:
+  podSelector:
+    matchLabels:
+      app: no-privileged
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: dink
+      ports:
+        - port: plugin
+    - ports:
+        - port: health
+---
+apiVersion: dink.io/v1alpha1
+kind: Plugin
+metadata:
+  name: no-privileged
+  namespace: dink-system
+spec:
+  types: [auth]
+  service:
+    name: no-privileged
+    port: 8443

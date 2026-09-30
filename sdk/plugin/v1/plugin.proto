@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package sdk.plugin.v1;
+
+option go_package = "github.com/sysson/dink/sdk/plugin/v1;plugin";
+
+// PluginService is served by every plugin. dink calls Info to validate a
+// plugin before routing any requests to it.
+service PluginService {
+  rpc Info(InfoRequest) returns (InfoResponse);
+}
+
+enum PluginType {
+  PLUGIN_TYPE_UNSPECIFIED = 0;
+  PLUGIN_TYPE_AUTH = 1;
+  PLUGIN_TYPE_SECRETS = 2;
+  PLUGIN_TYPE_VOLUMES = 3;
+}
+
+message InfoRequest {}
+
+message InfoResponse {
+  string name = 1;
+  string version = 2;
+  // api_version is the SDK plugin API version the plugin was built against.
+  uint32 api_version = 3;
+  repeated PluginType types = 4;
+}

@@ -16,7 +16,9 @@ import (
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	"github.com/sysson/dink/core/config"
 	"github.com/sysson/dink/core/k8s"
+	"github.com/sysson/dink/core/plugins"
 	api "github.com/sysson/dink/core/registry/api"
+	"github.com/sysson/dink/core/secrets"
 	"github.com/sysson/dink/core/types"
 	"github.com/sysson/syskit/logx"
 	corev1 "k8s.io/api/core/v1"
@@ -38,11 +40,14 @@ type Translator struct {
 	swarm    Swarm
 	builder  Builder
 	registry Registry
+	plugins  *plugins.Registry
 }
 
 type Docker struct {
 	k8s              *k8s.KubeClient
 	registry         dockerRegistry
+	secrets          *secrets.Resolver
+	plugins          *plugins.Registry
 	defaultResources config.ResourceDefaults
 	nodePlacement    config.NodePlacement
 	// pullHost is where nodes pull tenant images from.
@@ -81,11 +86,32 @@ func New(ctx context.Context, cfg *config.Config) (*Translator, error) {
 
 	r := newRegistryService(cfg)
 
+	static := make([]plugins.Static, 0, len(cfg.Auth.Plugins))
+	for _, p := range cfg.Auth.Plugins {
+		static = append(static, plugins.Static{Name: p.Name, Types: []plugins.Type{plugins.TypeAuth}, Endpoint: p.Path})
+	}
+	pluginRegistry, err := plugins.New(cfg.Kubernetes.SystemNamespace, static, pluginTLSConfig(ctx, cfg))
+	if err != nil {
+		return nil, err
+	}
+	if err := pluginRegistry.Watch(ctx, k.Dynamic); err != nil {
+		return nil, fmt.Errorf("loading plugins: %w", err)
+	}
+
 	t := &Translator{
-		k8s:      k,
-		docker:   Docker{k8s: k, registry: r, pullHost: cfg.Registry.PullHost, defaultResources: cfg.Kubernetes.DefaultResources, nodePlacement: cfg.Kubernetes.NodePlacement},
+		k8s: k,
+		docker: Docker{
+			k8s:              k,
+			registry:         r,
+			secrets:          secrets.NewResolver(k, pluginRegistry),
+			plugins:          pluginRegistry,
+			pullHost:         cfg.Registry.PullHost,
+			defaultResources: cfg.Kubernetes.DefaultResources,
+			nodePlacement:    cfg.Kubernetes.NodePlacement,
+		},
 		builder:  Builder{k8s: k},
 		registry: Registry{registry: r, k8s: k},
+		plugins:  pluginRegistry,
 	}
 	t.swarm = Swarm{k8s: k, docker: &t.docker, systemNamespace: cfg.Kubernetes.SystemNamespace}
 
@@ -116,6 +142,10 @@ func (t *Translator) Builder() *Builder {
 
 func (t *Translator) Registry() *Registry {
 	return &t.registry
+}
+
+func (t *Translator) Plugins() *plugins.Registry {
+	return t.plugins
 }
 
 func (t *Translator) EnsureNamespace(ctx context.Context, namespace string) error {
@@ -183,6 +213,31 @@ func newRegistryHTTPClient(cfg *config.Config) (*http.Client, error) {
 		TLSHandshakeTimeout: 10 * time.Second,
 		IdleConnTimeout:     90 * time.Second,
 	}}, nil
+}
+
+// pluginTLSConfig presents dink's own certificate to plugins and trusts only dink's CA,
+// never the system roots. Without them only plaintext plugins can be used.
+func pluginTLSConfig(ctx context.Context, cfg *config.Config) *tls.Config {
+	certificate, err := tls.LoadX509KeyPair(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+	if err != nil {
+		logx.G(ctx).WithError(err).Warn("no TLS client certificate for plugins; only insecure plugins can be used")
+		return nil
+	}
+	caPEM, err := os.ReadFile(cfg.TLS.ClientCAFile)
+	if err != nil {
+		logx.G(ctx).WithError(err).Warn("no CA for plugins; only insecure plugins can be used")
+		return nil
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(caPEM) {
+		logx.G(ctx).Warn("no certificates in the plugin CA; only insecure plugins can be used", "file", cfg.TLS.ClientCAFile)
+		return nil
+	}
+	return &tls.Config{
+		MinVersion:   tls.VersionTLS13,
+		RootCAs:      roots,
+		Certificates: []tls.Certificate{certificate},
+	}
 }
 
 func plaintextHTTP2() *http.Protocols {

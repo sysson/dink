@@ -17,6 +17,7 @@ import (
 	"github.com/moby/moby/v2/daemon/server/swarmbackend"
 	"github.com/sysson/dink/core/config"
 	"github.com/sysson/dink/core/identity"
+	"github.com/sysson/dink/core/secrets"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -74,13 +75,19 @@ func (s *Swarm) CreateService(ctx context.Context, spec swarmtypes.ServiceSpec, 
 	if err != nil {
 		return nil, err
 	}
-	deployment, services, warnings, err := s.buildService(ctx, namespace, spec)
+	deployment, services, env, warnings, err := s.buildService(ctx, namespace, spec)
 	if err != nil {
 		return nil, err
 	}
 	created, err := s.k8s.AppsV1().Deployments(namespace).Create(ctx, deployment, metav1.CreateOptions{})
 	if err != nil {
 		return nil, kubeError(err)
+	}
+	// A Pod scheduled before its env Secret exists is retried by the kubelet.
+	owner := deploymentOwnerReference(created.Name, created.UID)
+	if err := s.docker.applyEnvSecret(ctx, namespace, spec.Name, env, owner); err != nil {
+		_ = s.k8s.AppsV1().Deployments(namespace).Delete(ctx, created.Name, metav1.DeleteOptions{})
+		return nil, err
 	}
 	if err := s.applyServiceEndpoints(ctx, created, services); err != nil {
 		_ = s.k8s.AppsV1().Deployments(namespace).Delete(ctx, created.Name, metav1.DeleteOptions{})
@@ -109,14 +116,26 @@ func (s *Swarm) UpdateService(ctx context.Context, idOrName string, version uint
 		return nil, InvalidArgument(fmt.Errorf("renaming a service is not supported"))
 	}
 	spec.Name = current.Name
-	deployment, services, warnings, err := s.buildService(ctx, namespace, spec)
+	deployment, services, env, warnings, err := s.buildService(ctx, namespace, spec)
 	if err != nil {
 		return nil, err
+	}
+	owner := deploymentOwnerReference(current.Name, current.UID)
+	// New values must be stored before the rollout; a no longer needed Secret is removed after it.
+	if len(env.Values) > 0 {
+		if err := s.docker.applyEnvSecret(ctx, namespace, spec.Name, env, owner); err != nil {
+			return nil, err
+		}
 	}
 	deployment.ResourceVersion = resourceVersionFor(version)
 	updated, err := s.k8s.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
 	if err != nil {
 		return nil, kubeError(err)
+	}
+	if len(env.Values) == 0 {
+		if err := s.docker.applyEnvSecret(ctx, namespace, spec.Name, env, owner); err != nil {
+			return nil, err
+		}
 	}
 	if err := s.applyServiceEndpoints(ctx, updated, services); err != nil {
 		return nil, err
@@ -305,49 +324,58 @@ func insertServiceDefaults(spec *swarmtypes.ServiceSpec) {
 
 // buildService translates a Docker ServiceSpec into a Deployment plus the
 // Services that publish it.
-func (s *Swarm) buildService(ctx context.Context, namespace string, spec swarmtypes.ServiceSpec) (*appsv1.Deployment, []*corev1.Service, []string, error) {
+func (s *Swarm) buildService(ctx context.Context, namespace string, spec swarmtypes.ServiceSpec) (*appsv1.Deployment, []*corev1.Service, secrets.Env, []string, error) {
+	var noEnv secrets.Env
 	if err := validateSwarmName("service", spec.Name); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, noEnv, nil, err
 	}
 	replicas, err := serviceReplicas(spec.Mode)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, noEnv, nil, err
 	}
 	containerSpec := spec.TaskTemplate.ContainerSpec
 	if containerSpec == nil {
-		return nil, nil, nil, InvalidArgument(fmt.Errorf("service task template requires a container spec"))
+		return nil, nil, noEnv, nil, InvalidArgument(fmt.Errorf("service task template requires a container spec"))
 	}
 	switch spec.TaskTemplate.Runtime {
 	case "", swarmtypes.RuntimeContainer:
 	default:
-		return nil, nil, nil, Unsupported(fmt.Errorf("task runtime %q is not supported; only container tasks map to Kubernetes Pods", spec.TaskTemplate.Runtime))
+		return nil, nil, noEnv, nil, Unsupported(fmt.Errorf("task runtime %q is not supported; only container tasks map to Kubernetes Pods", spec.TaskTemplate.Runtime))
+	}
+	id, ok := identity.FromContext(ctx)
+	if !ok {
+		return nil, nil, noEnv, nil, Unauthenticated(fmt.Errorf("missing identity in context"))
+	}
+	env, err := s.docker.resolveEnv(ctx, id, spec.Name, containerSpec.Env)
+	if err != nil {
+		return nil, nil, noEnv, nil, err
 	}
 	image, imageConfig, err := s.docker.podImage(ctx, namespace, containerSpec.Image)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, noEnv, nil, err
 	}
 	if err := s.docker.ensurePullSecret(ctx, namespace); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, noEnv, nil, err
 	}
 	if err := s.docker.ensureNamespaceIsolation(ctx, namespace); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, noEnv, nil, err
 	}
 	warnings := serviceWarnings(spec)
 
 	volumes, mounts, err := s.serviceMounts(ctx, containerSpec)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, noEnv, nil, err
 	}
 	resources, err := serviceResources(spec.TaskTemplate.Resources)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, noEnv, nil, err
 	}
 	defaults, err := s.docker.tenantResourceDefaults(ctx, namespace)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, noEnv, nil, err
 	}
 	if err := applyServiceResourceDefaults(&resources, defaults); err != nil {
-		return nil, nil, nil, InvalidArgument(err)
+		return nil, nil, noEnv, nil, InvalidArgument(err)
 	}
 	shell := []string(nil)
 	if imageConfig != nil {
@@ -355,28 +383,28 @@ func (s *Swarm) buildService(ctx context.Context, namespace string, spec swarmty
 	}
 	probe, probeWarnings, err := dockerHealthProbe(containerSpec.Healthcheck, shell)
 	if err != nil {
-		return nil, nil, nil, InvalidArgument(err)
+		return nil, nil, noEnv, nil, InvalidArgument(err)
 	}
 	warnings = append(warnings, probeWarnings...)
 	ports, portWarnings, err := servicePorts(spec.EndpointSpec)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, noEnv, nil, err
 	}
 	warnings = append(warnings, portWarnings...)
 	networkLabels, err := s.serviceNetworkLabels(ctx, spec, hasIngressPorts(ports))
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, noEnv, nil, err
 	}
 	aliases, err := serviceAliases(spec)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, noEnv, nil, err
 	}
 	if slices.Contains(aliases, spec.Name) {
-		return nil, nil, nil, InvalidArgument(fmt.Errorf("network alias %q duplicates the service name", spec.Name))
+		return nil, nil, noEnv, nil, InvalidArgument(fmt.Errorf("network alias %q duplicates the service name", spec.Name))
 	}
 	specJSON, err := json.Marshal(spec)
 	if err != nil {
-		return nil, nil, nil, InvalidArgument(fmt.Errorf("encoding service spec: %w", err))
+		return nil, nil, noEnv, nil, InvalidArgument(fmt.Errorf("encoding service spec: %w", err))
 	}
 
 	labels := map[string]string{"app": spec.Name, swarmKindLabel: swarmServiceKind}
@@ -388,7 +416,7 @@ func (s *Swarm) buildService(ctx context.Context, namespace string, spec swarmty
 		Image:           image,
 		Command:         containerSpec.Command,
 		Args:            containerSpec.Args,
-		Env:             containerEnv(containerSpec.Env),
+		Env:             env.Vars,
 		WorkingDir:      containerSpec.Dir,
 		TTY:             containerSpec.TTY,
 		Stdin:           containerSpec.OpenStdin,
@@ -431,9 +459,12 @@ func (s *Swarm) buildService(ctx context.Context, namespace string, spec swarmty
 	if len(containerSpec.Sysctls) > 0 {
 		template.Spec.SecurityContext = &corev1.PodSecurityContext{Sysctls: podSysctls(containerSpec.Sysctls)}
 	}
+	if hash := envHash(env.Values); hash != "" {
+		template.Annotations = map[string]string{envHashAnnotation: hash}
+	}
 	constraints, err := placementRequirements(spec.TaskTemplate.Placement)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, noEnv, nil, err
 	}
 	applyNodePlacement(&template.Spec, s.docker.nodePlacement, namespace)
 	appendNodeSelectorRequirements(&template.Spec, constraints)
@@ -450,7 +481,7 @@ func (s *Swarm) buildService(ctx context.Context, namespace string, spec swarmty
 			Template: template,
 		},
 	}
-	return deployment, serviceEndpointServices(namespace, spec.Name, ports, aliases), warnings, nil
+	return deployment, serviceEndpointServices(namespace, spec.Name, ports, aliases), env, warnings, nil
 }
 
 // serviceAliases collects the network aliases a service asks for. Kubernetes
@@ -527,7 +558,11 @@ func (s *Swarm) serviceMounts(ctx context.Context, spec *swarmtypes.ContainerSpe
 		}
 		switch mountType {
 		case mount.TypeVolume:
-			claim, err := s.docker.ensureContainerVolume(ctx, requested.Source)
+			driver, driverOpts := "", map[string]string(nil)
+			if requested.VolumeOptions != nil && requested.VolumeOptions.DriverConfig != nil {
+				driver, driverOpts = requested.VolumeOptions.DriverConfig.Name, requested.VolumeOptions.DriverConfig.Options
+			}
+			claim, err := s.docker.ensureContainerVolume(ctx, requested.Source, driver, driverOpts)
 			if err != nil {
 				return nil, nil, err
 			}

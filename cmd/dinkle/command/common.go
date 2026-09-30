@@ -10,6 +10,7 @@ import (
 
 	"github.com/sysson/dink/cmd/dinkle/store"
 	"github.com/sysson/dink/core/k8s"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -41,6 +42,22 @@ type Options struct {
 	client        kubernetes.Interface
 	clientErr     error
 	newKubeClient func(context.Context, string) (kubernetes.Interface, error)
+	// newDynamicClient overrides the dynamic client, which otherwise comes from the kube client.
+	newDynamicClient func(context.Context, string) (dynamic.Interface, error)
+}
+
+func (o *Options) dynamicClient(ctx context.Context) (dynamic.Interface, error) {
+	if o.newDynamicClient != nil {
+		return o.newDynamicClient(ctx, o.kubeConfig)
+	}
+	kc, err := o.kubeClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if k, ok := kc.(*k8s.KubeClient); ok {
+		return k.Dynamic, nil
+	}
+	return nil, errors.New("kube client has no dynamic client")
 }
 
 func (o *Options) kubeClient(ctx context.Context) (kubernetes.Interface, error) {

@@ -16,7 +16,7 @@ import (
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sysson/dink/core/identity"
-	registryv1 "github.com/sysson/dink/sdk/registry/v1"
+	registryv1 "github.com/sysson/dink/core/registry/api/v1"
 	"github.com/sysson/syskit/httpx"
 )
 

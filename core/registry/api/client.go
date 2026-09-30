@@ -13,9 +13,9 @@ import (
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sysson/dink/core/identity"
+	registryv1 "github.com/sysson/dink/core/registry/api/v1"
+	"github.com/sysson/dink/core/registry/api/v1/registryconnect"
 	"github.com/sysson/dink/core/types"
-	registryv1 "github.com/sysson/dink/sdk/registry/v1"
-	"github.com/sysson/dink/sdk/registry/v1/registryconnect"
 )
 
 // Client is dink's view of dinki's image operations.

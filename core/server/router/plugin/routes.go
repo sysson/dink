@@ -2,14 +2,29 @@ package plugin
 
 import (
 	"net/http"
+
+	"github.com/sysson/dink/pkg/filters"
+	"github.com/sysson/syskit/httpx"
 )
 
 func (pr *pluginRouter) listPlugins(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	args, err := filters.FromJSON(r.URL.Query().Get("filters"))
+	if err != nil {
+		return httpx.BadRequest(err)
+	}
+	result, err := pr.translator.ListPlugins(r.Context(), args)
+	if err != nil {
+		return err
+	}
+	return httpx.WriteJSON(w, http.StatusOK, result)
 }
 
 func (pr *pluginRouter) inspectPlugin(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	result, err := pr.translator.InspectPlugin(r.Context(), r.PathValue("name"))
+	if err != nil {
+		return err
+	}
+	return httpx.WriteJSON(w, http.StatusOK, result)
 }
 
 func (pr *pluginRouter) getPrivileges(w http.ResponseWriter, r *http.Request) error {

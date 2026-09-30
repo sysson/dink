@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
 	"time"
@@ -13,7 +14,6 @@ import (
 	"github.com/sysson/dink/pkg/filters"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -23,6 +23,8 @@ const (
 	volumeNameAnnotation     = "dink.io/docker-volume-name"
 	volumeLabelsAnnotation   = "dink.io/docker-volume-labels"
 	volumeOptionsAnnotation  = "dink.io/docker-volume-options"
+	volumeDriverAnnotation   = "dink.io/docker-volume-driver"
+	localVolumeDriver        = "local"
 	volumeMountpointBase     = "/var/lib/dink/volumes"
 	defaultVolumeStorageSize = "1Gi"
 	// anonymousVolumeLabel is the label Docker sets on volumes created without a name.
@@ -96,13 +98,14 @@ func (d *Docker) CreateVolume(ctx context.Context, request volumetypes.CreateReq
 	if !ok {
 		return nil, Unauthenticated(fmt.Errorf("missing identity in context"))
 	}
-	if request.Driver != "" && request.Driver != "local" {
-		return nil, Unsupported(fmt.Errorf("volume driver %q is not supported", request.Driver))
-	}
 	if request.ClusterVolumeSpec != nil {
 		return nil, Unsupported(fmt.Errorf("cluster volumes are not supported"))
 	}
-	if len(request.DriverOpts) > 1 || (len(request.DriverOpts) == 1 && request.DriverOpts["size"] == "") {
+	driver := request.Driver
+	if driver == "" {
+		driver = localVolumeDriver
+	}
+	if driver == localVolumeDriver && (len(request.DriverOpts) > 1 || (len(request.DriverOpts) == 1 && request.DriverOpts["size"] == "")) {
 		return nil, InvalidArgument(fmt.Errorf("only the local volume driver size option is supported"))
 	}
 	name := request.Name
@@ -113,13 +116,23 @@ func (d *Docker) CreateVolume(ctx context.Context, request volumetypes.CreateReq
 	if err != nil {
 		return nil, err
 	}
-	size := request.DriverOpts["size"]
-	if size == "" {
-		size = defaultVolumeStorageSize
+	client := d.k8s.CoreV1().PersistentVolumeClaims(identity.Namespace)
+	// Re-creating an existing volume is a no-op in Docker, and must not ask the plugin to provision again.
+	if existing, err := client.Get(ctx, pvcName, metav1.GetOptions{}); err == nil {
+		return existingVolume(existing, name, driver)
+	} else if !apierrors.IsNotFound(err) {
+		return nil, kubeError(err)
 	}
-	quantity, err := resource.ParseQuantity(size)
-	if err != nil || quantity.Sign() <= 0 {
-		return nil, InvalidArgument(fmt.Errorf("invalid volume size %q", size))
+
+	claim := volumeClaim{Size: request.DriverOpts["size"]}
+	if driver != localVolumeDriver {
+		if claim, err = d.pluginVolumeClaim(ctx, identity, driver, name, request); err != nil {
+			return nil, err
+		}
+	}
+	spec, extraAnnotations, err := claim.pvcSpec()
+	if err != nil {
+		return nil, err
 	}
 	labels, err := json.Marshal(request.Labels)
 	if err != nil {
@@ -129,37 +142,45 @@ func (d *Docker) CreateVolume(ctx context.Context, request volumetypes.CreateReq
 	if err != nil {
 		return nil, fmt.Errorf("encoding volume options: %w", err)
 	}
-	client := d.k8s.CoreV1().PersistentVolumeClaims(identity.Namespace)
+	annotations := map[string]string{
+		volumeNameAnnotation:    name,
+		volumeLabelsAnnotation:  string(labels),
+		volumeOptionsAnnotation: string(options),
+		volumeDriverAnnotation:  driver,
+	}
+	maps.Copy(annotations, extraAnnotations)
 	pvc, err := client.Create(ctx, &corev1.PersistentVolumeClaim{
-		Name:      pvcName,
-		Namespace: identity.Namespace,
-		Labels:    map[string]string{volumeManagedLabel: volumeManagedValue},
-		Annotations: map[string]string{
-			volumeNameAnnotation:    name,
-			volumeLabelsAnnotation:  string(labels),
-			volumeOptionsAnnotation: string(options),
-		},
-		Spec: corev1.PersistentVolumeClaimSpec{
-			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-			Resources: corev1.VolumeResourceRequirements{
-				Requests: corev1.ResourceList{corev1.ResourceStorage: quantity},
-			},
-		},
+		Name:        pvcName,
+		Namespace:   identity.Namespace,
+		Labels:      map[string]string{volumeManagedLabel: volumeManagedValue},
+		Annotations: annotations,
+		Spec:        spec,
 	}, metav1.CreateOptions{})
 	if apierrors.IsAlreadyExists(err) {
 		existing, getErr := client.Get(ctx, pvcName, metav1.GetOptions{})
 		if getErr != nil {
 			return nil, kubeError(getErr)
 		}
-		if existing.Labels[volumeManagedLabel] != volumeManagedValue || existing.Annotations[volumeNameAnnotation] != name {
-			return nil, Conflict(fmt.Errorf("volume %q already exists", name))
-		}
-		return volumeFromPVC(existing)
+		return existingVolume(existing, name, driver)
 	}
 	if err != nil {
 		return nil, kubeError(err)
 	}
 	return volumeFromPVC(pvc)
+}
+
+func existingVolume(pvc *corev1.PersistentVolumeClaim, name, driver string) (*volumetypes.Volume, error) {
+	if pvc.Labels[volumeManagedLabel] != volumeManagedValue || pvc.Annotations[volumeNameAnnotation] != name {
+		return nil, Conflict(fmt.Errorf("volume %q already exists", name))
+	}
+	volume, err := volumeFromPVC(pvc)
+	if err != nil {
+		return nil, err
+	}
+	if volume.Driver != driver {
+		return nil, Conflict(fmt.Errorf("volume %q already exists with driver %q", name, volume.Driver))
+	}
+	return volume, nil
 }
 
 func (d *Docker) RemoveVolume(ctx context.Context, name string, force bool) error {
@@ -187,6 +208,12 @@ func (d *Docker) RemoveVolume(ctx context.Context, name string, force bool) erro
 	pvcName, err := volumeResourceName(volume.Name)
 	if err != nil {
 		return err
+	}
+	// Without force, a plugin that cannot release the volume keeps it; force deletes the claim regardless.
+	if volume.Driver != localVolumeDriver {
+		if err := d.removePluginVolume(ctx, identity, volume); err != nil && !force {
+			return err
+		}
 	}
 	return kubeError(d.k8s.CoreV1().PersistentVolumeClaims(identity.Namespace).Delete(ctx, pvcName, metav1.DeleteOptions{}))
 }
@@ -252,9 +279,13 @@ func volumeFromPVC(pvc *corev1.PersistentVolumeClaim) (*volumetypes.Volume, erro
 		options = map[string]string{}
 	}
 	name := pvc.Annotations[volumeNameAnnotation]
+	driver := pvc.Annotations[volumeDriverAnnotation]
+	if driver == "" {
+		driver = localVolumeDriver
+	}
 	return &volumetypes.Volume{
 		Name:       name,
-		Driver:     "local",
+		Driver:     driver,
 		Mountpoint: volumeMountpointBase + "/" + pvc.Name,
 		CreatedAt:  pvc.CreationTimestamp.UTC().Format(time.RFC3339Nano),
 		Labels:     labels,

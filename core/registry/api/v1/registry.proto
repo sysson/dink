@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-package sdk.registry.v1;
+package core.registry.api.v1;
 
-option go_package = "github.com/sysson/dink/sdk/registry/v1;registry";
+option go_package = "github.com/sysson/dink/core/registry/api/v1;registry";
 
 // RegistryService is dinki's internal API. dink translates Docker API
 // requests into these calls and never makes OCI requests itself: dinki talks

@@ -75,6 +75,10 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 	if err := d.ensureNameAvailable(ctx, id.Namespace, cfg.Name); err != nil {
 		return container.CreateResponse{}, err
 	}
+	env, err := d.resolveEnv(ctx, id, cfg.Name, cfg.Config.Env)
+	if err != nil {
+		return container.CreateResponse{}, err
+	}
 	volumes, volumeMounts, anonymousClaims, err := d.containerVolumes(ctx, cfg.Config, cfg.HostConfig)
 	if err != nil {
 		return container.CreateResponse{}, err
@@ -125,7 +129,7 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 					Ports:          podPorts(ports),
 					Command:        cfg.Config.Entrypoint,
 					Args:           cfg.Config.Cmd,
-					Env:            containerEnv(cfg.Config.Env),
+					Env:            env.Vars,
 					WorkingDir:     cfg.Config.WorkingDir,
 					TTY:            cfg.Config.Tty,
 					Stdin:          cfg.Config.OpenStdin,
@@ -185,6 +189,11 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 			_ = d.deleteWorkload(ctx, workload, true)
 			return container.CreateResponse{}, err
 		}
+	}
+	// The workload has no running Pods yet, so the Secret only needs to exist before start.
+	if err := d.applyEnvSecret(ctx, id.Namespace, cfg.Name, env, workload.ownerReference()); err != nil {
+		_ = d.deleteWorkload(ctx, workload, true)
+		return container.CreateResponse{}, err
 	}
 	dnsService := containerDNSService(workload, ports)
 	if _, err := d.k8s.CoreV1().Services(id.Namespace).Create(ctx, dnsService, metav1.CreateOptions{}); err != nil {

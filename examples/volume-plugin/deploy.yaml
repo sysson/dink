@@ -1,0 +1,99 @@
+# Runs the example volume driver for every tenant as driver "tiers".
+#
+#   docker build -f examples/Dockerfile --build-arg PLUGIN=volume-plugin -t dink-example-volumes .
+#   dinkle plugin issue tiers                               # writes Secret dink-system/tiers-tls
+#   kubectl apply -f examples/volume-plugin/deploy.yaml
+#   docker volume create --driver tiers -o tier=fast db
+#
+# Use a ResourceQuota per storage class to limit what tenants can claim.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tiers
+  namespace: dink-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tiers
+  template:
+    metadata:
+      labels:
+        app: tiers
+    spec:
+      # The plugin needs no Kubernetes API access; dink creates the claims.
+      automountServiceAccountToken: false
+      containers:
+        - name: plugin
+          image: dink-example-volumes
+          imagePullPolicy: IfNotPresent
+          args: ["-tls-dir", "/etc/plugin/tls"]
+          ports:
+            - name: plugin
+              containerPort: 8443
+            - name: health
+              containerPort: 8081
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/plugin/tls
+              readOnly: true
+      volumes:
+        - name: tls
+          secret:
+            secretName: tiers-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tiers
+  namespace: dink-system
+spec:
+  selector:
+    app: tiers
+  ports:
+    - name: plugin
+      port: 8443
+      targetPort: plugin
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tiers
+  namespace: dink-system
+spec:
+  podSelector:
+    matchLabels:
+      app: tiers
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: dink
+      ports:
+        - port: plugin
+    - ports:
+        - port: health
+---
+apiVersion: dink.io/v1alpha1
+kind: Plugin
+metadata:
+  name: tiers
+  namespace: dink-system
+spec:
+  types: [volumes]
+  service:
+    name: tiers
+    port: 8443

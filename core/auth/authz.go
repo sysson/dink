@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/sysson/dink/core/plugins"
 	authv1 "github.com/sysson/dink/sdk/auth/v1"
 	"github.com/sysson/syskit/httpx"
 	"github.com/sysson/syskit/iox"
@@ -19,9 +20,9 @@ import (
 
 const maxBodySize = 4 * 1024 * 1024
 
-func NewCtx(authZPlugins *AuthChain, req *Request) *Ctx {
+func NewCtx(authZPlugins []*plugins.Plugin, req *Request) *Ctx {
 	return &Ctx{
-		plugins: authZPlugins.plugins,
+		plugins: authZPlugins,
 		Request: *req,
 	}
 }
@@ -36,7 +37,7 @@ type Request struct {
 
 type Ctx struct {
 	Request
-	plugins []plugin
+	plugins []*plugins.Plugin
 	authReq *authv1.AuthZReqRequest
 	authRes *authv1.AuthZResRequest
 }
@@ -85,13 +86,14 @@ func (ctx *Ctx) AuthZRequest(w http.ResponseWriter, r *http.Request) error {
 
 	for _, plugin := range ctx.plugins {
 
-		authRes, err := plugin.client.AuthZReq(r.Context(), ctx.authReq)
+		authRes, err := plugin.Auth().AuthZReq(r.Context(), ctx.authReq)
+		plugin.Observe(err)
 		if err != nil {
-			return fmt.Errorf("plugin %s failed with error: %s", plugin.name, err)
+			return fmt.Errorf("plugin %s failed with error: %s", plugin, err)
 		}
 
 		if !authRes.Allow {
-			return httpx.Forbidden(fmt.Errorf("authorization denied by plugin %s: %s", plugin.name, authRes.Msg))
+			return httpx.Forbidden(fmt.Errorf("authorization denied by plugin %s: %s", plugin, authRes.Msg))
 		}
 	}
 
@@ -118,13 +120,14 @@ func (ctx *Ctx) AuthZResponse(rm iox.ResponseModifier, r *http.Request) error {
 	}
 	for _, plugin := range ctx.plugins {
 
-		authRes, err := plugin.client.AuthZRes(r.Context(), ctx.authRes)
+		authRes, err := plugin.Auth().AuthZRes(r.Context(), ctx.authRes)
+		plugin.Observe(err)
 		if err != nil {
-			return fmt.Errorf("plugin %s failed with error: %s", plugin.name, err)
+			return fmt.Errorf("plugin %s failed with error: %s", plugin, err)
 		}
 
 		if !authRes.Allow {
-			return httpx.Forbidden(fmt.Errorf("authorization denied by plugin %s: %s", plugin.name, authRes.Msg))
+			return httpx.Forbidden(fmt.Errorf("authorization denied by plugin %s: %s", plugin, authRes.Msg))
 		}
 	}
 

@@ -15,12 +15,12 @@ import (
 	"github.com/docker/oci"
 	"github.com/docker/oci/ocidigest"
 	dinkiconfig "github.com/sysson/dink/cmd/dinki/config"
+	"github.com/sysson/dink/core/registry/api/v1/registryconnect"
 	"github.com/sysson/dink/core/registry/server"
 	"github.com/sysson/dink/pkg/ocistore/blobstore"
 	"github.com/sysson/dink/pkg/ocistore/kv/boltkv"
 	"github.com/sysson/dink/pkg/ocistore/kv/drivers"
 	"github.com/sysson/dink/pkg/ocistore/kv/memkv"
-	"github.com/sysson/dink/sdk/registry/v1/registryconnect"
 )
 
 func TestNewBackendOpensPersistentConfiguredStores(t *testing.T) {
