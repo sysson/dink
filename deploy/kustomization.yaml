@@ -6,9 +6,9 @@ resources:
   - dinki-node.yaml
 images:
   - name: ghcr.io/sysson/dink
-    newTag: sha-aa18d581901c5696a252b038a50d33a521eba5f1
+    newTag: sha-8be2aa5d6b78e104f4ac05fd50b3af2ae9e9a700
   - name: ghcr.io/sysson/dinki
-    newTag: sha-aa18d581901c5696a252b038a50d33a521eba5f1
+    newTag: sha-8be2aa5d6b78e104f4ac05fd50b3af2ae9e9a700
 configMapGenerator:
   - name: dink-config
     namespace: dink-system
