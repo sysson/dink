@@ -15,6 +15,7 @@ import (
 	"github.com/sysson/dink/core/types"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 type Log struct {
@@ -31,6 +32,40 @@ type Kubernetes struct {
 	DefaultNamespace string           `json:"defaultNamespace,omitempty"`
 	HealthPort       string           `json:"healthPort,omitempty"`
 	DefaultResources ResourceDefaults `json:"defaultResources"`
+	NodePlacement    NodePlacement    `json:"nodePlacement"`
+}
+
+// NodePlacement confines tenant workloads to nodes that are either unlabelled
+// or labelled with the tenant's own namespace, so cluster operators can
+// dedicate nodes to a tenant.
+type NodePlacement struct {
+	Enabled *bool `json:"enabled,omitempty"`
+	// LabelKey is the node label whose value names the owning tenant namespace.
+	LabelKey string `json:"labelKey,omitempty"`
+	// Tolerate adds a toleration for LabelKey=<namespace>:NoSchedule so operators
+	// can taint dedicated nodes and keep unrelated workloads off them.
+	Tolerate *bool `json:"tolerate,omitempty"`
+}
+
+func (n NodePlacement) IsEnabled() bool {
+	return n.Enabled != nil && *n.Enabled
+}
+
+func (n NodePlacement) TolerationsEnabled() bool {
+	return n.Tolerate == nil || *n.Tolerate
+}
+
+func (n NodePlacement) Validate() error {
+	if !n.IsEnabled() {
+		return nil
+	}
+	if n.LabelKey == "" {
+		return errors.New("nodePlacement.labelKey must not be empty when nodePlacement is enabled")
+	}
+	if errs := validation.IsQualifiedName(n.LabelKey); len(errs) > 0 {
+		return fmt.Errorf("nodePlacement.labelKey %q is not a valid label key: %s", n.LabelKey, strings.Join(errs, "; "))
+	}
+	return nil
 }
 
 type ResourceValues struct {
@@ -158,6 +193,11 @@ func Default() *Config {
 				Limits:   ResourceValues{CPU: "500m", Memory: "512Mi"},
 				Requests: ResourceValues{CPU: "100m", Memory: "128Mi"},
 			},
+			NodePlacement: NodePlacement{
+				Enabled:  new(false),
+				LabelKey: "dink.io/tenant",
+				Tolerate: new(true),
+			},
 		},
 		TLS: TLS{
 			CertFile:      "/etc/dink/certs/server.crt",
@@ -203,6 +243,9 @@ func (k *Kubernetes) Validate() error {
 		errs = append(errs, err)
 	}
 	if err := k.DefaultResources.Validate(); err != nil {
+		errs = append(errs, err)
+	}
+	if err := k.NodePlacement.Validate(); err != nil {
 		errs = append(errs, err)
 	}
 	if len(errs) > 0 {

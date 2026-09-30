@@ -133,6 +133,13 @@ func (s *systemRouter) getInfo(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	if s.cluster != nil {
+		swarmInfo, err := s.cluster.Info(r.Context())
+		if err != nil {
+			return err
+		}
+		info.Swarm = swarmInfo
+	}
 	return httpx.WriteJSON(w, http.StatusOK, info)
 }
 
