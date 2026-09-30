@@ -25,6 +25,8 @@ const (
 	volumeOptionsAnnotation  = "dink.io/docker-volume-options"
 	volumeMountpointBase     = "/var/lib/dink/volumes"
 	defaultVolumeStorageSize = "1Gi"
+	// anonymousVolumeLabel is the label Docker sets on volumes created without a name.
+	anonymousVolumeLabel = "com.docker.volume.anonymous"
 )
 
 var invalidVolumeNameCharacters = regexp.MustCompile(`[^a-z0-9.-]+`)
@@ -190,12 +192,23 @@ func (d *Docker) RemoveVolume(ctx context.Context, name string, force bool) erro
 }
 
 func (d *Docker) PruneVolumes(ctx context.Context, volumeFilters filters.Args) (*volumetypes.PruneReport, error) {
-	volumes, _, err := d.ListVolumes(ctx, volumeFilters)
+	all, err := volumeFilters.GetBoolOrDefault("all", false)
+	if err != nil {
+		return nil, InvalidArgument(err)
+	}
+	listFilters := volumeFilters.Clone()
+	for _, value := range listFilters.Get("all") {
+		listFilters.Del("all", value)
+	}
+	volumes, _, err := d.ListVolumes(ctx, listFilters)
 	if err != nil {
 		return nil, err
 	}
 	report := &volumetypes.PruneReport{VolumesDeleted: []string{}}
 	for _, volume := range volumes {
+		if _, anonymous := volume.Labels[anonymousVolumeLabel]; !all && !anonymous {
+			continue
+		}
 		if err := d.RemoveVolume(ctx, volume.Name, false); err != nil {
 			if IsKind(err, KindConflict) {
 				continue
@@ -252,12 +265,12 @@ func volumeFromPVC(pvc *corev1.PersistentVolumeClaim) (*volumetypes.Volume, erro
 
 func (d *Docker) volumeClaimsInUse(ctx context.Context, namespace string) (map[string]bool, error) {
 	used := make(map[string]bool)
-	deployments, err := d.k8s.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{})
+	workloads, err := listWorkloads(ctx, d.k8s, namespace)
 	if err != nil {
-		return nil, kubeError(err)
+		return nil, err
 	}
-	for _, deployment := range deployments.Items {
-		for _, volume := range deployment.Spec.Template.Spec.Volumes {
+	for _, workload := range workloads {
+		for _, volume := range workload.Template.Spec.Volumes {
 			if volume.PersistentVolumeClaim != nil {
 				used[volume.PersistentVolumeClaim.ClaimName] = true
 			}

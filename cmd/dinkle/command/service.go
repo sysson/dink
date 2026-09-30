@@ -384,12 +384,12 @@ func (s *Service) DeleteTenant(ctx context.Context, name string, force bool, out
 
 	nsManager := namespaces.New(kc)
 	if !force {
-		has, err := nsManager.HasDeployments(ctx, name)
+		has, err := nsManager.HasContainers(ctx, name)
 		if err != nil {
 			return err
 		}
 		if has {
-			return fmt.Errorf("tenant %q has running deployments; use --force to delete anyway", name)
+			return fmt.Errorf("tenant %q has containers; use --force to delete anyway", name)
 		}
 	}
 
@@ -458,11 +458,11 @@ func (s *Service) TenantInfo(ctx context.Context, name string, out io.Writer) er
 	_, _ = fmt.Fprintf(out, "tenant: %s\n", name)
 	_, _ = fmt.Fprintf(out, "namespace created: %s\n", ns.CreationTimestamp.Format(time.RFC3339))
 
-	hasDeployments, err := nsManager.HasDeployments(ctx, name)
+	hasContainers, err := nsManager.HasContainers(ctx, name)
 	if err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(out, "has deployments: %t\n", hasDeployments)
+	_, _ = fmt.Fprintf(out, "has containers: %t\n", hasContainers)
 
 	clusterClients, err := namespaces.NewSecretStore(kc, name, "").ListLeaves(ctx)
 	if err != nil {

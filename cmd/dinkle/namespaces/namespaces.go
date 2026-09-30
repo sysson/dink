@@ -98,8 +98,8 @@ func (m *Manager) Delete(ctx context.Context, name string) error {
 	return m.client.CoreV1().Namespaces().Delete(ctx, name, metav1.DeleteOptions{})
 }
 
-// HasDeployments reports whether the namespace contains any Deployments.
-func (m *Manager) HasDeployments(ctx context.Context, name string) (bool, error) {
+// HasContainers reports whether the namespace contains any Deployments or Jobs, which back Docker containers.
+func (m *Manager) HasContainers(ctx context.Context, name string) (bool, error) {
 	list, err := m.client.AppsV1().Deployments(name).List(ctx, metav1.ListOptions{Limit: 1})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -107,5 +107,15 @@ func (m *Manager) HasDeployments(ctx context.Context, name string) (bool, error)
 		}
 		return false, fmt.Errorf("listing deployments in namespace %q: %w", name, err)
 	}
-	return len(list.Items) > 0, nil
+	if len(list.Items) > 0 {
+		return true, nil
+	}
+	jobs, err := m.client.BatchV1().Jobs(name).List(ctx, metav1.ListOptions{Limit: 1})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("listing jobs in namespace %q: %w", name, err)
+	}
+	return len(jobs.Items) > 0, nil
 }

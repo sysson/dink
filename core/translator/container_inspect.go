@@ -11,7 +11,6 @@ import (
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/v2/daemon/server/backend"
 	"github.com/sysson/dink/core/identity"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,15 +18,15 @@ import (
 )
 
 func (d *Docker) ContainerInspect(ctx context.Context, name string, _ backend.ContainerInspectOptions) (*container.InspectResponse, network.HardwareAddr, error) {
-	deployment, err := d.findDeployment(ctx, name)
+	deployment, err := d.findContainer(ctx, name)
 	if err != nil {
 		return nil, nil, err
 	}
-	response, err := d.inspectDeployment(ctx, deployment)
+	response, err := d.inspectContainer(ctx, deployment)
 	return response, nil, err
 }
 
-func (d *Docker) inspectDeployment(ctx context.Context, deployment *appsv1.Deployment) (*container.InspectResponse, error) {
+func (d *Docker) inspectContainer(ctx context.Context, deployment *containerWorkload) (*container.InspectResponse, error) {
 	config, hostConfig, err := containerMetadata(deployment)
 	if err != nil {
 		return nil, err
@@ -36,7 +35,7 @@ func (d *Docker) inspectDeployment(ctx context.Context, deployment *appsv1.Deplo
 	if err != nil {
 		return nil, kubeError(err)
 	}
-	state := deploymentState(deployment, pods.Items)
+	state, restartCount := containerState(deployment, pods.Items, time.Now())
 	imageID := config.Image
 	var podIP string
 	actualPodResources := false
@@ -55,8 +54,8 @@ func (d *Docker) inspectDeployment(ctx context.Context, deployment *appsv1.Deplo
 			imageID = dockerImageID(pod.Status.ContainerStatuses[0].ImageID, config.Image)
 		}
 	}
-	if !actualPodResources && len(deployment.Spec.Template.Spec.Containers) > 0 {
-		reconcileInspectResources(hostConfig, deployment.Spec.Template.Spec.Containers[0].Resources)
+	if !actualPodResources && len(deployment.Template.Spec.Containers) > 0 {
+		reconcileInspectResources(hostConfig, deployment.Template.Spec.Containers[0].Resources)
 	}
 	portBindings, err := d.containerPortBindings(ctx, deployment)
 	if err != nil {
@@ -72,21 +71,22 @@ func (d *Docker) inspectDeployment(ctx context.Context, deployment *appsv1.Deplo
 	}
 	command := append(append([]string{}, config.Entrypoint...), config.Cmd...)
 	response := &container.InspectResponse{
-		ID:         identity.DockerIDFromUID(deployment.UID),
-		Created:    deployment.CreationTimestamp.UTC().Format(time.RFC3339Nano),
-		Path:       firstString(command),
-		Args:       remainingStrings(command),
-		State:      state,
-		Image:      imageID,
-		Name:       "/" + deployment.Name,
-		HostConfig: hostConfig,
-		Config:     config,
+		ID:           identity.DockerIDFromUID(deployment.UID),
+		Created:      deployment.CreationTimestamp.UTC().Format(time.RFC3339Nano),
+		Path:         firstString(command),
+		Args:         remainingStrings(command),
+		State:        state,
+		RestartCount: restartCount,
+		Image:        imageID,
+		Name:         "/" + deployment.Name,
+		HostConfig:   hostConfig,
+		Config:       config,
 		NetworkSettings: &container.NetworkSettings{
 			Ports:    portBindings,
 			Networks: networks,
 		},
 	}
-	for _, podVolume := range deployment.Spec.Template.Spec.Volumes {
+	for _, podVolume := range deployment.Template.Spec.Volumes {
 		if podVolume.PersistentVolumeClaim == nil {
 			continue
 		}
@@ -99,7 +99,7 @@ func (d *Docker) inspectDeployment(ctx context.Context, deployment *appsv1.Deplo
 		if name == "" {
 			name = claimName
 		}
-		for _, podContainer := range deployment.Spec.Template.Spec.Containers {
+		for _, podContainer := range deployment.Template.Spec.Containers {
 			for _, volumeMount := range podContainer.VolumeMounts {
 				if volumeMount.Name != podVolume.Name {
 					continue
@@ -153,40 +153,118 @@ func reconcileInspectResources(hostConfig *container.HostConfig, actual corev1.R
 	}
 }
 
-func deploymentState(deployment *appsv1.Deployment, pods []corev1.Pod) *container.State {
+func containerState(deployment *containerWorkload, pods []corev1.Pod, now time.Time) (*container.State, int) {
 	state := &container.State{Status: container.StateCreated}
-	if deployment.Spec.Replicas != nil && *deployment.Spec.Replicas == 0 {
-		state.Status = container.StateExited
-		return state
+	if !deployment.Started {
+		// A stopped Deployment has run before; a suspended Job never has.
+		if !deployment.OneShot {
+			state.Status = container.StateExited
+		}
+		return state, 0
 	}
-	for _, pod := range pods {
-		if pod.Status.Phase == corev1.PodRunning {
+	for index := range pods {
+		pod := &pods[index]
+		status := podContainerStatus(deployment.Name, pod)
+		restartCount := 0
+		if status != nil {
+			restartCount = int(status.RestartCount)
+		}
+		switch pod.Status.Phase {
+		case corev1.PodRunning:
 			state.Status = container.StateRunning
 			state.Running = true
-			if pod.Status.StartTime != nil {
+			switch {
+			case status != nil && status.State.Running != nil:
+				state.StartedAt = status.State.Running.StartedAt.UTC().Format(time.RFC3339Nano)
+			case status != nil && lastTermination(status) != nil:
+				// Kubernetes keeps the pod Running while the container is in a crash/restart loop.
+				state.Status = container.StateRestarting
+				state.Restarting = true
+				setTerminatedState(state, lastTermination(status))
+			case pod.Status.StartTime != nil:
 				state.StartedAt = pod.Status.StartTime.UTC().Format(time.RFC3339Nano)
 			}
-			return state
-		}
-		if pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded {
+			if health := containerHealthStatus(deployment, status, now); health != "" {
+				state.Health = &container.Health{Status: health}
+			}
+			return state, restartCount
+		case corev1.PodFailed, corev1.PodSucceeded:
 			state.Status = container.StateExited
-			if pod.Status.ContainerStatuses != nil {
-				for _, status := range pod.Status.ContainerStatuses {
-					if status.State.Terminated != nil {
-						state.ExitCode = int(status.State.Terminated.ExitCode)
-						state.Error = status.State.Terminated.Message
-						state.FinishedAt = status.State.Terminated.FinishedAt.UTC().Format(time.RFC3339Nano)
-						break
-					}
+			if status != nil {
+				if terminated := lastTermination(status); terminated != nil {
+					setTerminatedState(state, terminated)
 				}
 			}
-			return state
+			return state, restartCount
 		}
 	}
-	return state
+	return state, 0
 }
 
-func (d *Docker) containerPortBindings(ctx context.Context, deployment *appsv1.Deployment) (network.PortMap, error) {
+func setTerminatedState(state *container.State, terminated *corev1.ContainerStateTerminated) {
+	state.ExitCode = int(terminated.ExitCode)
+	state.Error = terminated.Message
+	state.OOMKilled = terminated.Reason == "OOMKilled"
+	state.FinishedAt = terminated.FinishedAt.UTC().Format(time.RFC3339Nano)
+}
+
+// podContainerStatus returns the status of the Docker container within the pod.
+func podContainerStatus(name string, pod *corev1.Pod) *corev1.ContainerStatus {
+	statuses := pod.Status.ContainerStatuses
+	for index := range statuses {
+		if statuses[index].Name == name {
+			return &statuses[index]
+		}
+	}
+	if len(statuses) > 0 {
+		return &statuses[0]
+	}
+	return nil
+}
+
+func lastTermination(status *corev1.ContainerStatus) *corev1.ContainerStateTerminated {
+	if status.State.Terminated != nil {
+		return status.State.Terminated
+	}
+	return status.LastTerminationState.Terminated
+}
+
+// containerHealthStatus maps the readiness probe (translated from the Docker healthcheck) to a Docker health status.
+func containerHealthStatus(deployment *containerWorkload, status *corev1.ContainerStatus, now time.Time) container.HealthStatus {
+	var probe *corev1.Probe
+	for index, podContainer := range deployment.Template.Spec.Containers {
+		if podContainer.Name == deployment.Name || index == 0 {
+			probe = podContainer.ReadinessProbe
+		}
+	}
+	if probe == nil {
+		return ""
+	}
+	if status == nil {
+		return container.Starting
+	}
+	if status.State.Running == nil {
+		return container.Unhealthy
+	}
+	if status.Ready {
+		return container.Healthy
+	}
+	// Like Docker, failures only count as unhealthy once the start period and retries have elapsed.
+	period, failures := probe.PeriodSeconds, probe.FailureThreshold
+	if period <= 0 {
+		period = 10
+	}
+	if failures <= 0 {
+		failures = 3
+	}
+	grace := time.Duration(probe.InitialDelaySeconds+period*failures) * time.Second
+	if now.Before(status.State.Running.StartedAt.Add(grace)) {
+		return container.Starting
+	}
+	return container.Unhealthy
+}
+
+func (d *Docker) containerPortBindings(ctx context.Context, deployment *containerWorkload) (network.PortMap, error) {
 	bindings := make(network.PortMap)
 	service, err := d.k8s.CoreV1().Services(deployment.Namespace).Get(ctx, publishedPortsServiceName(deployment.Name), metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
@@ -213,9 +291,9 @@ func (d *Docker) containerPortBindings(ctx context.Context, deployment *appsv1.D
 	return bindings, nil
 }
 
-func (d *Docker) containerNetworkState(ctx context.Context, deployment *appsv1.Deployment, podIP string) (map[string]*network.EndpointSettings, error) {
+func (d *Docker) containerNetworkState(ctx context.Context, deployment *containerWorkload, podIP string) (map[string]*network.EndpointSettings, error) {
 	networks := make(map[string]*network.EndpointSettings)
-	if deployment.Spec.Template.Spec.HostNetwork {
+	if deployment.Template.Spec.HostNetwork {
 		return networks, nil
 	}
 	var networkObjects *unstructured.UnstructuredList
@@ -226,7 +304,7 @@ func (d *Docker) containerNetworkState(ctx context.Context, deployment *appsv1.D
 		}
 		networkObjects = list
 	}
-	for key := range deployment.Spec.Template.Labels {
+	for key := range deployment.Template.Labels {
 		if !strings.HasPrefix(key, networkLabelPrefix) {
 			continue
 		}

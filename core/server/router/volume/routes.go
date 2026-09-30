@@ -6,6 +6,8 @@ import (
 	"strconv"
 
 	volumetypes "github.com/moby/moby/api/types/volume"
+	"github.com/moby/moby/client/pkg/versions"
+	"github.com/sysson/dink/core/version"
 	"github.com/sysson/dink/pkg/filters"
 	"github.com/sysson/syskit/httpx"
 )
@@ -46,6 +48,10 @@ func (v *volumeRouter) postVolumesPrune(w http.ResponseWriter, r *http.Request) 
 	volumeFilters, err := filters.FromJSON(r.URL.Query().Get("filters"))
 	if err != nil {
 		return httpx.BadRequest(err)
+	}
+	// Before API 1.42 prune removed all unused volumes, not just anonymous ones.
+	if versions.LessThan(version.VersionFromRequest(r), "1.42") {
+		volumeFilters.Add("all", "true")
 	}
 	report, err := v.backend.PruneVolumes(r.Context(), volumeFilters)
 	if err != nil {

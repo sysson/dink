@@ -19,7 +19,7 @@ func (d *Docker) ContainerStats(ctx context.Context, name string, config *backen
 	if config == nil || config.OutStream == nil {
 		return InvalidArgument(fmt.Errorf("stats output is required"))
 	}
-	deployment, err := d.findDeployment(ctx, name)
+	deployment, err := d.findContainer(ctx, name)
 	if err != nil {
 		return err
 	}

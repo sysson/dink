@@ -22,11 +22,13 @@ import (
 	"github.com/sysson/dink/core/config"
 	"github.com/sysson/dink/core/identity"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/util/retry"
 )
 
 func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreateConfig) (container.CreateResponse, error) {
@@ -70,7 +72,10 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 		return container.CreateResponse{}, InvalidArgument(err)
 	}
 	warnings = append(warnings, probeWarnings...)
-	volumes, volumeMounts, err := d.containerVolumes(ctx, cfg.Config, cfg.HostConfig)
+	if err := d.ensureNameAvailable(ctx, id.Namespace, cfg.Name); err != nil {
+		return container.CreateResponse{}, err
+	}
+	volumes, volumeMounts, anonymousClaims, err := d.containerVolumes(ctx, cfg.Config, cfg.HostConfig)
 	if err != nil {
 		return container.CreateResponse{}, err
 	}
@@ -87,14 +92,59 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 	}
 	podLabels := map[string]string{"app": cfg.Name}
 	maps.Copy(podLabels, networkLabels)
-	deployment, err := d.k8s.AppsV1().Deployments(id.Namespace).Create(ctx,
-		&appsv1.Deployment{
-			Name: cfg.Name,
-			Labels: map[string]string{
-				"app": cfg.Name,
+	template := corev1.PodTemplateSpec{
+		Labels: podLabels,
+		Spec: corev1.PodSpec{
+			HostNetwork:      hostNetwork,
+			DNSPolicy:        podDNSPolicy(hostNetwork),
+			Volumes:          volumes,
+			ImagePullSecrets: []corev1.LocalObjectReference{{Name: pullSecretName}},
+			Containers: []corev1.Container{
+				{
+					Name:           cfg.Name,
+					Image:          image,
+					Ports:          podPorts(ports),
+					Command:        cfg.Config.Entrypoint,
+					Args:           cfg.Config.Cmd,
+					Env:            containerEnv(cfg.Config.Env),
+					WorkingDir:     cfg.Config.WorkingDir,
+					TTY:            cfg.Config.Tty,
+					Stdin:          cfg.Config.OpenStdin,
+					Resources:      resources,
+					VolumeMounts:   volumeMounts,
+					ReadinessProbe: readinessProbe,
+					// Checks the credential on every start, so a node's cached copy is not shared across namespaces.
+					ImagePullPolicy: corev1.PullAlways,
+				},
 			},
-			Annotations: annotations,
-			Namespace:   id.Namespace,
+		},
+	}
+	meta := metav1.ObjectMeta{
+		Name:        cfg.Name,
+		Namespace:   id.Namespace,
+		Labels:      map[string]string{"app": cfg.Name},
+		Annotations: annotations,
+	}
+	var workload *containerWorkload
+	if cfg.HostConfig != nil && cfg.HostConfig.AutoRemove {
+		// --rm containers run once, so a Job replaces the Deployment; Kubernetes removes it after it finishes.
+		template.Spec.RestartPolicy = corev1.RestartPolicyNever
+		job, err := d.k8s.BatchV1().Jobs(id.Namespace).Create(ctx, &batchv1.Job{
+			ObjectMeta: meta,
+			Spec: batchv1.JobSpec{
+				Suspend:                 new(true),
+				BackoffLimit:            new(int32(0)),
+				TTLSecondsAfterFinished: new(oneShotRemovalDelay),
+				Template:                template,
+			},
+		}, metav1.CreateOptions{})
+		if err != nil {
+			return container.CreateResponse{}, kubeError(err)
+		}
+		workload = jobWorkload(job)
+	} else {
+		deployment, err := d.k8s.AppsV1().Deployments(id.Namespace).Create(ctx, &appsv1.Deployment{
+			ObjectMeta: meta,
 			Spec: appsv1.DeploymentSpec{
 				Replicas: new(int32(0)),
 				Selector: &metav1.LabelSelector{
@@ -102,59 +152,74 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 						"app": cfg.Name,
 					},
 				},
-				Template: corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Labels: podLabels,
-					},
-					Spec: corev1.PodSpec{
-						HostNetwork:      hostNetwork,
-						DNSPolicy:        podDNSPolicy(hostNetwork),
-						Volumes:          volumes,
-						ImagePullSecrets: []corev1.LocalObjectReference{{Name: pullSecretName}},
-						Containers: []corev1.Container{
-							{
-								Name:           cfg.Name,
-								Image:          image,
-								Ports:          podPorts(ports),
-								Command:        cfg.Config.Entrypoint,
-								Args:           cfg.Config.Cmd,
-								Env:            containerEnv(cfg.Config.Env),
-								WorkingDir:     cfg.Config.WorkingDir,
-								TTY:            cfg.Config.Tty,
-								Stdin:          cfg.Config.OpenStdin,
-								Resources:      resources,
-								VolumeMounts:   volumeMounts,
-								ReadinessProbe: readinessProbe,
-								// Checks the credential on every start, so a node's cached copy is not shared across namespaces.
-								ImagePullPolicy: corev1.PullAlways,
-							},
-						},
-					},
-				},
+				Template: template,
 			},
-		},
-		metav1.CreateOptions{},
-	)
-	if err != nil {
-		return container.CreateResponse{}, kubeError(err)
+		}, metav1.CreateOptions{})
+		if err != nil {
+			return container.CreateResponse{}, kubeError(err)
+		}
+		workload = deploymentWorkload(deployment)
 	}
-	dnsService := containerDNSService(deployment, ports)
+	if workload.OneShot {
+		if err := d.adoptClaims(ctx, workload, anonymousClaims); err != nil {
+			_ = d.deleteWorkload(ctx, workload, true)
+			return container.CreateResponse{}, err
+		}
+	}
+	dnsService := containerDNSService(workload, ports)
 	if _, err := d.k8s.CoreV1().Services(id.Namespace).Create(ctx, dnsService, metav1.CreateOptions{}); err != nil {
-		_ = d.k8s.AppsV1().Deployments(id.Namespace).Delete(ctx, deployment.Name, metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &deployment.UID}})
+		_ = d.deleteWorkload(ctx, workload, true)
 		return container.CreateResponse{}, kubeError(err)
 	}
 	if serviceType != "" {
-		service := publishedPortsService(deployment, serviceType, ports)
+		service := publishedPortsService(workload, serviceType, ports)
 		if _, err := d.k8s.CoreV1().Services(id.Namespace).Create(ctx, service, metav1.CreateOptions{}); err != nil {
 			_ = d.k8s.CoreV1().Services(id.Namespace).Delete(ctx, dnsService.Name, metav1.DeleteOptions{})
-			_ = d.k8s.AppsV1().Deployments(id.Namespace).Delete(ctx, deployment.Name, metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &deployment.UID}})
+			_ = d.deleteWorkload(ctx, workload, true)
 			return container.CreateResponse{}, kubeError(err)
 		}
 	}
 	return container.CreateResponse{
-		ID:       identity.DockerIDFromUID(deployment.UID),
+		ID:       identity.DockerIDFromUID(workload.UID),
 		Warnings: warnings,
 	}, nil
+}
+
+// ensureNameAvailable enforces Docker's unique container names across Deployments and Jobs.
+func (d *Docker) ensureNameAvailable(ctx context.Context, namespace, name string) error {
+	inUse := Conflict(fmt.Errorf("the container name %q is already in use", name))
+	if _, err := d.k8s.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
+		return inUse
+	} else if !apierrors.IsNotFound(err) {
+		return kubeError(err)
+	}
+	if _, err := d.k8s.BatchV1().Jobs(namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
+		return inUse
+	} else if !apierrors.IsNotFound(err) {
+		return kubeError(err)
+	}
+	return nil
+}
+
+// adoptClaims makes w own its anonymous volumes, so Kubernetes removes them along with it.
+func (d *Docker) adoptClaims(ctx context.Context, w *containerWorkload, claims []string) error {
+	owner := w.ownerReference()
+	owner.Controller = nil
+	for _, claim := range claims {
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			pvc, err := d.k8s.CoreV1().PersistentVolumeClaims(w.Namespace).Get(ctx, claim, metav1.GetOptions{})
+			if err != nil {
+				return err
+			}
+			pvc.OwnerReferences = append(pvc.OwnerReferences, owner)
+			_, err = d.k8s.CoreV1().PersistentVolumeClaims(w.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
+			return err
+		})
+		if err != nil {
+			return kubeError(err)
+		}
+	}
+	return nil
 }
 
 var containerNameAdjectives = [...]string{
@@ -468,7 +533,7 @@ func podPorts(ports []publishedPort) []corev1.ContainerPort {
 	return result
 }
 
-func containerDNSService(deployment *appsv1.Deployment, ports []publishedPort) *corev1.Service {
+func containerDNSService(deployment *containerWorkload, ports []publishedPort) *corev1.Service {
 	servicePorts := make([]corev1.ServicePort, 0, len(ports))
 	for index, port := range ports {
 		servicePorts = append(servicePorts, corev1.ServicePort{
@@ -487,21 +552,15 @@ func containerDNSService(deployment *appsv1.Deployment, ports []publishedPort) *
 		spec.ClusterIP = corev1.ClusterIPNone
 	}
 	return &corev1.Service{
-		Name:      deployment.Name,
-		Namespace: deployment.Namespace,
-		Labels:    map[string]string{"app": deployment.Name},
-		OwnerReferences: []metav1.OwnerReference{{
-			APIVersion: "apps/v1",
-			Kind:       "Deployment",
-			Name:       deployment.Name,
-			UID:        deployment.UID,
-			Controller: new(true),
-		}},
-		Spec: spec,
+		Name:            deployment.Name,
+		Namespace:       deployment.Namespace,
+		Labels:          map[string]string{"app": deployment.Name},
+		OwnerReferences: []metav1.OwnerReference{deployment.ownerReference()},
+		Spec:            spec,
 	}
 }
 
-func publishedPortsService(deployment *appsv1.Deployment, serviceType corev1.ServiceType, ports []publishedPort) *corev1.Service {
+func publishedPortsService(deployment *containerWorkload, serviceType corev1.ServiceType, ports []publishedPort) *corev1.Service {
 	servicePorts := make([]corev1.ServicePort, 0, len(ports))
 	for index, port := range ports {
 		servicePort := port.hostPort
@@ -516,16 +575,10 @@ func publishedPortsService(deployment *appsv1.Deployment, serviceType corev1.Ser
 		})
 	}
 	return &corev1.Service{
-		Name:      publishedPortsServiceName(deployment.Name),
-		Namespace: deployment.Namespace,
-		Labels:    map[string]string{"app": deployment.Name},
-		OwnerReferences: []metav1.OwnerReference{{
-			APIVersion: "apps/v1",
-			Kind:       "Deployment",
-			Name:       deployment.Name,
-			UID:        deployment.UID,
-			Controller: new(true),
-		}},
+		Name:            publishedPortsServiceName(deployment.Name),
+		Namespace:       deployment.Namespace,
+		Labels:          map[string]string{"app": deployment.Name},
+		OwnerReferences: []metav1.OwnerReference{deployment.ownerReference()},
 		Spec: corev1.ServiceSpec{
 			Type:     serviceType,
 			Selector: map[string]string{"app": deployment.Name},

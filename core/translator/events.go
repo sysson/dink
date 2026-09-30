@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
 	"time"
 
+	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/events"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/pkg/filters"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,6 +40,19 @@ func (d *Docker) SubscribeToEvents(ctx context.Context, since, until time.Time, 
 	if err != nil {
 		return nil, nil, kubeError(err)
 	}
+	jobs, err := d.k8s.BatchV1().Jobs(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, nil, kubeError(err)
+	}
+	workloads := make([]*containerWorkload, 0, len(deployments.Items)+len(jobs.Items))
+	for index := range deployments.Items {
+		workloads = append(workloads, deploymentWorkload(&deployments.Items[index]))
+	}
+	for index := range jobs.Items {
+		if isContainerJob(&jobs.Items[index]) {
+			workloads = append(workloads, jobWorkload(&jobs.Items[index]))
+		}
+	}
 	pods, err := d.k8s.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, nil, kubeError(err)
@@ -46,32 +62,42 @@ func (d *Docker) SubscribeToEvents(ctx context.Context, since, until time.Time, 
 		return nil, nil, kubeError(err)
 	}
 
-	historical, err := d.historicalDockerEvents(ctx, namespace, since, until, eventFilters, deployments.Items, pods.Items, pvcs.Items)
+	historical, err := d.historicalDockerEvents(ctx, namespace, since, until, eventFilters, workloads, pods.Items, pvcs.Items)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	watchCtx, cancel := context.WithCancel(ctx)
-	deploymentWatch, err := d.k8s.AppsV1().Deployments(namespace).Watch(watchCtx, metav1.ListOptions{ResourceVersion: deployments.ResourceVersion})
-	if err != nil {
+	var watches []watch.Interface
+	stopWatches := func() {
+		for _, watcher := range watches {
+			watcher.Stop()
+		}
 		cancel()
-		return nil, nil, kubeError(err)
 	}
-	podWatch, err := d.k8s.CoreV1().Pods(namespace).Watch(watchCtx, metav1.ListOptions{ResourceVersion: pods.ResourceVersion})
-	if err != nil {
-		deploymentWatch.Stop()
-		cancel()
-		return nil, nil, kubeError(err)
-	}
-	pvcWatch, err := d.k8s.CoreV1().PersistentVolumeClaims(namespace).Watch(watchCtx, metav1.ListOptions{
-		LabelSelector:   eventVolumeSelector,
-		ResourceVersion: pvcs.ResourceVersion,
-	})
-	if err != nil {
-		deploymentWatch.Stop()
-		podWatch.Stop()
-		cancel()
-		return nil, nil, kubeError(err)
+	for _, start := range []func() (watch.Interface, error){
+		func() (watch.Interface, error) {
+			return d.k8s.AppsV1().Deployments(namespace).Watch(watchCtx, metav1.ListOptions{ResourceVersion: deployments.ResourceVersion})
+		},
+		func() (watch.Interface, error) {
+			return d.k8s.BatchV1().Jobs(namespace).Watch(watchCtx, metav1.ListOptions{ResourceVersion: jobs.ResourceVersion})
+		},
+		func() (watch.Interface, error) {
+			return d.k8s.CoreV1().Pods(namespace).Watch(watchCtx, metav1.ListOptions{ResourceVersion: pods.ResourceVersion})
+		},
+		func() (watch.Interface, error) {
+			return d.k8s.CoreV1().PersistentVolumeClaims(namespace).Watch(watchCtx, metav1.ListOptions{
+				LabelSelector:   eventVolumeSelector,
+				ResourceVersion: pvcs.ResourceVersion,
+			})
+		},
+	} {
+		watcher, err := start()
+		if err != nil {
+			stopWatches()
+			return nil, nil, kubeError(err)
+		}
+		watches = append(watches, watcher)
 	}
 
 	stream := make(chan any, 64)
@@ -81,7 +107,7 @@ func (d *Docker) SubscribeToEvents(ctx context.Context, since, until time.Time, 
 	}
 	d.eventCancels[stream] = cancel
 	d.eventsMu.Unlock()
-	go d.forwardKubernetesEvents(watchCtx, stream, eventFilters, since, until, deployments.Items, pods.Items, deploymentWatch, podWatch, pvcWatch)
+	go d.forwardKubernetesEvents(watchCtx, stream, eventFilters, since, until, workloads, pods.Items, watches[0], watches[1], watches[2], watches[3])
 	return historical, stream, nil
 }
 
@@ -96,9 +122,10 @@ func (d *Docker) UnsubscribeFromEvents(_ context.Context, stream chan any) error
 	return nil
 }
 
-func (d *Docker) forwardKubernetesEvents(ctx context.Context, output chan any, eventFilters filters.Args, since, until time.Time, initialDeployments []appsv1.Deployment, initialPods []corev1.Pod, deploymentWatch, podWatch, pvcWatch watch.Interface) {
+func (d *Docker) forwardKubernetesEvents(ctx context.Context, output chan any, eventFilters filters.Args, since, until time.Time, initialWorkloads []*containerWorkload, initialPods []corev1.Pod, deploymentWatch, jobWatch, podWatch, pvcWatch watch.Interface) {
 	defer close(output)
 	defer deploymentWatch.Stop()
+	defer jobWatch.Stop()
 	defer podWatch.Stop()
 	defer pvcWatch.Stop()
 	defer func() {
@@ -107,23 +134,62 @@ func (d *Docker) forwardKubernetesEvents(ctx context.Context, output chan any, e
 		d.eventsMu.Unlock()
 	}()
 
-	deployments := make(map[string]*appsv1.Deployment, len(initialDeployments))
-	for index := range initialDeployments {
-		deployment := initialDeployments[index].DeepCopy()
-		deployments[deployment.Name] = deployment
+	deployments := make(map[string]*containerWorkload, len(initialWorkloads))
+	for _, workload := range initialWorkloads {
+		deployments[workload.Name] = workload
 	}
-	podPhases := make(map[string]corev1.PodPhase, len(initialPods))
+	podStates := make(map[string]podEventState, len(initialPods))
 	for index := range initialPods {
 		pod := &initialPods[index]
-		podPhases[pod.Namespace+"/"+pod.Name] = pod.Status.Phase
+		podStates[pod.Namespace+"/"+pod.Name] = observePodEventState(deployments[pod.Labels["app"]], pod, time.Now())
 	}
+	// Readiness stays false while a healthcheck is starting, so the starting -> unhealthy transition needs polling.
+	healthTicker := time.NewTicker(time.Second)
+	defer healthTicker.Stop()
 	deploymentEvents := deploymentWatch.ResultChan()
+	jobEvents := jobWatch.ResultChan()
 	podEvents := podWatch.ResultChan()
 	pvcEvents := pvcWatch.ResultChan()
-	for deploymentEvents != nil || podEvents != nil || pvcEvents != nil {
+	handleWorkload := func(eventType watch.EventType, deployment *containerWorkload) {
+		previous := deployments[deployment.Name]
+		var action string
+		switch eventType {
+		case watch.Added:
+			action = "create"
+			deployments[deployment.Name] = deployment
+		case watch.Modified:
+			if previous != nil && !apiequality.Semantic.DeepEqual(previous.Template, deployment.Template) {
+				action = "update"
+			}
+			deployments[deployment.Name] = deployment
+		case watch.Deleted:
+			action = "destroy"
+			delete(deployments, deployment.Name)
+		default:
+			return
+		}
+		if action != "" {
+			d.sendDockerEvent(ctx, output, eventFilters, since, until, containerDockerEvent(deployment, action, time.Now()))
+		}
+	}
+	for deploymentEvents != nil || jobEvents != nil || podEvents != nil || pvcEvents != nil {
 		select {
 		case <-ctx.Done():
 			return
+		case now := <-healthTicker.C:
+			for key, previous := range podStates {
+				if previous.health != container.Starting {
+					continue
+				}
+				deployment := deployments[previous.pod.Labels["app"]]
+				current := observePodEventState(deployment, previous.pod, now)
+				podStates[key] = current
+				if deployment != nil {
+					for _, message := range podTransitionEvents(deployment, previous, current, now) {
+						d.sendDockerEvent(ctx, output, eventFilters, since, until, message)
+					}
+				}
+			}
 		case event, open := <-deploymentEvents:
 			if !open {
 				deploymentEvents = nil
@@ -133,27 +199,17 @@ func (d *Docker) forwardKubernetesEvents(ctx context.Context, output chan any, e
 			if !ok {
 				continue
 			}
-			previous := deployments[deployment.Name]
-			var action string
-			switch event.Type {
-			case watch.Added:
-				action = "create"
-				deployments[deployment.Name] = deployment.DeepCopy()
-			case watch.Modified:
-				if previous != nil && !apiequality.Semantic.DeepEqual(previous.Spec.Template, deployment.Spec.Template) {
-					action = "update"
-				}
-				deployments[deployment.Name] = deployment.DeepCopy()
-			case watch.Deleted:
-				action = "destroy"
-				delete(deployments, deployment.Name)
-			default:
+			handleWorkload(event.Type, deploymentWorkload(deployment))
+		case event, open := <-jobEvents:
+			if !open {
+				jobEvents = nil
 				continue
 			}
-			if action != "" {
-				message := containerDockerEvent(deployment, action, time.Now())
-				d.sendDockerEvent(ctx, output, eventFilters, since, until, message)
+			job, ok := event.Object.(*batchv1.Job)
+			if !ok || !isContainerJob(job) {
+				continue
 			}
+			handleWorkload(event.Type, jobWorkload(job))
 		case event, open := <-podEvents:
 			if !open {
 				podEvents = nil
@@ -164,26 +220,25 @@ func (d *Docker) forwardKubernetesEvents(ctx context.Context, output chan any, e
 				continue
 			}
 			key := pod.Namespace + "/" + pod.Name
-			previous := podPhases[key]
-			podPhases[key] = pod.Status.Phase
+			previous := podStates[key]
 			deployment := deployments[pod.Labels["app"]]
+			now := time.Now()
+			if event.Type == watch.Deleted {
+				delete(podStates, key)
+				if deployment != nil && previous.startedAt != "" {
+					d.sendDockerEvent(ctx, output, eventFilters, since, until, containerDockerEvent(deployment, "stop", now))
+				}
+				continue
+			}
+			if event.Type != watch.Added && event.Type != watch.Modified {
+				continue
+			}
+			current := observePodEventState(deployment, pod, now)
+			podStates[key] = current
 			if deployment == nil {
 				continue
 			}
-			action := ""
-			if event.Type == watch.Deleted && previous == corev1.PodRunning {
-				action = "stop"
-				delete(podPhases, key)
-			} else if event.Type == watch.Modified {
-				switch {
-				case pod.Status.Phase == corev1.PodRunning && previous != corev1.PodRunning:
-					action = "start"
-				case (pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded) && previous != pod.Status.Phase:
-					action = "die"
-				}
-			}
-			if action != "" {
-				message := containerDockerEvent(deployment, action, time.Now())
+			for _, message := range podTransitionEvents(deployment, previous, current, now) {
 				d.sendDockerEvent(ctx, output, eventFilters, since, until, message)
 			}
 		case event, open := <-pvcEvents:
@@ -210,6 +265,59 @@ func (d *Docker) forwardKubernetesEvents(ctx context.Context, output chan any, e
 	}
 }
 
+// podEventState is the container state of a pod, as far as Docker events are concerned.
+type podEventState struct {
+	pod *corev1.Pod
+	// startedAt identifies the running container instance; empty when not running.
+	startedAt string
+	// termination identifies the latest container exit.
+	termination string
+	exitCode    int32
+	health      container.HealthStatus
+}
+
+func observePodEventState(deployment *containerWorkload, pod *corev1.Pod, now time.Time) podEventState {
+	state := podEventState{pod: pod}
+	status := podContainerStatus(pod.Labels["app"], pod)
+	if status == nil {
+		switch pod.Status.Phase {
+		case corev1.PodRunning:
+			state.startedAt = string(pod.Status.Phase)
+		case corev1.PodFailed, corev1.PodSucceeded:
+			state.termination = string(pod.Status.Phase)
+		}
+		return state
+	}
+	if status.State.Running != nil {
+		state.startedAt = status.ContainerID + "@" + status.State.Running.StartedAt.UTC().Format(time.RFC3339Nano)
+	}
+	if terminated := lastTermination(status); terminated != nil {
+		state.termination = terminated.ContainerID + "@" + terminated.FinishedAt.UTC().Format(time.RFC3339Nano)
+		state.exitCode = terminated.ExitCode
+	}
+	if deployment != nil && state.startedAt != "" {
+		state.health = containerHealthStatus(deployment, status, now)
+	}
+	return state
+}
+
+// podTransitionEvents mirrors Docker's restart loop: each exit is a die, each restart a start.
+func podTransitionEvents(deployment *containerWorkload, previous, current podEventState, now time.Time) []events.Message {
+	var messages []events.Message
+	if current.termination != "" && current.termination != previous.termination {
+		message := containerDockerEvent(deployment, string(events.ActionDie), now)
+		message.Actor.Attributes["exitCode"] = strconv.Itoa(int(current.exitCode))
+		messages = append(messages, message)
+	}
+	if current.startedAt != "" && current.startedAt != previous.startedAt {
+		messages = append(messages, containerDockerEvent(deployment, string(events.ActionStart), now))
+	}
+	if current.health != previous.health && (current.health == container.Healthy || current.health == container.Unhealthy) {
+		messages = append(messages, containerDockerEvent(deployment, string(events.ActionHealthStatus)+": "+string(current.health), now))
+	}
+	return messages
+}
+
 func (d *Docker) sendDockerEvent(ctx context.Context, output chan any, eventFilters filters.Args, since, until time.Time, message events.Message) {
 	if !eventTimeMatches(message, since, until) || !matchesDockerEvent(eventFilters, message) {
 		return
@@ -220,7 +328,7 @@ func (d *Docker) sendDockerEvent(ctx context.Context, output chan any, eventFilt
 	}
 }
 
-func (d *Docker) historicalDockerEvents(ctx context.Context, namespace string, since, until time.Time, eventFilters filters.Args, deployments []appsv1.Deployment, pods []corev1.Pod, pvcs []corev1.PersistentVolumeClaim) ([]events.Message, error) {
+func (d *Docker) historicalDockerEvents(ctx context.Context, namespace string, since, until time.Time, eventFilters filters.Args, workloads []*containerWorkload, pods []corev1.Pod, pvcs []corev1.PersistentVolumeClaim) ([]events.Message, error) {
 	if since.IsZero() {
 		return nil, nil
 	}
@@ -228,9 +336,9 @@ func (d *Docker) historicalDockerEvents(ctx context.Context, namespace string, s
 	if err != nil {
 		return nil, kubeError(err)
 	}
-	deploymentByName := make(map[string]*appsv1.Deployment, len(deployments))
-	for index := range deployments {
-		deploymentByName[deployments[index].Name] = &deployments[index]
+	deploymentByName := make(map[string]*containerWorkload, len(workloads))
+	for _, workload := range workloads {
+		deploymentByName[workload.Name] = workload
 	}
 	podByName := make(map[string]*corev1.Pod, len(pods))
 	for index := range pods {
@@ -280,7 +388,7 @@ func (d *Docker) historicalDockerEvents(ctx context.Context, namespace string, s
 	return result, nil
 }
 
-func containerDockerEvent(deployment *appsv1.Deployment, action string, timestamp time.Time) events.Message {
+func containerDockerEvent(deployment *containerWorkload, action string, timestamp time.Time) events.Message {
 	attributes := map[string]string{"name": deployment.Name}
 	config, _, err := containerMetadata(deployment)
 	if err == nil && config != nil {
@@ -289,8 +397,8 @@ func containerDockerEvent(deployment *appsv1.Deployment, action string, timestam
 			attributes["image"] = config.Image
 		}
 	}
-	if attributes["image"] == "" && len(deployment.Spec.Template.Spec.Containers) > 0 {
-		attributes["image"] = deployment.Spec.Template.Spec.Containers[0].Image
+	if attributes["image"] == "" && len(deployment.Template.Spec.Containers) > 0 {
+		attributes["image"] = deployment.Template.Spec.Containers[0].Image
 	}
 	id := identity.DockerIDFromUID(deployment.UID)
 	if id == "" {

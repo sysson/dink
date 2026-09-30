@@ -8,8 +8,6 @@ import (
 	imagetypes "github.com/moby/moby/api/types/image"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/types"
-	appsv1 "k8s.io/api/apps/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func (r *Registry) Images(ctx context.Context, options types.ImageListOptions) ([]imagetypes.Summary, error) {
@@ -21,13 +19,13 @@ func (r *Registry) Images(ctx context.Context, options types.ImageListOptions) (
 	if !ok {
 		return nil, Unauthenticated(fmt.Errorf("missing identity in context"))
 	}
-	deployments, err := r.k8s.AppsV1().Deployments(id.Namespace).List(ctx, metav1.ListOptions{})
+	workloads, err := listWorkloads(ctx, r.k8s, id.Namespace)
 	if err != nil {
-		return nil, kubeError(err)
+		return nil, err
 	}
 	for index := range images {
-		for deploymentIndex := range deployments.Items {
-			if deploymentUsesImage(&deployments.Items[deploymentIndex], id.Namespace, images[index].RepoDigests) {
+		for _, workload := range workloads {
+			if workloadUsesImage(workload, id.Namespace, images[index].RepoDigests) {
 				images[index].Containers++
 			}
 		}
@@ -35,8 +33,8 @@ func (r *Registry) Images(ctx context.Context, options types.ImageListOptions) (
 	return images, nil
 }
 
-func deploymentUsesImage(deployment *appsv1.Deployment, namespace string, digests []string) bool {
-	containers := append(deployment.Spec.Template.Spec.Containers, deployment.Spec.Template.Spec.InitContainers...)
+func workloadUsesImage(workload *containerWorkload, namespace string, digests []string) bool {
+	containers := append(workload.Template.Spec.Containers, workload.Template.Spec.InitContainers...)
 	for _, container := range containers {
 		for _, digest := range digests {
 			if strings.HasSuffix(container.Image, "/"+namespace+"/"+digest) {

@@ -8,8 +8,6 @@ import (
 	"github.com/moby/moby/v2/daemon/server/backend"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/pkg/filters"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func (d *Docker) ContainerPrune(ctx context.Context, pruneFilters filters.Args) (*container.PruneReport, error) {
@@ -24,14 +22,13 @@ func (d *Docker) ContainerPrune(ctx context.Context, pruneFilters filters.Args) 
 	if !ok {
 		return nil, Unauthenticated(fmt.Errorf("missing identity in context"))
 	}
-	deployments, err := d.k8s.AppsV1().Deployments(id.Namespace).List(ctx, metav1.ListOptions{})
+	workloads, err := listWorkloads(ctx, d.k8s, id.Namespace)
 	if err != nil {
-		return nil, kubeError(err)
+		return nil, err
 	}
 	report := &container.PruneReport{ContainersDeleted: []string{}}
-	for index := range deployments.Items {
-		deployment := &deployments.Items[index]
-		if deployment.Annotations[containerConfigAnnotation] == "" || deployment.Spec.Replicas == nil || *deployment.Spec.Replicas != 0 ||
+	for _, deployment := range workloads {
+		if deployment.Annotations[containerConfigAnnotation] == "" || deployment.Started && !deployment.Finished ||
 			(!before.IsZero() && !deployment.CreationTimestamp.Time.Before(before)) {
 			continue
 		}
@@ -42,16 +39,9 @@ func (d *Docker) ContainerPrune(ctx context.Context, pruneFilters filters.Args) 
 		if !pruneFilters.MatchKVList("label", config.Labels) || !matchExcludedLabels(pruneFilters.Get("label!"), config.Labels) {
 			continue
 		}
-		pods, err := d.k8s.CoreV1().Pods(deployment.Namespace).List(ctx, metav1.ListOptions{LabelSelector: "app=" + deployment.Name})
+		active, err := d.hasActivePod(ctx, deployment)
 		if err != nil {
-			return report, kubeError(err)
-		}
-		active := false
-		for _, pod := range pods.Items {
-			if pod.Status.Phase == corev1.PodRunning || pod.Status.Phase == corev1.PodPending {
-				active = true
-				break
-			}
+			return report, err
 		}
 		if active {
 			continue
