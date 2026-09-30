@@ -8,7 +8,6 @@ import (
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/registry"
-	"github.com/moby/moby/api/types/swarm"
 	"github.com/moby/moby/api/types/system"
 	volumetypes "github.com/moby/moby/api/types/volume"
 	"github.com/moby/moby/v2/daemon/server/backend"
@@ -53,6 +52,9 @@ func (d *Docker) SystemInfo(ctx context.Context) (*system.Info, error) {
 	}
 	for index := range deployments.Items {
 		deployment := &deployments.Items[index]
+		if !isContainerDeployment(deployment) {
+			continue
+		}
 		info.Containers++
 		replicas := int32(1)
 		if deployment.Spec.Replicas != nil {
@@ -246,10 +248,6 @@ func (d *Docker) volumeDiskUsage(ctx context.Context, namespace string, verbose 
 
 func (d *Docker) AuthenticateToRegistry(ctx context.Context, auth *registry.AuthConfig) (string, error) {
 	return d.registry.Authenticate(ctx, auth)
-}
-
-func (s *Swarm) Info(context.Context) (swarm.Info, error) {
-	return swarm.Info{}, ErrNotImplemented
 }
 
 // DiskUsage reports an empty build cache because Dink does not build images.

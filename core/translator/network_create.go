@@ -16,9 +16,25 @@ func (d *Docker) CreateNetwork(ctx context.Context, request networktypes.CreateR
 	if strings.TrimSpace(request.Name) == "" {
 		return networktypes.CreateResponse{}, InvalidArgument(fmt.Errorf("network name is required"))
 	}
-	if (request.Driver != "" && request.Driver != "bridge") || (request.Scope != "" && request.Scope != "local") ||
-		(request.EnableIPv4 != nil && !*request.EnableIPv4) || (request.EnableIPv6 != nil && *request.EnableIPv6) ||
-		request.Internal || request.Attachable || request.Ingress || request.ConfigOnly || request.ConfigFrom != nil || len(request.Options) > 0 ||
+	driver := request.Driver
+	if driver == "" {
+		driver = "bridge"
+	}
+	if driver != "bridge" && driver != "overlay" {
+		return networktypes.CreateResponse{}, InvalidArgument(fmt.Errorf("network driver %q is not supported by the Kubernetes backend", driver))
+	}
+	if request.Scope != "" && request.Scope != networkScope(driver) {
+		return networktypes.CreateResponse{}, InvalidArgument(fmt.Errorf("network scope %q does not match the %s driver", request.Scope, driver))
+	}
+	if request.Ingress {
+		return networktypes.CreateResponse{}, Conflict(fmt.Errorf("the %s network already exists and is managed by Dink", ingressNetworkName))
+	}
+	// Attachable is accepted for overlay networks because every Dink workload can already reach them.
+	if request.Attachable && driver != "overlay" {
+		return networktypes.CreateResponse{}, InvalidArgument(fmt.Errorf("attachable networks require the overlay driver"))
+	}
+	if (request.EnableIPv4 != nil && !*request.EnableIPv4) || (request.EnableIPv6 != nil && *request.EnableIPv6) ||
+		request.Internal || request.ConfigOnly || request.ConfigFrom != nil || len(request.Options) > 0 ||
 		(request.IPAM != nil && (request.IPAM.Driver != "" && request.IPAM.Driver != "default" || len(request.IPAM.Options) > 0 || len(request.IPAM.Config) > 0)) {
 		return networktypes.CreateResponse{}, InvalidArgument(fmt.Errorf("network configuration is not supported by the Kubernetes backend"))
 	}
@@ -43,7 +59,7 @@ func (d *Docker) CreateNetwork(ctx context.Context, request networktypes.CreateR
 		"apiVersion": "dink.io/v1alpha1",
 		"kind":       "DockerNetwork",
 		"metadata":   map[string]any{"name": networkObjectName(request.Name)},
-		"spec":       map[string]any{"name": request.Name, "labels": labels},
+		"spec":       map[string]any{"name": request.Name, "driver": driver, "attachable": request.Attachable, "labels": labels},
 	}}, metav1.CreateOptions{})
 	if apierrors.IsAlreadyExists(err) {
 		return networktypes.CreateResponse{}, Conflict(fmt.Errorf("network with name %s already exists", request.Name))

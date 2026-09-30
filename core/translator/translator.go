@@ -44,6 +44,7 @@ type Docker struct {
 	k8s              *k8s.KubeClient
 	registry         dockerRegistry
 	defaultResources config.ResourceDefaults
+	nodePlacement    config.NodePlacement
 	// pullHost is where nodes pull tenant images from.
 	pullHost     string
 	pullSecretMu sync.Mutex
@@ -57,7 +58,9 @@ type Docker struct {
 }
 
 type Swarm struct {
-	k8s *k8s.KubeClient
+	k8s             *k8s.KubeClient
+	docker          *Docker
+	systemNamespace string
 }
 
 type Builder struct {
@@ -80,11 +83,11 @@ func New(ctx context.Context, cfg *config.Config) (*Translator, error) {
 
 	t := &Translator{
 		k8s:      k,
-		docker:   Docker{k8s: k, registry: r, pullHost: cfg.Registry.PullHost, defaultResources: cfg.Kubernetes.DefaultResources},
-		swarm:    Swarm{k8s: k},
+		docker:   Docker{k8s: k, registry: r, pullHost: cfg.Registry.PullHost, defaultResources: cfg.Kubernetes.DefaultResources, nodePlacement: cfg.Kubernetes.NodePlacement},
 		builder:  Builder{k8s: k},
 		registry: Registry{registry: r, k8s: k},
 	}
+	t.swarm = Swarm{k8s: k, docker: &t.docker, systemNamespace: cfg.Kubernetes.SystemNamespace}
 
 	err = t.EnsureNamespace(ctx, cfg.Kubernetes.SystemNamespace)
 	if err != nil {

@@ -74,6 +74,9 @@ func listWorkloads(ctx context.Context, client kubernetes.Interface, namespace s
 	}
 	workloads := make([]*containerWorkload, 0, len(deployments.Items)+len(jobs.Items))
 	for index := range deployments.Items {
+		if !isContainerDeployment(&deployments.Items[index]) {
+			continue
+		}
 		workloads = append(workloads, deploymentWorkload(&deployments.Items[index]))
 	}
 	for index := range jobs.Items {
@@ -82,6 +85,11 @@ func listWorkloads(ctx context.Context, client kubernetes.Interface, namespace s
 		}
 	}
 	return workloads, nil
+}
+
+// isContainerDeployment skips the Deployments that back Swarm services.
+func isContainerDeployment(deployment *appsv1.Deployment) bool {
+	return deployment.Labels[swarmKindLabel] == ""
 }
 
 // isContainerJob skips Jobs in the namespace that Dink did not create.
@@ -97,9 +105,9 @@ func (d *Docker) findContainer(ctx context.Context, nameOrID string) (*container
 	if nameOrID == "" {
 		return nil, InvalidArgument(fmt.Errorf("container name or ID is required"))
 	}
-	if deployment, err := d.k8s.AppsV1().Deployments(id.Namespace).Get(ctx, nameOrID, metav1.GetOptions{}); err == nil {
+	if deployment, err := d.k8s.AppsV1().Deployments(id.Namespace).Get(ctx, nameOrID, metav1.GetOptions{}); err == nil && isContainerDeployment(deployment) {
 		return deploymentWorkload(deployment), nil
-	} else if !apierrors.IsNotFound(err) {
+	} else if err != nil && !apierrors.IsNotFound(err) {
 		return nil, kubeError(err)
 	}
 	if job, err := d.k8s.BatchV1().Jobs(id.Namespace).Get(ctx, nameOrID, metav1.GetOptions{}); err == nil && isContainerJob(job) {

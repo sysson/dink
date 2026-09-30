@@ -18,6 +18,11 @@
                 "cpu": "100m",
                 "memory": "128Mi"
             }
+        },
+        "nodePlacement": {
+            "enabled": false,
+            "labelKey": "dink.io/tenant",
+            "tolerate": true
         }
     },
     "server": {

@@ -42,23 +42,38 @@ func (d *Docker) ContainerLogs(ctx context.Context, name string, options *backen
 	if len(selected.Spec.Containers) == 0 || len(deployment.Template.Spec.Containers) == 0 {
 		return nil, false, NotFound(fmt.Errorf("no container found in pod for %s", name))
 	}
-	logOptions := &corev1.PodLogOptions{Container: selected.Spec.Containers[0].Name, Follow: options.Follow, Timestamps: true}
+	messages, err := d.podLogs(ctx, deployment.Namespace, selected, options)
+	if err != nil {
+		return nil, false, err
+	}
+	return messages, deployment.Template.Spec.Containers[0].TTY, nil
+}
+
+// podLogs streams one Pod's log as Docker log messages.
+func (d *Docker) podLogs(ctx context.Context, namespace string, pod *corev1.Pod, options *backend.ContainerLogsOptions) (<-chan *backend.LogMessage, error) {
+	if options == nil {
+		return nil, InvalidArgument(fmt.Errorf("log options are required"))
+	}
+	if len(pod.Spec.Containers) == 0 {
+		return nil, NotFound(fmt.Errorf("no container found in pod %s", pod.Name))
+	}
+	logOptions := &corev1.PodLogOptions{Container: pod.Spec.Containers[0].Name, Follow: options.Follow, Timestamps: true}
 	if !options.Since.IsZero() {
 		logOptions.SinceTime = &metav1.Time{Time: options.Since}
 	}
 	if !options.Until.IsZero() && options.Follow {
-		return nil, false, InvalidArgument(fmt.Errorf("following logs with an until timestamp is not supported"))
+		return nil, InvalidArgument(fmt.Errorf("following logs with an until timestamp is not supported"))
 	}
 	if options.Tail != "" && options.Tail != "all" {
 		lines, err := strconv.ParseInt(options.Tail, 10, 64)
 		if err != nil || lines < 0 {
-			return nil, false, InvalidArgument(fmt.Errorf("invalid log tail %q", options.Tail))
+			return nil, InvalidArgument(fmt.Errorf("invalid log tail %q", options.Tail))
 		}
 		logOptions.TailLines = &lines
 	}
-	stream, err := d.k8s.CoreV1().Pods(deployment.Namespace).GetLogs(selected.Name, logOptions).Stream(ctx)
+	stream, err := d.k8s.CoreV1().Pods(namespace).GetLogs(pod.Name, logOptions).Stream(ctx)
 	if err != nil {
-		return nil, false, kubeError(err)
+		return nil, kubeError(err)
 	}
 	messages := make(chan *backend.LogMessage)
 	go func() {
@@ -97,5 +112,5 @@ func (d *Docker) ContainerLogs(ctx context.Context, name string, options *backen
 			}
 		}
 	}()
-	return messages, deployment.Template.Spec.Containers[0].TTY, nil
+	return messages, nil
 }

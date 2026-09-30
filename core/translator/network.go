@@ -19,10 +19,22 @@ var networkResource = schema.GroupVersionResource{Group: "dink.io", Version: "v1
 
 const networkLabelPrefix = "dink.io/network-"
 
+// ingressNetworkName is the routing-mesh network Swarm clients expect to exist.
+const ingressNetworkName = "ingress"
+
 var builtinNetworkDrivers = map[string]string{
 	networktypes.NetworkBridge: "bridge",
 	networktypes.NetworkHost:   "host",
 	networktypes.NetworkNone:   "null",
+	ingressNetworkName:         "overlay",
+}
+
+// overlay networks are swarm-scoped; every other Dink network is machine-local.
+func networkScope(driver string) string {
+	if driver == "overlay" {
+		return "swarm"
+	}
+	return "local"
 }
 
 func networkObjectName(name string) string {
@@ -65,6 +77,9 @@ func networkFromObject(obj *unstructured.Unstructured) networktypes.Network {
 	spec := obj.Object["spec"].(map[string]any)
 	name := spec["name"].(string)
 	driver := "bridge"
+	if value, ok := spec["driver"].(string); ok && value != "" {
+		driver = value
+	}
 	if builtinDriver, ok := builtinNetworkDrivers[name]; ok {
 		driver = builtinDriver
 	}
@@ -74,13 +89,16 @@ func networkFromObject(obj *unstructured.Unstructured) networktypes.Network {
 			labels[key] = value.(string)
 		}
 	}
+	attachable, _ := spec["attachable"].(bool)
 	return networktypes.Network{
 		Name:       name,
 		ID:         identity.DockerIDFromUID(obj.GetUID()),
 		Created:    obj.GetCreationTimestamp().Time,
-		Scope:      "local",
+		Scope:      networkScope(driver),
 		Driver:     driver,
 		EnableIPv4: driver == "bridge",
+		Ingress:    name == ingressNetworkName,
+		Attachable: attachable || name == ingressNetworkName,
 		IPAM:       networktypes.IPAM{Driver: "default", Config: []networktypes.IPAMConfig{}},
 		Options:    map[string]string{},
 		Labels:     labels,

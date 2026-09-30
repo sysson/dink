@@ -22,8 +22,9 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 )
 
-func TestDockerNetworkLifecycle(t *testing.T) {
-	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
+// newNetworkDynamicClient backs DockerNetwork objects with stable UIDs so
+// network IDs behave like they do against a real API server.
+func newNetworkDynamicClient() *fake.FakeDynamicClient {
 	dynamicClient := fake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
 		networkResource: "DockerNetworkList",
 	})
@@ -34,15 +35,24 @@ func TestDockerNetworkLifecycle(t *testing.T) {
 		obj.SetCreationTimestamp(metav1.Now())
 		return false, nil, nil
 	})
+	return dynamicClient
+}
+
+func TestDockerNetworkLifecycle(t *testing.T) {
+	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
+	dynamicClient := newNetworkDynamicClient()
 	client := kubernetesfake.NewClientset()
 	docker := &Docker{k8s: &k8s.KubeClient{Interface: client, Dynamic: dynamicClient}}
 	builtins, err := docker.GetNetworkSummaries(ctx, filters.NewArgs(filters.Arg("type", "builtin")))
-	if err != nil || len(builtins) != 3 {
+	if err != nil || len(builtins) != 4 {
 		t.Fatalf("built-in network list: %+v, %v", builtins, err)
 	}
 	for _, network := range builtins {
 		if network.Driver != builtinNetworkDrivers[network.Name] || len(network.ID) != 64 {
 			t.Fatalf("built-in network: %+v", network)
+		}
+		if network.Name == ingressNetworkName && (network.Scope != "swarm" || !network.Ingress) {
+			t.Fatalf("ingress network: %+v, want a swarm-scoped routing mesh", network)
 		}
 		inspected, err := docker.GetNetwork(ctx, network.ID[:12])
 		if err != nil || inspected.Name != network.Name || inspected.Driver != network.Driver {
@@ -63,8 +73,8 @@ func TestDockerNetworkLifecycle(t *testing.T) {
 			createCount++
 		}
 	}
-	if createCount != 3 {
-		t.Fatalf("created built-ins %d times, want 3", createCount)
+	if createCount != len(builtinNetworkDrivers) {
+		t.Fatalf("created built-ins %d times, want %d", createCount, len(builtinNetworkDrivers))
 	}
 
 	created, err := docker.CreateNetwork(ctx, networktypes.CreateRequest{Name: "my.network", Labels: map[string]string{"team": "dev"}})
@@ -88,7 +98,7 @@ func TestDockerNetworkLifecycle(t *testing.T) {
 	}
 
 	objects, err := dynamicClient.Resource(networkResource).Namespace("tenant").List(ctx, metav1.ListOptions{})
-	if err != nil || len(objects.Items) != 4 {
+	if err != nil || len(objects.Items) != len(builtinNetworkDrivers)+1 {
 		t.Fatalf("CRD list: %+v, %v", objects, err)
 	}
 	label := networkLabelPrefix + networkObjectName("my.network")
@@ -146,12 +156,12 @@ func TestDockerNetworkLifecycle(t *testing.T) {
 			createCount++
 		}
 	}
-	if createCount != 4 {
-		t.Fatalf("network CRDs were created %d times, want 4", createCount)
+	if createCount != len(builtinNetworkDrivers)+1 {
+		t.Fatalf("network CRDs were created %d times, want %d", createCount, len(builtinNetworkDrivers)+1)
 	}
 	otherTenant := identity.NewContext(context.Background(), identity.Identity{Namespace: "other-tenant"})
 	otherNetworks, err := docker.GetNetworkSummaries(otherTenant, filters.NewArgs())
-	if err != nil || len(otherNetworks) != 3 {
+	if err != nil || len(otherNetworks) != len(builtinNetworkDrivers) {
 		t.Fatalf("other tenant networks: %+v, %v", otherNetworks, err)
 	}
 	for _, otherNetwork := range otherNetworks {
@@ -167,5 +177,45 @@ func TestDockerNetworkLifecycle(t *testing.T) {
 	}
 	if err := docker.DeleteNetwork(ctx, "my.network"); err != nil {
 		t.Fatalf("delete: %v", err)
+	}
+}
+
+// `docker stack deploy` creates its networks with the overlay driver before it
+// creates any service.
+func TestOverlayNetworksAreSwarmScoped(t *testing.T) {
+	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
+	docker := &Docker{k8s: &k8s.KubeClient{Interface: kubernetesfake.NewClientset(), Dynamic: newNetworkDynamicClient()}}
+
+	if _, err := docker.CreateNetwork(ctx, networktypes.CreateRequest{Name: "stack_default", Driver: "overlay", Attachable: true}); err != nil {
+		t.Fatalf("create overlay network: %v", err)
+	}
+	created, err := docker.GetNetwork(ctx, "stack_default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Driver != "overlay" || created.Scope != "swarm" || !created.Attachable {
+		t.Fatalf("overlay network = %+v", created)
+	}
+
+	ingress, err := docker.GetNetwork(ctx, ingressNetworkName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ingress.Ingress || ingress.Driver != "overlay" || ingress.Scope != "swarm" {
+		t.Fatalf("ingress network = %+v", ingress)
+	}
+	if err := docker.DeleteNetwork(ctx, ingressNetworkName); !IsKind(err, KindForbidden) {
+		t.Fatalf("delete ingress error = %v, want forbidden", err)
+	}
+	if _, err := docker.CreateNetwork(ctx, networktypes.CreateRequest{Name: "second-ingress", Driver: "overlay", Ingress: true}); !IsKind(err, KindConflict) {
+		t.Fatalf("second ingress error = %v, want conflict", err)
+	}
+	if _, err := docker.CreateNetwork(ctx, networktypes.CreateRequest{Name: "macvlan", Driver: "macvlan"}); !IsKind(err, KindInvalidArgument) {
+		t.Fatalf("unsupported driver error = %v, want invalid argument", err)
+	}
+
+	swarmScoped, err := docker.GetNetworkSummaries(ctx, filters.NewArgs(filters.Arg("scope", "swarm")))
+	if err != nil || len(swarmScoped) != 2 {
+		t.Fatalf("swarm-scoped networks = %+v, err = %v", swarmScoped, err)
 	}
 }

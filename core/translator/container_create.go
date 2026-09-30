@@ -119,6 +119,7 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 			},
 		},
 	}
+	applyNodePlacement(&template.Spec, d.nodePlacement, id.Namespace)
 	meta := metav1.ObjectMeta{
 		Name:        cfg.Name,
 		Namespace:   id.Namespace,
@@ -402,19 +403,29 @@ func (d *Docker) containerNetworkLabels(ctx context.Context, cfg backend.Contain
 		}
 	}
 	sort.Strings(networkNames)
-	labels := make(map[string]string, len(networkNames))
-	for _, name := range networkNames {
+	labels, err := d.networkMembershipLabels(ctx, networkNames)
+	if err != nil {
+		return nil, false, err
+	}
+	return labels, false, nil
+}
+
+// networkMembershipLabels resolves Docker network names to the workload labels
+// that record membership.
+func (d *Docker) networkMembershipLabels(ctx context.Context, names []string) (map[string]string, error) {
+	labels := make(map[string]string, len(names))
+	for _, name := range names {
 		objectName := networkObjectName(name)
 		if _, builtin := builtinNetworkDrivers[name]; !builtin {
 			obj, err := d.findNetwork(ctx, name)
 			if err != nil {
-				return nil, false, err
+				return nil, err
 			}
 			objectName = obj.GetName()
 		}
 		labels[networkLabelPrefix+objectName] = "true"
 	}
-	return labels, false, nil
+	return labels, nil
 }
 
 func podDNSPolicy(hostNetwork bool) corev1.DNSPolicy {
