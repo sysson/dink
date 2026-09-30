@@ -51,7 +51,7 @@ func (d *Docker) ensureBuiltinNetworks(ctx context.Context, namespace string, li
 		if existing[networkObjectName(name)] {
 			continue
 		}
-		_, err := d.k8s.Dynamic.Resource(networkResource).Namespace(namespace).Create(ctx, &unstructured.Unstructured{Object: map[string]any{
+		obj, err := d.k8s.Dynamic.Resource(networkResource).Namespace(namespace).Create(ctx, &unstructured.Unstructured{Object: map[string]any{
 			"apiVersion": "dink.io/v1alpha1",
 			"kind":       "DockerNetwork",
 			"metadata":   map[string]any{"name": networkObjectName(name)},
@@ -59,6 +59,11 @@ func (d *Docker) ensureBuiltinNetworks(ctx context.Context, namespace string, li
 		}}, metav1.CreateOptions{})
 		if err != nil && !apierrors.IsAlreadyExists(err) {
 			return false, err
+		}
+		if err == nil {
+			if err := d.ensureNetworkPolicy(ctx, obj); err != nil {
+				return false, err
+			}
 		}
 		created = true
 	}

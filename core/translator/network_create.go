@@ -67,6 +67,12 @@ func (d *Docker) CreateNetwork(ctx context.Context, request networktypes.CreateR
 	if err != nil {
 		return networktypes.CreateResponse{}, err
 	}
+	if err := d.ensureNamespaceIsolation(ctx, namespace); err != nil {
+		return networktypes.CreateResponse{}, err
+	}
+	if err := d.ensureNetworkPolicy(ctx, obj); err != nil {
+		return networktypes.CreateResponse{}, err
+	}
 	return networktypes.CreateResponse{ID: identity.DockerIDFromUID(obj.GetUID()), Warning: ""}, nil
 }
 

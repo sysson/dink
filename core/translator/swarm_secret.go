@@ -15,8 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// Swarm secrets map to Kubernetes Secrets in the tenant namespace. This is
-// unrelated to Dink's secrets plugin, which resolves se:// environment values.
+// Swarm secrets map to Kubernetes Secrets in the tenant namespace.
 
 func (s *Swarm) GetSecrets(ctx context.Context, options swarmbackend.SecretListOptions) ([]swarmtypes.Secret, error) {
 	namespace, err := s.namespace(ctx)

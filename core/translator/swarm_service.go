@@ -86,6 +86,10 @@ func (s *Swarm) CreateService(ctx context.Context, spec swarmtypes.ServiceSpec, 
 		_ = s.k8s.AppsV1().Deployments(namespace).Delete(ctx, created.Name, metav1.DeleteOptions{})
 		return nil, err
 	}
+	if err := s.applyServicePolicies(ctx, created); err != nil {
+		_ = s.k8s.AppsV1().Deployments(namespace).Delete(ctx, created.Name, metav1.DeleteOptions{})
+		return nil, err
+	}
 	return &swarmtypes.ServiceCreateResponse{ID: identity.DockerIDFromUID(created.UID), Warnings: warnings}, nil
 }
 
@@ -117,7 +121,21 @@ func (s *Swarm) UpdateService(ctx context.Context, idOrName string, version uint
 	if err := s.applyServiceEndpoints(ctx, updated, services); err != nil {
 		return nil, err
 	}
+	if err := s.applyServicePolicies(ctx, updated); err != nil {
+		return nil, err
+	}
 	return &swarmtypes.ServiceUpdateResponse{Warnings: warnings}, nil
+}
+
+// applyServicePolicies opens the service's published ports; network membership
+// is already covered by the per-network policies.
+func (s *Swarm) applyServicePolicies(ctx context.Context, deployment *appsv1.Deployment) error {
+	var ports []corev1.ContainerPort
+	for _, container := range deployment.Spec.Template.Spec.Containers {
+		ports = append(ports, container.Ports...)
+	}
+	owner := deploymentOwnerReference(deployment.Name, deployment.UID)
+	return s.docker.applyPublishedPortsPolicy(ctx, deployment.Namespace, deployment.Name, owner, ports)
 }
 
 func (s *Swarm) RemoveService(ctx context.Context, idOrName string) error {
@@ -311,6 +329,9 @@ func (s *Swarm) buildService(ctx context.Context, namespace string, spec swarmty
 	if err := s.docker.ensurePullSecret(ctx, namespace); err != nil {
 		return nil, nil, nil, err
 	}
+	if err := s.docker.ensureNamespaceIsolation(ctx, namespace); err != nil {
+		return nil, nil, nil, err
+	}
 	warnings := serviceWarnings(spec)
 
 	volumes, mounts, err := s.serviceMounts(ctx, containerSpec)
@@ -346,13 +367,21 @@ func (s *Swarm) buildService(ctx context.Context, namespace string, spec swarmty
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	aliases, err := serviceAliases(spec)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if slices.Contains(aliases, spec.Name) {
+		return nil, nil, nil, InvalidArgument(fmt.Errorf("network alias %q duplicates the service name", spec.Name))
+	}
 	specJSON, err := json.Marshal(spec)
 	if err != nil {
 		return nil, nil, nil, InvalidArgument(fmt.Errorf("encoding service spec: %w", err))
 	}
 
 	labels := map[string]string{"app": spec.Name, swarmKindLabel: swarmServiceKind}
-	podLabels := maps.Clone(labels)
+	podLabels := dinkPodLabels(spec.Name)
+	podLabels[swarmKindLabel] = swarmServiceKind
 	maps.Copy(podLabels, networkLabels)
 	container := corev1.Container{
 		Name:            spec.Name,
@@ -421,7 +450,24 @@ func (s *Swarm) buildService(ctx context.Context, namespace string, spec swarmty
 			Template: template,
 		},
 	}
-	return deployment, serviceEndpointServices(namespace, spec.Name, ports), warnings, nil
+	return deployment, serviceEndpointServices(namespace, spec.Name, ports, aliases), warnings, nil
+}
+
+// serviceAliases collects the network aliases a service asks for. Kubernetes
+// Service names are namespace-unique, so an alias is not scoped to one network.
+func serviceAliases(spec swarmtypes.ServiceSpec) ([]string, error) {
+	var aliases []string
+	for _, attachment := range spec.TaskTemplate.Networks {
+		aliases = append(aliases, attachment.Aliases...)
+	}
+	slices.Sort(aliases)
+	aliases = slices.Compact(aliases)
+	for _, alias := range aliases {
+		if errs := validation.IsDNS1035Label(alias); len(errs) > 0 {
+			return nil, InvalidArgument(fmt.Errorf("network alias %q is not usable as a Kubernetes Service name: %s", alias, errs[0]))
+		}
+	}
+	return aliases, nil
 }
 
 func serviceReplicas(mode swarmtypes.ServiceMode) (int32, error) {
@@ -710,8 +756,9 @@ func (s *Swarm) serviceNetworkLabels(ctx context.Context, spec swarmtypes.Servic
 }
 
 // serviceEndpointServices returns the ClusterIP Service that stands in for the
-// Swarm VIP, plus a LoadBalancer Service for ingress-published ports.
-func serviceEndpointServices(namespace, name string, ports []servicePort) []*corev1.Service {
+// Swarm VIP, a LoadBalancer Service for ingress-published ports, and one
+// Service per network alias.
+func serviceEndpointServices(namespace, name string, ports []servicePort, aliases []string) []*corev1.Service {
 	labels := map[string]string{"app": name, swarmKindLabel: swarmServiceKind}
 	selector := map[string]string{"app": name, swarmKindLabel: swarmServiceKind}
 	servicePorts := make([]corev1.ServicePort, 0, len(ports))
@@ -746,27 +793,37 @@ func serviceEndpointServices(namespace, name string, ports []servicePort) []*cor
 	if len(servicePorts) == 0 {
 		vip.Spec.ClusterIP = corev1.ClusterIPNone
 	}
-	if len(published) == 0 {
-		return []*corev1.Service{vip}
+	services := []*corev1.Service{vip}
+	if len(published) > 0 {
+		services = append(services, &corev1.Service{
+			Name:      publishedPortsServiceName(name),
+			Namespace: namespace,
+			Labels:    labels,
+			Spec:      corev1.ServiceSpec{Type: corev1.ServiceTypeLoadBalancer, Selector: selector, Ports: published},
+		})
 	}
-	return []*corev1.Service{vip, {
-		Name:      publishedPortsServiceName(name),
-		Namespace: namespace,
-		Labels:    labels,
-		Spec:      corev1.ServiceSpec{Type: corev1.ServiceTypeLoadBalancer, Selector: selector, Ports: published},
-	}}
+	for _, alias := range aliases {
+		aliasLabels := maps.Clone(labels)
+		aliasLabels[aliasOfLabel] = name
+		aliasLabels[managedByLabel] = managedByDink
+		aliasService := &corev1.Service{
+			Name:      alias,
+			Namespace: namespace,
+			Labels:    aliasLabels,
+			Spec:      corev1.ServiceSpec{Type: corev1.ServiceTypeClusterIP, Selector: selector, Ports: servicePorts},
+		}
+		if len(servicePorts) == 0 {
+			aliasService.Spec.ClusterIP = corev1.ClusterIPNone
+		}
+		services = append(services, aliasService)
+	}
+	return services
 }
 
 // applyServiceEndpoints creates or updates the Services owned by a Deployment
 // and removes the ones the current spec no longer needs.
 func (s *Swarm) applyServiceEndpoints(ctx context.Context, deployment *appsv1.Deployment, services []*corev1.Service) error {
-	owner := metav1.OwnerReference{
-		APIVersion: "apps/v1",
-		Kind:       "Deployment",
-		Name:       deployment.Name,
-		UID:        deployment.UID,
-		Controller: new(true),
-	}
+	owner := deploymentOwnerReference(deployment.Name, deployment.UID)
 	wanted := make(map[string]struct{}, len(services))
 	for _, service := range services {
 		wanted[service.Name] = struct{}{}
@@ -788,7 +845,15 @@ func (s *Swarm) applyServiceEndpoints(ctx context.Context, deployment *appsv1.De
 			return kubeError(err)
 		}
 	}
-	for _, name := range []string{deployment.Name, publishedPortsServiceName(deployment.Name)} {
+	stale := []string{deployment.Name, publishedPortsServiceName(deployment.Name)}
+	aliases, err := s.k8s.CoreV1().Services(deployment.Namespace).List(ctx, metav1.ListOptions{LabelSelector: aliasOfLabel + "=" + deployment.Name})
+	if err != nil {
+		return kubeError(err)
+	}
+	for index := range aliases.Items {
+		stale = append(stale, aliases.Items[index].Name)
+	}
+	for _, name := range stale {
 		if _, keep := wanted[name]; keep {
 			continue
 		}

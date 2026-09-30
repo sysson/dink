@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 
 	networktypes "github.com/moby/moby/api/types/network"
 	appsv1 "k8s.io/api/apps/v1"
@@ -11,8 +12,14 @@ import (
 )
 
 func (d *Docker) ConnectContainerToNetwork(ctx context.Context, networkID, containerID string, endpoint *networktypes.EndpointSettings) error {
-	if endpoint != nil && !reflect.DeepEqual(*endpoint, networktypes.EndpointSettings{}) {
-		return InvalidArgument(fmt.Errorf("network endpoint settings are not supported by the Kubernetes backend"))
+	var aliases []string
+	if endpoint != nil {
+		requested := *endpoint
+		aliases = slices.Concat(requested.Aliases, requested.DNSNames)
+		requested.Aliases, requested.DNSNames = nil, nil
+		if !reflect.DeepEqual(requested, networktypes.EndpointSettings{}) {
+			return InvalidArgument(fmt.Errorf("network endpoint settings other than aliases are not supported by the Kubernetes backend"))
+		}
 	}
 	workload, err := d.findContainer(ctx, containerID)
 	if err != nil {
@@ -22,7 +29,21 @@ func (d *Docker) ConnectContainerToNetwork(ctx context.Context, networkID, conta
 	if err != nil {
 		return err
 	}
-	label := networkLabelPrefix + networkObjectName(networkFromObject(networkObject).Name)
+	name := networkFromObject(networkObject).Name
+	label := networkLabelPrefix + networkObjectName(name)
+	if len(aliases) > 0 {
+		validated, err := aliasesFromEndpoints(map[string]*networktypes.EndpointSettings{name: {Aliases: aliases}})
+		if err != nil {
+			return err
+		}
+		current, err := decodeContainerAliases(workload.Annotations)
+		if err != nil {
+			return err
+		}
+		if err := d.setContainerAliases(ctx, workload, mergeNetworkAliases(current, name, validated[name])); err != nil {
+			return err
+		}
+	}
 	if workload.Template.Labels[label] == "true" {
 		return nil
 	}
@@ -40,12 +61,22 @@ func (d *Docker) DisconnectContainerFromNetwork(ctx context.Context, networkID, 
 	if err != nil {
 		return err
 	}
-	label := networkLabelPrefix + networkObjectName(networkFromObject(networkObject).Name)
+	name := networkFromObject(networkObject).Name
+	label := networkLabelPrefix + networkObjectName(name)
 	if workload.Template.Labels[label] != "true" {
 		if force {
 			return nil
 		}
 		return NotFound(fmt.Errorf("container %s is not connected to network %s", containerID, networkID))
+	}
+	current, err := decodeContainerAliases(workload.Annotations)
+	if err != nil {
+		return err
+	}
+	if _, ok := current[name]; ok {
+		if err := d.setContainerAliases(ctx, workload, mergeNetworkAliases(current, name, nil)); err != nil {
+			return err
+		}
 	}
 	return d.updateNetworkLabels(ctx, workload, func(labels map[string]string) {
 		delete(labels, label)
