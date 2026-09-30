@@ -24,11 +24,31 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+      - name: Resolve Go cache paths
+        id: go-cache-paths
+        run: |
+          echo "version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
+          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          echo "modules=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6.1.0
+        id: go-cache
+        with:
+          path: |
+            ${{ steps.go-cache-paths.outputs.build }}
+            ${{ steps.go-cache-paths.outputs.modules }}
+          key: ${{ runner.os }}-${{ runner.arch }}-go-${{ steps.go-cache-paths.outputs.version }}-${{ hashFiles('go.sum', 'sdk/go.sum') }}-${{ github.sha }}-${{ github.job }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-go-${{ steps.go-cache-paths.outputs.version }}-${{ hashFiles('go.sum', 'sdk/go.sum') }}-
+            ${{ runner.os }}-${{ runner.arch }}-go-${{ steps.go-cache-paths.outputs.version }}-
+      - name: Report Go cache hit
+        run: |
+          echo "Exact Go cache hit: ${{ steps.go-cache.outputs.cache-hit }}"
       - run: make test
 
   images:
     needs: test
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -39,8 +59,10 @@ jobs:
         include:
           - target: dink
             image: ghcr.io/sysson/dink
+            description: Dink translates Docker Engine API requests into Kubernetes workloads.
           - target: dinki
             image: ghcr.io/sysson/dinki
+            description: Dinki is the tenant OCI registry used by Dink to store and serve container images.
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: docker/setup-qemu-action@v4.4.0
@@ -55,6 +77,8 @@ jobs:
         id: metadata
         with:
           images: ${{ matrix.image }}
+          labels: |
+            org.opencontainers.image.description=${{ matrix.description }}
           tags: |
             type=sha,format=long,prefix=sha-
             type=ref,event=tag
@@ -67,10 +91,64 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
+          annotations: |
+            index:org.opencontainers.image.description=${{ matrix.description }}
           cache-from: type=gha,scope=${{ matrix.target }}
           cache-to: type=gha,mode=max,scope=${{ matrix.target }}
           provenance: true
           sbom: true
+
+  tag-images:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install yq
+        run: go install github.com/mikefarah/yq/v4@v4.53.6
+      - name: Read pinned image tags
+        id: pins
+        run: |
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          dink_tag="$(yq -r '.images[] | select(.name == "ghcr.io/sysson/dink").newTag' deploy/kustomization.yaml)"
+          dinki_tag="$(yq -r '.images[] | select(.name == "ghcr.io/sysson/dinki").newTag' deploy/kustomization.yaml)"
+          for tag in "$dink_tag" "$dinki_tag"; do
+            if [[ ! "$tag" =~ ^sha-[0-9a-f]{40}$ ]]; then
+              echo "expected a full SHA image pin, got '$tag'" >&2
+              exit 1
+            fi
+          done
+          echo "dink=$dink_tag" >> "$GITHUB_OUTPUT"
+          echo "dinki=$dinki_tag" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v4.4.1
+      - uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Add version tags to the pinned images
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          DINK_SOURCE_TAG: ${{ steps.pins.outputs.dink }}
+          DINKI_SOURCE_TAG: ${{ steps.pins.outputs.dinki }}
+          DINK_DESCRIPTION: Dink translates Docker Engine API requests into Kubernetes workloads.
+          DINKI_DESCRIPTION: Dinki is the tenant OCI registry used by Dink to store and serve container images.
+        run: |
+          docker buildx imagetools create \
+            --annotation "index:org.opencontainers.image.description=${DINK_DESCRIPTION}" \
+            --tag "ghcr.io/sysson/dink:${RELEASE_TAG}" \
+            "ghcr.io/sysson/dink:${DINK_SOURCE_TAG}"
+          docker buildx imagetools create \
+            --annotation "index:org.opencontainers.image.description=${DINKI_DESCRIPTION}" \
+            --tag "ghcr.io/sysson/dinki:${RELEASE_TAG}" \
+            "ghcr.io/sysson/dinki:${DINKI_SOURCE_TAG}"
 
   pin-main-images:
     needs: images
@@ -117,7 +195,7 @@ jobs:
             Review the generated image references before merging.
 
   release-dinkle:
-    needs: [test, images]
+    needs: [test, tag-images]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -127,7 +205,26 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+      - name: Resolve Go cache paths
+        id: go-cache-paths
+        run: |
+          echo "version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
+          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          echo "modules=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        id: go-cache
+        with:
+          path: |
+            ${{ steps.go-cache-paths.outputs.build }}
+            ${{ steps.go-cache-paths.outputs.modules }}
+          key: ${{ runner.os }}-${{ runner.arch }}-go-${{ steps.go-cache-paths.outputs.version }}-${{ hashFiles('go.sum', 'sdk/go.sum') }}-${{ github.sha }}-${{ github.job }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-go-${{ steps.go-cache-paths.outputs.version }}-${{ hashFiles('go.sum', 'sdk/go.sum') }}-
+            ${{ runner.os }}-${{ runner.arch }}-go-${{ steps.go-cache-paths.outputs.version }}-
+      - name: Report Go cache hit
+        run: |
+          echo "Exact Go cache hit: ${{ steps.go-cache.outputs.cache-hit }}"
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: v2.18.0
