@@ -1,16 +1,14 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-
 resources:
   - dink.yaml
   - dinki.yaml
   - dinki-node.yaml
 images:
   - name: ghcr.io/sysson/dink
-    newTag: dev
+    newTag: sha-aa18d581901c5696a252b038a50d33a521eba5f1
   - name: ghcr.io/sysson/dinki
-    newTag: dev
-
+    newTag: sha-aa18d581901c5696a252b038a50d33a521eba5f1
 configMapGenerator:
   - name: dink-config
     namespace: dink-system
