@@ -179,7 +179,8 @@ make lint
 - [`deploy/config.json`](deploy/config.json) configures the Docker API, TLS,
 	logging, Kubernetes namespace defaults, and container resource defaults.
 - [`deploy/dinki-config.json`](deploy/dinki-config.json) configures registry
-	TLS, storage paths, logging, and the internal API client identity.
+	TLS, storage paths, logging, and the internal API client identity. `storage.path`
+	selects the local blob directory and `metadata.path` selects the bbolt database;
 - [`Makefile`](Makefile) contains local cluster, certificate, tenant, context,
 	and deployment targets. Run `make` to see the default build target, or inspect
 	the file for available targets.

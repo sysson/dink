@@ -15,10 +15,10 @@ import (
 
 	"github.com/docker/oci"
 	"github.com/docker/oci/ocidigest"
-	"github.com/sysson/dink/pkg/ocistore"
-	"github.com/sysson/dink/pkg/ocistore/blobstore"
-	"github.com/sysson/dink/pkg/ocistore/kv/boltkv"
-	"github.com/sysson/dink/pkg/ocistore/kvmeta"
+	"github.com/sysson/ocistore"
+	"github.com/sysson/ocistore/blobstore/fileblob"
+	"github.com/sysson/ocistore/kv/boltkv"
+	"github.com/sysson/ocistore/kvmeta"
 )
 
 func TestPersistentBlobUploadSurvivesRestart(t *testing.T) {
@@ -168,7 +168,7 @@ func TestPersistentManifestAndTagSurviveRestart(t *testing.T) {
 
 func persistentHandler(t *testing.T, ctx context.Context, dir string) (*Handler, func() error) {
 	t.Helper()
-	content, err := blobstore.Open(ctx, "file://"+filepath.ToSlash(filepath.Join(dir, "blobs"))+"?create_dir=true")
+	content, err := fileblob.Open(ctx, filepath.Join(dir, "blobs"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -21,10 +21,12 @@ import (
 	"github.com/sysson/dink/core/registry/pullauth"
 	"github.com/sysson/dink/core/registry/server"
 	"github.com/sysson/dink/core/server/middleware"
-	"github.com/sysson/dink/pkg/ocistore"
-	"github.com/sysson/dink/pkg/ocistore/blobstore"
-	"github.com/sysson/dink/pkg/ocistore/kvmeta"
-	"github.com/sysson/dink/pkg/ocistore/query"
+	"github.com/sysson/ocistore"
+	"github.com/sysson/ocistore/blobstore"
+	"github.com/sysson/ocistore/blobstore/fileblob"
+	"github.com/sysson/ocistore/kv/boltkv"
+	"github.com/sysson/ocistore/kvmeta"
+	"github.com/sysson/ocistore/query"
 	"github.com/sysson/syskit/logx"
 	"github.com/urfave/cli/v3"
 )
@@ -102,7 +104,7 @@ func serve(ctx context.Context, cfg config.Config, stderr io.Writer) error {
 	if tlsConfig == nil {
 		slog.WarnContext(ctx, "TLS is disabled; serving the registry in plaintext")
 	}
-	return serveAll(ctx, cfg, []*listenerServer{
+	return serveAll(ctx, []*listenerServer{
 		{
 			name:    "registry",
 			address: net.JoinHostPort(cfg.Server.Host, cfg.Server.Port),
@@ -245,7 +247,7 @@ func serverTLSConfig(cfg config.Config) (*tls.Config, error) {
 	return config, nil
 }
 
-func serveAll(ctx context.Context, cfg config.Config, servers []*listenerServer) error {
+func serveAll(ctx context.Context, servers []*listenerServer) error {
 	type served struct {
 		name string
 		err  error
@@ -280,7 +282,7 @@ func serveAll(ctx context.Context, cfg config.Config, servers []*listenerServer)
 		go func(name string) {
 			results <- served{name: name, err: server.Serve(listener)}
 		}(s.name)
-		slog.InfoContext(ctx, s.name+" listening", "address", listener.Addr(), "storage", driverName(cfg.Storage.Driver()), "metadata", driverName(cfg.Metadata.Driver()))
+		slog.InfoContext(ctx, s.name+" listening", "address", listener.Addr(), "storage", "file", "metadata", "bbolt")
 	}
 
 	var failure error
@@ -337,14 +339,13 @@ func (b *registryBackend) Close() error {
 	return errors.Join(b.metadata.Close(), b.content.Close())
 }
 
-// newBackend opens the blob driver selected by storage and the kv metadata
-// driver selected by metadata, which also holds the pull credentials.
+// newBackend opens local blob and metadata stores, including pull credentials.
 func newBackend(ctx context.Context, cfg config.Config) (*registryBackend, error) {
-	content, err := blobstore.OpenConfig(ctx, cfg.Storage)
+	content, err := fileblob.Open(ctx, cfg.Storage.Path)
 	if err != nil {
 		return nil, fmt.Errorf("opening blob storage: %w", err)
 	}
-	store, err := cfg.Metadata.Open(ctx)
+	store, err := (boltkv.Config{Path: cfg.Metadata.Path}).Open(ctx)
 	if err != nil {
 		_ = content.Close()
 		return nil, fmt.Errorf("opening metadata store: %w", err)
@@ -375,5 +376,3 @@ func verifyAPIClient(state *tls.ConnectionState, organization, commonName string
 	}
 	return nil
 }
-
-func driverName[T any](name string, _ T, _ error) string { return name }

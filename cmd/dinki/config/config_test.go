@@ -12,8 +12,8 @@ func TestLoadMergesFileWithDefaults(t *testing.T) {
 		"server": {"port": "5002"},
 		"tls": {"disabled": true},
 		"api": {"disabled": true},
-		"storage": {"mem": {}},
-		"metadata": {"etcd": {"endpoints": ["etcd-0:2379"], "prefix": "/dinki"}}
+		"storage": {"path": "/mnt/blobs"},
+		"metadata": {"path": "/mnt/metadata.db"}
 	}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -34,11 +34,11 @@ func TestLoadMergesFileWithDefaults(t *testing.T) {
 	if !cfg.AccessLog.Enabled || cfg.AccessLog.Level != "error" {
 		t.Fatalf("access log = %+v, want inherited default enabled at error level", cfg.AccessLog)
 	}
-	if cfg.Storage.File != nil || cfg.Storage.Mem == nil {
-		t.Fatalf("storage = %+v, want only mem replacing the default file driver", cfg.Storage)
+	if cfg.Storage.Path != "/mnt/blobs" {
+		t.Fatalf("storage = %+v, want configured path", cfg.Storage)
 	}
-	if cfg.Metadata.BBolt != nil || cfg.Metadata.Etcd == nil || cfg.Metadata.Etcd.Endpoints[0] != "etcd-0:2379" {
-		t.Fatalf("metadata = %+v, want only etcd replacing the default bbolt driver", cfg.Metadata)
+	if cfg.Metadata.Path != "/mnt/metadata.db" {
+		t.Fatalf("metadata = %+v, want configured path", cfg.Metadata)
 	}
 }
 
@@ -51,10 +51,10 @@ func TestLoadRejectsMissingExplicitFile(t *testing.T) {
 
 func TestDefaultUsesPersistentBackends(t *testing.T) {
 	cfg := Default()
-	if cfg.Storage.File == nil || cfg.Storage.File.Path != "/var/lib/dinki/blobs" {
+	if cfg.Storage.Path != "/var/lib/dinki/blobs" {
 		t.Fatalf("storage = %+v, want file-backed default", cfg.Storage)
 	}
-	if cfg.Metadata.BBolt == nil || cfg.Metadata.BBolt.Path != "/var/lib/dinki/metadata.db" {
+	if cfg.Metadata.Path != "/var/lib/dinki/metadata.db" {
 		t.Fatalf("metadata = %+v, want bbolt-backed default", cfg.Metadata)
 	}
 	if !cfg.AccessLog.Enabled {
@@ -102,13 +102,13 @@ func TestValidateAPI(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsInvalidDrivers(t *testing.T) {
+func TestLoadRejectsInvalidStorage(t *testing.T) {
 	for name, body := range map[string]string{
-		"unknown driver":   `{"storage": {"s4": {}}}`,
-		"unknown field":    `{"metadata": {"bbolt": {"path": "/db", "mode": 1}}}`,
-		"two drivers":      `{"metadata": {"mem": {}, "bbolt": {"path": "/db"}}}`,
-		"no driver":        `{"storage": {}}`,
-		"invalid settings": `{"metadata": {"nats": {"servers": []}}}`,
+		"old storage driver":  `{"storage": {"s3": {"bucket": "dinki"}}}`,
+		"old metadata driver": `{"metadata": {"etcd": {"endpoints": []}}}`,
+		"unknown field":       `{"storage": {"path": "/blobs", "mode": 1}}`,
+		"relative storage":    `{"storage": {"path": "blobs"}}`,
+		"relative metadata":   `{"metadata": {"path": "metadata.db"}}`,
 	} {
 		path := filepath.Join(t.TempDir(), "config.json")
 		if err := os.WriteFile(path, []byte(`{"tls": {"disabled": true}, `+body[1:]), 0o600); err != nil {
@@ -125,7 +125,7 @@ func TestLoadDeployConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load(deploy config) error = %v", err)
 	}
-	if cfg.Storage.File == nil || cfg.Metadata.BBolt == nil {
-		t.Fatalf("deploy config drivers = %+v / %+v, want file and bbolt", cfg.Storage, cfg.Metadata)
+	if cfg.Storage.Path == "" || cfg.Metadata.Path == "" {
+		t.Fatalf("deploy config paths = %+v / %+v, want file and bbolt paths", cfg.Storage, cfg.Metadata)
 	}
 }

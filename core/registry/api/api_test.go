@@ -26,11 +26,11 @@ import (
 	apiserver "github.com/sysson/dink/core/registry/api/server"
 	"github.com/sysson/dink/core/registry/pullauth"
 	"github.com/sysson/dink/core/types"
-	"github.com/sysson/dink/pkg/ocistore"
-	"github.com/sysson/dink/pkg/ocistore/blobstore"
-	"github.com/sysson/dink/pkg/ocistore/kv/memkv"
-	"github.com/sysson/dink/pkg/ocistore/kvmeta"
-	"github.com/sysson/dink/pkg/ocistore/query"
+	"github.com/sysson/ocistore"
+	"github.com/sysson/ocistore/blobstore/memblob"
+	"github.com/sysson/ocistore/kv/memkv"
+	"github.com/sysson/ocistore/kvmeta"
+	"github.com/sysson/ocistore/query"
 	"github.com/sysson/syskit/httpx"
 )
 
@@ -98,7 +98,7 @@ func newAPI(t *testing.T) *api.Client {
 func newAPIWithCredentials(t *testing.T) (*api.Client, *pullauth.Store) {
 	t.Helper()
 	ctx := context.Background()
-	content, err := blobstore.Open(ctx, "mem://")
+	content, err := (memblob.Config{}).Open(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
