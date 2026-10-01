@@ -36,9 +36,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-go-${{ steps.go-cache-paths.outputs.version }}-${{ hashFiles('go.sum', 'sdk/go.sum') }}-
             ${{ runner.os }}-${{ runner.arch }}-go-${{ steps.go-cache-paths.outputs.version }}-
-      - name: Report Go cache hit
-        run: |
-          echo "Exact Go cache hit: ${{ steps.go-cache.outputs.cache-hit }}"
       - run: make test
 
   image-check:

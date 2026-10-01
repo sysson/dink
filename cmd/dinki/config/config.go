@@ -1,32 +1,41 @@
 package config
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"os"
 	"time"
 
-	"github.com/sysson/dink/pkg/ocistore/blobstore"
-	"github.com/sysson/dink/pkg/ocistore/kv/boltkv"
-	"github.com/sysson/dink/pkg/ocistore/kv/drivers"
+	"github.com/sysson/ocistore/blobstore/fileblob"
+	"github.com/sysson/ocistore/kv/boltkv"
 )
 
 const DefaultFile = "/etc/dinki/config.json"
 
 type Config struct {
-	Log       Log              `json:"log"`
-	AccessLog AccessLog        `json:"accessLog"`
-	Server    Server           `json:"server"`
-	TLS       TLS              `json:"tls"`
-	Storage   blobstore.Config `json:"storage"`
-	Metadata  drivers.Config   `json:"metadata"`
-	GC        GC               `json:"gc"`
-	GraphQL   GraphQL          `json:"graphql"`
-	API       API              `json:"api"`
+	Log       Log       `json:"log"`
+	AccessLog AccessLog `json:"accessLog"`
+	Server    Server    `json:"server"`
+	TLS       TLS       `json:"tls"`
+	Storage   Storage   `json:"storage"`
+	Metadata  Metadata  `json:"metadata"`
+	GC        GC        `json:"gc"`
+	GraphQL   GraphQL   `json:"graphql"`
+	API       API       `json:"api"`
+}
+
+type Storage struct {
+	Path string `json:"path"`
+}
+
+type Metadata struct {
+	Path string `json:"path"`
 }
 
 type Log struct {
@@ -109,8 +118,8 @@ func Default() Config {
 			KeyFile:       "/etc/dinki/tls/tls.key",
 			MinTLSVersion: "1.3",
 		},
-		Storage:  blobstore.Config{File: &blobstore.FileConfig{Path: "/var/lib/dinki/blobs"}},
-		Metadata: drivers.Config{BBolt: &boltkv.Config{Path: "/var/lib/dinki/metadata.db"}},
+		Storage:  Storage{Path: "/var/lib/dinki/blobs"},
+		Metadata: Metadata{Path: "/var/lib/dinki/metadata.db"},
 		GC: GC{
 			Interval:     Duration(time.Minute),
 			UploadExpiry: Duration(24 * time.Hour),
@@ -132,8 +141,13 @@ func Load(path string) (Config, error) {
 		}
 		return Config{}, fmt.Errorf("reading config file %q: %w", path, err)
 	}
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&cfg); err != nil {
 		return Config{}, fmt.Errorf("decoding config file %q: %w", path, err)
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return Config{}, fmt.Errorf("decoding config file %q: unexpected trailing data", path)
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, fmt.Errorf("invalid configuration: %w", err)
@@ -169,10 +183,10 @@ func (c Config) Validate() error {
 	if _, err := TLSVersion(c.TLS.MinTLSVersion); err != nil {
 		errs = append(errs, err)
 	}
-	if err := c.Storage.Validate(); err != nil {
+	if err := (fileblob.Config{Path: c.Storage.Path}).Validate(); err != nil {
 		errs = append(errs, fmt.Errorf("storage: %w", err))
 	}
-	if err := c.Metadata.Validate(); err != nil {
+	if err := (boltkv.Config{Path: c.Metadata.Path}).Validate(); err != nil {
 		errs = append(errs, fmt.Errorf("metadata: %w", err))
 	}
 	if c.GC.Interval <= 0 {

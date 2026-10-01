@@ -24,7 +24,7 @@ import (
 )
 
 // Querier executes GraphQL documents against the registry metadata. It is
-// satisfied by [github.com/sysson/dink/pkg/ocistore/query.Service].
+// satisfied by [github.com/sysson/ocistore/query.Service].
 type Querier interface {
 	Exec(ctx context.Context, document, operationName string, variables map[string]any) *graphql.Response
 }

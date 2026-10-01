@@ -16,8 +16,8 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/types"
-	"github.com/sysson/dink/pkg/ocistore"
-	"github.com/sysson/dink/pkg/ocistore/backend"
+	"github.com/sysson/ocistore"
+	"github.com/sysson/ocistore/backend"
 	"github.com/sysson/syskit/httpx"
 )
 

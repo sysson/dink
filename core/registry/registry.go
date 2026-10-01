@@ -15,8 +15,8 @@ import (
 	"github.com/docker/oci/ociauth"
 	"github.com/docker/oci/ociclient"
 	"github.com/moby/moby/api/types/registry"
-	"github.com/sysson/dink/pkg/ocistore"
-	"github.com/sysson/dink/pkg/ocistore/backend"
+	"github.com/sysson/ocistore"
+	"github.com/sysson/ocistore/backend"
 )
 
 // Authenticate verifies auth against host by using it to make a request,
@@ -58,7 +58,7 @@ func Authenticate(ctx context.Context, auth *registry.AuthConfig) (string, error
 }
 
 // Index is the typed metadata view image operations read. It is satisfied by
-// [github.com/sysson/dink/pkg/ocistore.Index].
+// [github.com/sysson/ocistore.Index].
 type Index interface {
 	Repositories(ctx context.Context, after string, limit int) ([]string, error)
 	TagRecords(ctx context.Context, repository, after string, limit int) ([]backend.TagRecord, error)

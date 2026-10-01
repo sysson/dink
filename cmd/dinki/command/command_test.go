@@ -17,17 +17,13 @@ import (
 	dinkiconfig "github.com/sysson/dink/cmd/dinki/config"
 	"github.com/sysson/dink/core/registry/api/v1/registryconnect"
 	"github.com/sysson/dink/core/registry/server"
-	"github.com/sysson/dink/pkg/ocistore/blobstore"
-	"github.com/sysson/dink/pkg/ocistore/kv/boltkv"
-	"github.com/sysson/dink/pkg/ocistore/kv/drivers"
-	"github.com/sysson/dink/pkg/ocistore/kv/memkv"
 )
 
 func TestNewBackendOpensPersistentConfiguredStores(t *testing.T) {
 	dir := t.TempDir()
 	cfg := dinkiconfig.Default()
-	cfg.Storage = blobstore.Config{File: &blobstore.FileConfig{Path: filepath.Join(dir, "blobs")}}
-	cfg.Metadata = drivers.Config{BBolt: &boltkv.Config{Path: filepath.Join(dir, "metadata.db")}}
+	cfg.Storage.Path = filepath.Join(dir, "blobs")
+	cfg.Metadata.Path = filepath.Join(dir, "metadata.db")
 
 	backend, err := newBackend(context.Background(), cfg)
 	if err != nil {
@@ -68,15 +64,14 @@ func TestNewBackendOpensPersistentConfiguredStores(t *testing.T) {
 	}
 }
 
-func TestNewBackendRejectsInvalidDrivers(t *testing.T) {
-	file := blobstore.Config{File: &blobstore.FileConfig{Path: filepath.Join(t.TempDir(), "blobs")}}
-	mem := drivers.Config{Mem: &memkv.Config{}}
+func TestNewBackendRejectsInvalidPaths(t *testing.T) {
+	file := dinkiconfig.Storage{Path: filepath.Join(t.TempDir(), "blobs")}
+	metadata := dinkiconfig.Metadata{Path: filepath.Join(t.TempDir(), "metadata.db")}
 	for name, cfg := range map[string]dinkiconfig.Config{
-		"no storage":        {Metadata: mem},
-		"no metadata":       {Storage: file},
-		"two metadata":      {Storage: file, Metadata: drivers.Config{Mem: &memkv.Config{}, BBolt: &boltkv.Config{Path: "/tmp/db"}}},
-		"relative bbolt":    {Storage: file, Metadata: drivers.Config{BBolt: &boltkv.Config{Path: "relative.db"}}},
-		"invalid s3 bucket": {Storage: blobstore.Config{S3: &blobstore.S3Config{Bucket: "_"}}, Metadata: mem},
+		"no storage":       {Metadata: metadata},
+		"no metadata":      {Storage: file},
+		"relative bbolt":   {Storage: file, Metadata: dinkiconfig.Metadata{Path: "relative.db"}},
+		"relative storage": {Storage: dinkiconfig.Storage{Path: "relative"}, Metadata: metadata},
 	} {
 		if backend, err := newBackend(context.Background(), cfg); err == nil {
 			_ = backend.Close()
@@ -85,8 +80,9 @@ func TestNewBackendRejectsInvalidDrivers(t *testing.T) {
 	}
 }
 
-func TestNewBackendSupportsMemory(t *testing.T) {
-	backend, err := newBackend(context.Background(), dinkiconfig.Config{Storage: blobstore.Config{Mem: &blobstore.MemConfig{}}, Metadata: drivers.Config{Mem: &memkv.Config{}}})
+func TestNewBackendUsesLocalStorage(t *testing.T) {
+	dir := t.TempDir()
+	backend, err := newBackend(context.Background(), dinkiconfig.Config{Storage: dinkiconfig.Storage{Path: filepath.Join(dir, "blobs")}, Metadata: dinkiconfig.Metadata{Path: filepath.Join(dir, "metadata.db")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,8 +136,9 @@ func TestHealthHandlerServesProbeRoutesWithoutTLS(t *testing.T) {
 func TestHandlerRoutesAPIToDinkAndRegistryToPullCredentials(t *testing.T) {
 	cfg := dinkiconfig.Default()
 	cfg.GraphQL.Enabled = true
-	cfg.Storage = blobstore.Config{Mem: &blobstore.MemConfig{}}
-	cfg.Metadata = drivers.Config{Mem: &memkv.Config{}}
+	dir := t.TempDir()
+	cfg.Storage.Path = filepath.Join(dir, "blobs")
+	cfg.Metadata.Path = filepath.Join(dir, "metadata.db")
 	backend, err := newBackend(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)

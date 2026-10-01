@@ -16,14 +16,10 @@
         "minTLSVersion": "1.3"
     },
     "storage": {
-        "file": {
-            "path": "/var/lib/dinki/blobs"
-        }
+        "path": "/var/lib/dinki/blobs"
     },
     "metadata": {
-        "bbolt": {
-            "path": "/var/lib/dinki/metadata.db"
-        }
+        "path": "/var/lib/dinki/metadata.db"
     },
     "graphql": {
         "enabled": false

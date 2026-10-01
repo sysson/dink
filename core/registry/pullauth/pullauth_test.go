@@ -11,7 +11,7 @@ import (
 	"github.com/docker/oci/ocidigest"
 	"github.com/docker/oci/ocimem"
 	"github.com/sysson/dink/core/registry/pullauth"
-	"github.com/sysson/dink/pkg/ocistore/kv/memkv"
+	"github.com/sysson/ocistore/kv/memkv"
 )
 
 func TestScopeLimitsReadsToNamespace(t *testing.T) {

@@ -16,7 +16,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/sysson/dink/pkg/ocistore/kv"
+	"github.com/sysson/ocistore/kv"
 )
 
 // nsCredential keys credentials in the metadata kv store, apart from the
