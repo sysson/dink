@@ -1,27 +1,24 @@
-FROM golang:1.27-bookworm AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-bookworm AS build
 
 WORKDIR /src
 
 COPY go.mod go.sum ./
 COPY sdk/go.mod sdk/go.sum ./sdk/
-RUN --mount=type=cache,target=/go/pkg/mod \
-    go mod download
+RUN go mod download
 
 COPY . .
 
 FROM build AS build-dink
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
+ARG TARGETOS
+ARG TARGETARCH
+RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w" -o /out/dink ./cmd/dink
 
 FROM build AS build-dinki
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
+ARG TARGETOS
+ARG TARGETARCH
+RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w" -o /out/dinki ./cmd/dinki && \
     mkdir -p /out/dinki-data && \
