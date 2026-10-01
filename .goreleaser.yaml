@@ -21,13 +21,11 @@ builds:
       - arm64
 
 archives:
-  - formats:
-      - tar.gz
+  - format: tar.gz
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        formats:
-          - zip
+        format: zip
     files:
       - none*
 
