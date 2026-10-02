@@ -2,6 +2,7 @@ package buildkit
 
 import (
 	"context"
+	"net"
 	"testing"
 
 	contentapi "github.com/containerd/containerd/api/services/content/v1"
@@ -10,14 +11,33 @@ import (
 	"github.com/sysson/dink/core/identity"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
 )
 
 type historyContentBackend struct {
 	contentapi.UnimplementedContentServer
 	requests chan string
+}
+
+func newUnitConnection(t *testing.T, register func(*grpc.Server)) *grpc.ClientConn {
+	t.Helper()
+	listener := bufconn.Listen(1 << 20)
+	server := grpc.NewServer()
+	register(server)
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+	conn, err := grpc.NewClient("passthrough:///unit-test",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return listener.DialContext(ctx) }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	return conn
 }
 
 func (b *historyContentBackend) Info(_ context.Context, req *contentapi.InfoRequest) (*contentapi.InfoResponse, error) {
@@ -116,6 +136,10 @@ func TestHistoryContentReadsRequireOwnedDescriptors(t *testing.T) {
 	case request := <-content.requests:
 		t.Fatalf("unauthorized request reached backend: %s", request)
 	default:
+	}
+	backend.events = nil
+	if _, err := proxy.Info(ctx, &contentapi.InfoRequest{Digest: ownedDigest}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("deleted history retained content authorization: %v", err)
 	}
 }
 

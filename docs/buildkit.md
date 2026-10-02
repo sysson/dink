@@ -297,34 +297,73 @@ this first-pass integration as an unrestricted multi-tenant build service.
 
 ## Validation
 
-The focused regression suite exercises native and upgraded sessions, protobuf
-stream forwarding, upstream auth, tenant publication, credential expiry and
-revocation, cancellation, and backend mTLS:
+The unit suite covers exporter/request adaptation, upstream error propagation,
+credential lifecycle and cancellation, session validation, history ownership and
+content authorization, TLS configuration loading, and upgraded connection
+lifetime. It uses small fakes rather than a registry/API/router stack. In-memory
+connections are retained only for focused HTTP/2, authentication, and
+content-stream tests:
 
 ```sh
 go test -race ./core/buildkit ./core/config ./core/registry/pullauth ./core/registry/api
 ```
 
-There are also opt-in tests using the real Docker CLI and an external BuildKit
-daemon. They create an in-memory Dinki and gateway and check image publication,
-configuration/layers, image IDs, metadata, history, and explicit local output.
-The push test additionally uses an authenticated upstream TLS registry to verify
-dual publication and credential revocation after an authentication failure:
+End-to-end tests live in [`testing/integration/`](../testing/integration/) and use
+the real Docker CLI against an existing Dink, Dinki, and BuildKit deployment.
+They verify image configuration/layers, image IDs, metadata/provenance, build
+history listing/inspection/logs, `--load`, and local output. Select an existing
+Docker context explicitly; these tests never launch substitute services, deploy
+Pods, or restart Tilt:
 
 ```sh
-DINK_BUILDKIT_TEST_ADDR=tcp://<test-buildkit-host>:1234 \
-DINK_BUILDKIT_TEST_REGISTRY_HOST=<this-test-process-host-reachable-from-buildkit> \
-go test ./core/buildkit -run '^TestExternalBuildKitDocker(Build|Push)$' -count=1 -v
+make test-integration
+# Or invoke the tests directly:
+DINK_INTEGRATION_CONTEXT=dink \
+go test ./testing/integration -run '^TestBuildKit' -count=1 -v
 ```
 
-The test does not launch containers, deploy Pods, or restart Tilt. Supply an
-isolated backend yourself. The test registry uses HTTP and ephemeral ports;
-run this only on a trusted development network. Without the environment
-variables, the live test is skipped.
+Build and history commands explicitly select the Docker builder named after that
+context, rather than `default`, which Buildx can resolve to another Docker context.
 
-By default the push test enables insecure registry transport for its ephemeral
-upstream certificate. To test ordinary `--push` with certificate verification,
-set `DINK_BUILDKIT_TEST_CA_DIR` to a dedicated empty directory mounted into the
-isolated backend's system certificate directory. The test creates and removes
-`upstream-ca.pem` there; use a fresh backend process for each run because Go caches
-system roots. This is test-only setup, not production registry trust configuration.
+The Makefile target creates or refreshes the selected Docker context using
+`TENANT`, `CLIENT`, and `DINK_HOST`, checks API connectivity, and runs the tests
+with race detection. It requires an existing deployment and Tilt's port-forward
+or `make port-forward` running in another terminal. It does not change the active
+Docker context, rebuild images, or restart services. Override
+`DINK_INTEGRATION_CONTEXT` to select the context name to configure, and
+`INTEGRATION_TESTS` to select test names.
+
+The push test additionally requires `DINK_INTEGRATION_PUSH_REPOSITORY`, for example
+`ghcr.io/team/dink-integration`, and an existing `docker login` for that registry.
+Use a repository that requires authentication to push. The test checks multiple
+upstream tags against their retained Dinki copies over normal, trusted registry
+transport, and verifies that a client without registry credentials cannot push.
+The test uses the current Docker configuration for
+registry authentication, but clears endpoint overrides so the selected context
+is authoritative.
+
+```sh
+make test-integration \
+  DINK_INTEGRATION_PUSH_REPOSITORY=ghcr.io/team/dink-integration
+```
+
+Optional `DINK_INTEGRATION_*` settings can be supplied as environment variables
+or Make command-line variables; they are forwarded to the tests. Registry login
+is intentionally not automated.
+
+Tests use unique tags and clean their Dinki images and build-history records.
+Upstream tags remain in the disposable repository; configure its retention policy
+or remove them separately. A rejected upstream push may also leave a partial
+Dinki image or failed history record because publication is not atomic.
+Shared worker cache is not pruned.
+Set `DINK_INTEGRATION_OTHER_CONTEXT` to a different tenant/client context to also
+check that the built image and history are not visible there. Without the required
+environment variables, integration tests skip rather than targeting a default
+Docker daemon.
+
+The former simulated mTLS handshake check is also an opt-in real-backend test.
+Set `DINK_INTEGRATION_BUILDKIT_ADDR` to a reachable backend endpoint and provide
+`DINK_INTEGRATION_BUILDKIT_CA`, `DINK_INTEGRATION_BUILDKIT_CERT`,
+`DINK_INTEGRATION_BUILDKIT_KEY`, and `DINK_INTEGRATION_BUILDKIT_SERVER_NAME`.
+It checks a valid connection, rejection of the wrong server name, and rejection
+of a client without a certificate. It does not alter backend TLS configuration.

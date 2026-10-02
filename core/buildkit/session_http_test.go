@@ -1,4 +1,4 @@
-package buildkit_test
+package buildkit
 
 import (
 	"bufio"
@@ -14,12 +14,11 @@ import (
 )
 
 func TestHTTPUpgradedSessionFailureDoesNotReturnHTTPError(t *testing.T) {
-	_, address := newBackend(t)
-	f := newFixture(t, address)
+	g, _, _, _ := newSolveGateway(t, &solveClient{})
 	done := make(chan error, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := identity.NewContext(r.Context(), identity.Identity{Namespace: "tenant", CommonName: "client"})
-		done <- f.gateway.HandleHTTPRequest(ctx, w, r)
+		done <- g.HandleHTTPRequest(ctx, w, r)
 	}))
 	defer server.Close()
 	conn, err := net.DialTimeout("tcp", strings.TrimPrefix(server.URL, "http://"), 5*time.Second)

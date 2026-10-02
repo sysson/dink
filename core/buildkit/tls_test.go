@@ -9,30 +9,17 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
-	"net"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	control "github.com/moby/buildkit/api/services/control"
 	"github.com/sysson/dink/core/buildkit"
 	"github.com/sysson/dink/core/config"
-	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/registry/api"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 )
 
-type infoBackend struct {
-	control.UnimplementedControlServer
-}
-
-func (*infoBackend) Info(context.Context, *control.InfoRequest) (*control.InfoResponse, error) {
-	return &control.InfoResponse{}, nil
-}
-
-func TestBackendMutualTLSAndServerName(t *testing.T) {
+func TestBackendTLSConfigurationLoadsCertificates(t *testing.T) {
 	ca := &x509.Certificate{
 		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "test CA"},
 		NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(time.Hour),
@@ -84,25 +71,10 @@ func TestBackendMutualTLSAndServerName(t *testing.T) {
 		}
 		return cert, certFile, keyFile
 	}
-	serverCert, _, _ := issue("buildkit.test", x509.ExtKeyUsageServerAuth, 2)
+	_, _, wrongKey := issue("buildkit.test", x509.ExtKeyUsageServerAuth, 2)
 	_, clientCert, clientKey := issue("dink-client", x509.ExtKeyUsageClientAuth, 3)
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})) {
-		t.Fatal("invalid test CA")
-	}
-	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{
-		MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{serverCert},
-		ClientCAs: pool, ClientAuth: tls.RequireAndVerifyClientCert,
-	})))
-	control.RegisterControlServer(server, &infoBackend{})
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	go func() { _ = server.Serve(listener) }()
-	defer server.Stop()
 	cfg := config.BuildKit{
-		URL: "tcp://" + listener.Addr().String(), CAFile: caFile,
+		URL: "tcp://buildkit.test:1234", CAFile: caFile,
 		CertFile: clientCert, KeyFile: clientKey, ServerName: "buildkit.test",
 	}
 	publisher := api.Unavailable(context.Canceled)
@@ -111,22 +83,30 @@ func TestBackendMutualTLSAndServerName(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = g.Close() }()
-	ctx, cancel := context.WithTimeout(identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"}), 5*time.Second)
-	defer cancel()
-	if _, err := g.Info(ctx, &control.InfoRequest{}); err != nil {
-		t.Fatalf("mTLS backend: %v", err)
-	}
-	cfg.ServerName = "wrong.test"
-	wrong, err := buildkit.New(cfg, "https://dinki.test:5000", publisher)
-	if err != nil {
+	invalidCA := filepath.Join(dir, "invalid.pem")
+	if err := os.WriteFile(invalidCA, []byte("not a certificate"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = wrong.Close() }()
-	if _, err := wrong.Info(ctx, &control.InfoRequest{}); err == nil {
-		t.Fatal("accepted a backend with the wrong TLS server name")
-	}
-	cfg.CAFile = filepath.Join(dir, "missing.pem")
-	if _, err := buildkit.New(cfg, "https://dinki.test:5000", publisher); err == nil {
-		t.Fatal("accepted a missing CA")
+	for _, test := range []struct {
+		name   string
+		change func(*config.BuildKit)
+	}{
+		{"missing CA", func(c *config.BuildKit) { c.CAFile = filepath.Join(dir, "missing.pem") }},
+		{"invalid CA", func(c *config.BuildKit) { c.CAFile = invalidCA }},
+		{"missing certificate", func(c *config.BuildKit) { c.CertFile = filepath.Join(dir, "missing.pem") }},
+		{"missing key", func(c *config.BuildKit) { c.KeyFile = filepath.Join(dir, "missing.key") }},
+		{"mismatched key", func(c *config.BuildKit) { c.KeyFile = wrongKey }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			bad := cfg
+			test.change(&bad)
+			g, err := buildkit.New(bad, "https://dinki.test:5000", publisher)
+			if g != nil {
+				_ = g.Close()
+			}
+			if err == nil {
+				t.Fatal("accepted invalid TLS configuration")
+			}
+		})
 	}
 }

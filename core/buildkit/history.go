@@ -3,6 +3,7 @@ package buildkit
 import (
 	"context"
 	"encoding/base64"
+	"encoding/csv"
 	"errors"
 	"io"
 	"strconv"
@@ -10,7 +11,6 @@ import (
 
 	control "github.com/moby/buildkit/api/services/control"
 	"github.com/sysson/dink/core/identity"
-	"github.com/tonistiigi/go-csvvalue"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -62,8 +62,12 @@ func (g *Gateway) ListenBuildHistory(request *control.BuildHistoryRequest, serve
 				request.Filter[i] = scope
 				continue
 			}
-			fields, err := csvvalue.Fields(filter, nil)
+			reader := csv.NewReader(strings.NewReader(filter))
+			fields, err := reader.Read()
 			if err != nil {
+				return status.Error(codes.InvalidArgument, "invalid history filter")
+			}
+			if _, err := reader.Read(); !errors.Is(err, io.EOF) {
 				return status.Error(codes.InvalidArgument, "invalid history filter")
 			}
 			for _, field := range fields {

@@ -2,94 +2,65 @@ package buildkit
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"net"
-	"net/http"
-	"net/http/httptest"
-	"os"
-	"os/exec"
+	"io"
 	"strings"
 	"testing"
 	"time"
 
 	contentapi "github.com/containerd/containerd/api/services/content/v1"
-	"github.com/containerd/containerd/v2/pkg/filters"
 	control "github.com/moby/buildkit/api/services/control"
-	bktypes "github.com/moby/buildkit/api/types"
 	"github.com/sysson/dink/core/identity"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type historyBackend struct {
-	control.UnimplementedControlServer
+	control.ControlClient
 	events    []*control.BuildHistoryEvent
 	request   chan *control.BuildHistoryRequest
 	updates   chan *control.UpdateBuildHistoryRequest
 	cancelled chan struct{}
-	filter    bool
 	wait      bool
 	content   *historyContentBackend
 }
 
-func (b *historyBackend) ListenBuildHistory(req *control.BuildHistoryRequest, stream control.Control_ListenBuildHistoryServer) error {
+func (b *historyBackend) ListenBuildHistory(ctx context.Context, req *control.BuildHistoryRequest, _ ...grpc.CallOption) (grpc.ServerStreamingClient[control.BuildHistoryEvent], error) {
 	b.request <- proto.Clone(req).(*control.BuildHistoryRequest)
-	if err := stream.SendHeader(metadata.Pairs("history-test", "header")); err != nil {
-		return err
-	}
-	stream.SetTrailer(metadata.Pairs("history-test", "trailer"))
-	matcher, err := filters.ParseAll(req.Filter...)
-	if err != nil {
-		return status.Error(codes.InvalidArgument, err.Error())
-	}
-	var sent int32
-	for _, event := range b.events {
-		if b.filter {
-			if event.Record == nil || req.Ref != "" && event.Record.Ref != req.Ref {
-				continue
-			}
-			if !matcher.Match(filters.AdapterFunc(func(path []string) (string, bool) {
-				if len(path) == 1 && path[0] == "ref" {
-					return event.Record.Ref, true
-				}
-				return "", false
-			})) {
-				continue
-			}
-			if req.Limit > 0 && sent >= req.Limit {
-				break
-			}
-		}
-		if err := stream.Send(event); err != nil {
-			return err
-		}
-		sent++
-	}
-	if b.wait {
-		<-stream.Context().Done()
-		close(b.cancelled)
-		return status.FromContextError(stream.Context().Err()).Err()
-	}
-	return nil
+	return &historyStream{ctx: ctx, backend: b}, nil
 }
 
-func (b *historyBackend) UpdateBuildHistory(_ context.Context, req *control.UpdateBuildHistoryRequest) (*control.UpdateBuildHistoryResponse, error) {
+func (b *historyBackend) UpdateBuildHistory(_ context.Context, req *control.UpdateBuildHistoryRequest, _ ...grpc.CallOption) (*control.UpdateBuildHistoryResponse, error) {
 	b.updates <- proto.Clone(req).(*control.UpdateBuildHistoryRequest)
 	return &control.UpdateBuildHistoryResponse{}, nil
 }
 
-func (b *historyBackend) Info(context.Context, *control.InfoRequest) (*control.InfoResponse, error) {
-	return &control.InfoResponse{BuildkitVersion: &bktypes.BuildkitVersion{Version: "v0.33.1"}}, nil
+type historyStream struct {
+	grpc.ClientStream
+	ctx     context.Context
+	backend *historyBackend
+	index   int
 }
 
-func (b *historyBackend) ListWorkers(context.Context, *control.ListWorkersRequest) (*control.ListWorkersResponse, error) {
-	return &control.ListWorkersResponse{Record: []*bktypes.WorkerRecord{{ID: "history-worker", BuildkitVersion: &bktypes.BuildkitVersion{Version: "v0.33.1"}}}}, nil
+func (s *historyStream) Header() (metadata.MD, error) {
+	return metadata.Pairs("history-test", "header"), nil
+}
+func (s *historyStream) Trailer() metadata.MD { return metadata.Pairs("history-test", "trailer") }
+func (s *historyStream) Recv() (*control.BuildHistoryEvent, error) {
+	if s.index < len(s.backend.events) {
+		event := s.backend.events[s.index]
+		s.index++
+		return event, nil
+	}
+	if s.backend.wait {
+		<-s.ctx.Done()
+		close(s.backend.cancelled)
+		return nil, status.FromContextError(s.ctx.Err()).Err()
+	}
+	return nil, io.EOF
 }
 
 func newHistoryGateway(t *testing.T, backend *historyBackend) *Gateway {
@@ -97,23 +68,13 @@ func newHistoryGateway(t *testing.T, backend *historyBackend) *Gateway {
 	backend.request = make(chan *control.BuildHistoryRequest, 8)
 	backend.updates = make(chan *control.UpdateBuildHistoryRequest, 8)
 	backend.cancelled = make(chan struct{})
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := grpc.NewServer()
-	control.RegisterControlServer(server, backend)
+	g := &Gateway{control: backend}
 	if backend.content != nil {
-		contentapi.RegisterContentServer(server, backend.content)
+		g.conn = newUnitConnection(t, func(server *grpc.Server) {
+			contentapi.RegisterContentServer(server, backend.content)
+		})
 	}
-	go func() { _ = server.Serve(listener) }()
-	t.Cleanup(server.Stop)
-	conn, err := grpc.NewClient("passthrough:///"+listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = conn.Close() })
-	return &Gateway{control: control.NewControlClient(conn), conn: conn}
+	return g
 }
 
 type historyCapture struct {
@@ -188,21 +149,18 @@ func TestHistoryScopesAndRestoresRecords(t *testing.T) {
 	}
 }
 
-func TestHistoryScopesBeforeBackendLimitAndAcrossRestarts(t *testing.T) {
+func TestHistoryScopesRequestBeforeBackendLimit(t *testing.T) {
 	owner := identity.Identity{Namespace: "tenant", CommonName: "client"}
-	backend := &historyBackend{filter: true, events: []*control.BuildHistoryEvent{
-		historyEvent(identity.Identity{Namespace: "foreign", CommonName: "client"}, "foreign"),
-		historyEvent(owner, "first"),
-		historyEvent(owner, "second"),
-	}}
+	backend := &historyBackend{}
 	for range 2 {
 		g := newHistoryGateway(t, backend)
 		capture := &historyCapture{ctx: historyContext(t, owner)}
 		if err := g.ListenBuildHistory(&control.BuildHistoryRequest{EarlyExit: true, Limit: 1}, capture); err != nil {
 			t.Fatal(err)
 		}
-		if len(capture.events) != 1 || capture.events[0].Record.Ref != "first" {
-			t.Fatalf("limit was applied before ownership: %v", capture.events)
+		request := <-backend.request
+		if request.Limit != 1 || len(request.Filter) != 1 || request.Filter[0] != "ref~=^"+historyPrefix(owner) {
+			t.Fatalf("backend limit not scoped to stable identity: %v", request)
 		}
 	}
 }
@@ -242,7 +200,7 @@ func TestHistoryFiltersAndValidation(t *testing.T) {
 	backend := &historyBackend{}
 	g := newHistoryGateway(t, backend)
 	ctx := historyContext(t, owner)
-	for _, filter := range []string{"status==completed", "repository==https://example.com/refs/main", ""} {
+	for _, filter := range []string{"status==completed", "status==completed,repository==https://example.com/refs/main", "repository==https://example.com/refs/main", ""} {
 		capture := &historyCapture{ctx: ctx}
 		if err := g.ListenBuildHistory(&control.BuildHistoryRequest{Filter: []string{filter}, EarlyExit: true}, capture); err != nil {
 			t.Fatalf("filter %q: %v", filter, err)
@@ -268,6 +226,11 @@ func TestHistoryFiltersAndValidation(t *testing.T) {
 		{&control.BuildHistoryRequest{}, context.Background(), codes.Unauthenticated},
 		{&control.BuildHistoryRequest{Limit: -1}, ctx, codes.InvalidArgument},
 		{&control.BuildHistoryRequest{Filter: []string{"ref==build-ref"}}, ctx, codes.Unimplemented},
+		{&control.BuildHistoryRequest{Filter: []string{`"ref==build,ref"`}}, ctx, codes.Unimplemented},
+		{&control.BuildHistoryRequest{Filter: []string{`status==completed,"ref==build,ref"`}}, ctx, codes.Unimplemented},
+		{&control.BuildHistoryRequest{Filter: []string{`"status==completed`}}, ctx, codes.InvalidArgument},
+		{&control.BuildHistoryRequest{Filter: []string{`status=="completed"`}}, ctx, codes.InvalidArgument},
+		{&control.BuildHistoryRequest{Filter: []string{"status==completed\nref==build-ref"}}, ctx, codes.InvalidArgument},
 	} {
 		err := g.ListenBuildHistory(test.request, &historyCapture{ctx: test.ctx})
 		if status.Code(err) != test.code {
@@ -298,73 +261,4 @@ func TestHistoryCancellationClosesBackendStream(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("backend history stream was not cancelled")
 	}
-}
-
-func TestBuildxHistoryListThroughDockerUpgrade(t *testing.T) {
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("Docker CLI is not installed")
-	}
-	owner := identity.Identity{Namespace: "tenant", CommonName: "client"}
-	event := historyEvent(owner, "history-cli-build")
-	event.Type = control.BuildHistoryEventType_COMPLETE
-	event.Record.Frontend = "dockerfile.v0"
-	event.Record.FrontendAttrs = map[string]string{"filename": "Dockerfile"}
-	event.Record.CreatedAt = timestamppb.New(time.Now().Add(-time.Minute))
-	event.Record.CompletedAt = timestamppb.Now()
-	backend := &historyBackend{filter: true, events: []*control.BuildHistoryEvent{
-		historyEvent(identity.Identity{Namespace: "foreign", CommonName: "client"}, "foreign-build"),
-		event,
-	}}
-	g := newHistoryGateway(t, backend)
-	gs := g.GRPCServer()
-	t.Cleanup(gs.Stop)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := identity.NewContext(r.Context(), owner)
-		switch {
-		case r.URL.Path == "/grpc":
-			conn, err := Hijack(w, r)
-			if err != nil {
-				t.Errorf("upgrade: %v", err)
-				return
-			}
-			defer func() { _ = conn.Close() }()
-			if err := ServeHTTP2(ctx, conn, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				gs.ServeHTTP(w, r.WithContext(identity.NewContext(r.Context(), owner)))
-			})); err != nil {
-				t.Errorf("serving upgraded history: %v", err)
-			}
-		case strings.HasSuffix(r.URL.Path, "/_ping"):
-			w.Header().Set("API-Version", "1.56")
-			w.Header().Set("Builder-Version", "2")
-			if r.Method != http.MethodHead {
-				_, _ = w.Write([]byte("OK"))
-			}
-		case strings.HasSuffix(r.URL.Path, "/version"):
-			_ = json.NewEncoder(w).Encode(map[string]string{"Version": "29.8.0", "ApiVersion": "1.56", "MinAPIVersion": "1.44", "Os": "linux", "Arch": "amd64"})
-		case strings.HasSuffix(r.URL.Path, "/info"):
-			_ = json.NewEncoder(w).Encode(map[string]string{"ID": "history-test", "ServerVersion": "29.8.0", "OSType": "linux", "Architecture": "x86_64"})
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	command := exec.CommandContext(ctx, "docker", "--host", "tcp://"+strings.TrimPrefix(server.URL, "http://"), "buildx", "history", "ls", "--builder", "default", "--format", "json")
-	for _, variable := range os.Environ() {
-		name, _, _ := strings.Cut(variable, "=")
-		if !strings.HasPrefix(name, "DOCKER_") && !strings.HasPrefix(name, "BUILDX_") {
-			command.Env = append(command.Env, variable)
-		}
-	}
-	command.Env = append(command.Env, "DOCKER_CONFIG="+t.TempDir())
-	output, err := command.CombinedOutput()
-	if err != nil {
-		t.Fatalf("buildx history ls: %v\n%s", err, output)
-	}
-	if !strings.Contains(string(output), "history-cli-build") || strings.Contains(string(output), "foreign-build") || strings.Contains(string(output), historyPrefix(owner)) {
-		t.Fatalf("unexpected CLI history output: %s", output)
-	}
-	t.Logf("buildx history ls: %s", output)
-
 }
