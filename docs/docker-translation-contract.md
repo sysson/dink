@@ -183,10 +183,46 @@ allocated NodePorts.
 ## Images, Volumes, and Plugins
 
 Image operations use the tenant-visible `dinki` registry, not a node-local
-Docker image store. Pull, list, inspect, history, tag, prune, and attestations
+Docker image store. Pull, push, list, inspect, history, tag, prune, and attestations
 are registry-backed, with the limitations in the endpoint tracker. In
 particular, multi-platform operations can use only manifests stored in the
-registry. Docker image build, load, export, search, and push are not implemented.
+registry. Docker image build, load, and export are not implemented.
+
+`docker image ls --tree` lists all platform manifests advertised by each stored
+image index, including platforms that have not been pulled. The Docker CLI dims
+unavailable platforms. Availability means the manifest, config, and layers are
+present in dinki, not cached or unpacked on a Kubernetes node. Content sizes
+include only stored content; unavailable platform manifests have zero content
+size. Dink has no unpacked image store, so unpacked sizes remain zero.
+
+Retagging preserves the original manifest or index bytes and image ID, including
+unpulled platform descriptors. Available content is copied into the destination
+tenant repository; missing platforms remain unavailable.
+
+`docker search` queries Docker Hub by default. Registry-qualified terms use that
+registry's Docker-compatible `/v1/search` endpoint, not the OCI catalog or the
+tenant image list. Stars and official-image filters are supported; the deprecated
+automated-image filter returns no results when true. Registries without search
+support return an error. Credentials supplied by the client support Basic,
+bearer, and identity-token authentication. Search does not forward credentials
+across origins on redirects.
+
+`docker push` copies images from the tenant registry to the registry named in
+the image reference. Tag an image with the destination name first when publishing
+to a different repository. A named tag pushes that tag; `--all-tags` pushes all
+tags of that tenant repository, excluding synthetic digest tags. Only layers
+produce per-blob push progress rows; configs and manifests are uploaded without
+separate rows. Progress and
+failures use Docker's JSON stream format. A complete multi-platform index is
+pushed unchanged. If content is missing, Dink follows Moby's single-platform
+fallback and emits a `manifestPushedInsteadOfIndex` auxiliary notification.
+When multiple stored platforms are ambiguous, specify `--platform` (API 1.46+).
+An explicit platform push excludes the index and attestations. Missing platforms
+are never automatically pulled during push.
+
+Search and push use the request's `X-Registry-Auth` credentials and `X-Meta-*`
+headers. As with Dink's pull endpoint, malformed auth headers are rejected.
+External registries use HTTPS, except loopback registries which use HTTP.
 
 The omitted or `local` volume driver creates a PVC using the cluster's default
 StorageClass, with a default request of `1Gi` and access mode `ReadWriteOnce`.

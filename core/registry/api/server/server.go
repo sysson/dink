@@ -144,13 +144,17 @@ func (s *Server) ListImages(ctx context.Context, request *registryv1.ListImagesR
 	if err != nil {
 		return nil, err
 	}
-	summaries, err := s.images.Images(ctx, types.ImageListOptions{})
+	summaries, err := s.images.Images(ctx, types.ImageListOptions{Manifests: request.GetManifests()})
 	if err != nil {
 		return nil, api.ToConnectError(err)
 	}
 	response := &registryv1.ListImagesResponse{Images: make([]*registryv1.ImageSummary, 0, len(summaries))}
 	for _, summary := range summaries {
-		response.Images = append(response.Images, api.SummaryToProto(summary))
+		image, err := api.SummaryToProto(summary)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		response.Images = append(response.Images, image)
 	}
 	return response, nil
 }

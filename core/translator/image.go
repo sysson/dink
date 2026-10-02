@@ -65,12 +65,12 @@ func (r *Registry) PullImage(ctx context.Context, ref ociref.Reference, options 
 	return r.registry.PullImage(ctx, ref, options)
 }
 
-func (r *Registry) PushImage(context.Context, ociref.Reference, imagebackend.PushOptions) error {
-	return ErrNotImplemented
+func (r *Registry) PushImage(ctx context.Context, ref ociref.Reference, options imagebackend.PushOptions) error {
+	return r.registry.PushImage(ctx, ref, options)
 }
 
-func (r *Registry) Search(context.Context, filters.Args, string, int, *registry.AuthConfig, map[string][]string) ([]registry.SearchResult, error) {
-	return nil, ErrNotImplemented
+func (r *Registry) Search(ctx context.Context, searchFilters filters.Args, term string, limit int, auth *registry.AuthConfig, headers map[string][]string) ([]registry.SearchResult, error) {
+	return r.registry.Search(ctx, searchFilters, term, limit, auth, headers)
 }
 
 func imageContainerCount(images []imagetypes.Summary, imageID string) int64 {

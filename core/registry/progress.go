@@ -19,7 +19,7 @@ func writeDistributionProgress(ctx context.Context, cancel context.CancelFunc, o
 	for prog := range progressChan {
 		if err := progressOutput.WriteProgress(prog); err != nil && !operationCancelled {
 			if errors.Is(err, syscall.EPIPE) {
-				logx.G(ctx).Info("Pull session cancelled")
+				logx.G(ctx).Info("Registry transfer cancelled")
 			} else {
 				logx.G(ctx).Error("error writing progress to client: %v", err)
 			}

@@ -37,6 +37,10 @@ const (
 	RegistryServiceLoginProcedure = "/core.registry.api.v1.RegistryService/Login"
 	// RegistryServicePullProcedure is the fully-qualified name of the RegistryService's Pull RPC.
 	RegistryServicePullProcedure = "/core.registry.api.v1.RegistryService/Pull"
+	// RegistryServicePushProcedure is the fully-qualified name of the RegistryService's Push RPC.
+	RegistryServicePushProcedure = "/core.registry.api.v1.RegistryService/Push"
+	// RegistryServiceSearchProcedure is the fully-qualified name of the RegistryService's Search RPC.
+	RegistryServiceSearchProcedure = "/core.registry.api.v1.RegistryService/Search"
 	// RegistryServiceListImagesProcedure is the fully-qualified name of the RegistryService's
 	// ListImages RPC.
 	RegistryServiceListImagesProcedure = "/core.registry.api.v1.RegistryService/ListImages"
@@ -72,6 +76,10 @@ type RegistryServiceClient interface {
 	// Pull copies an image from its upstream registry into dinki, streaming
 	// Docker JSON-stream progress messages.
 	Pull(context.Context, *v1.PullRequest) (*connect.ServerStreamForClient[v1.PullResponse], error)
+	// Push copies tenant image content to an upstream registry.
+	Push(context.Context, *v1.PushRequest) (*connect.ServerStreamForClient[v1.PushResponse], error)
+	// Search queries a registry's Docker-compatible search service.
+	Search(context.Context, *v1.SearchRequest) (*v1.SearchResponse, error)
 	// ListImages lists the images in the caller's namespace.
 	ListImages(context.Context, *v1.ListImagesRequest) (*v1.ListImagesResponse, error)
 	// InspectImage describes one image in the caller's namespace.
@@ -117,6 +125,18 @@ func NewRegistryServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			httpClient,
 			baseURL+RegistryServicePullProcedure,
 			connect.WithSchema(registryServiceMethods.ByName("Pull")),
+			connect.WithClientOptions(opts...),
+		),
+		push: connect.NewClient[v1.PushRequest, v1.PushResponse](
+			httpClient,
+			baseURL+RegistryServicePushProcedure,
+			connect.WithSchema(registryServiceMethods.ByName("Push")),
+			connect.WithClientOptions(opts...),
+		),
+		search: connect.NewClient[v1.SearchRequest, v1.SearchResponse](
+			httpClient,
+			baseURL+RegistryServiceSearchProcedure,
+			connect.WithSchema(registryServiceMethods.ByName("Search")),
 			connect.WithClientOptions(opts...),
 		),
 		listImages: connect.NewClient[v1.ListImagesRequest, v1.ListImagesResponse](
@@ -180,6 +200,8 @@ func NewRegistryServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 type registryServiceClient struct {
 	login                *connect.Client[v1.LoginRequest, v1.LoginResponse]
 	pull                 *connect.Client[v1.PullRequest, v1.PullResponse]
+	push                 *connect.Client[v1.PushRequest, v1.PushResponse]
+	search               *connect.Client[v1.SearchRequest, v1.SearchResponse]
 	listImages           *connect.Client[v1.ListImagesRequest, v1.ListImagesResponse]
 	inspectImage         *connect.Client[v1.InspectImageRequest, v1.InspectImageResponse]
 	imageHistory         *connect.Client[v1.ImageHistoryRequest, v1.ImageHistoryResponse]
@@ -203,6 +225,20 @@ func (c *registryServiceClient) Login(ctx context.Context, req *v1.LoginRequest)
 // Pull calls core.registry.api.v1.RegistryService.Pull.
 func (c *registryServiceClient) Pull(ctx context.Context, req *v1.PullRequest) (*connect.ServerStreamForClient[v1.PullResponse], error) {
 	return c.pull.CallServerStream(ctx, connect.NewRequest(req))
+}
+
+// Push calls core.registry.api.v1.RegistryService.Push.
+func (c *registryServiceClient) Push(ctx context.Context, req *v1.PushRequest) (*connect.ServerStreamForClient[v1.PushResponse], error) {
+	return c.push.CallServerStream(ctx, connect.NewRequest(req))
+}
+
+// Search calls core.registry.api.v1.RegistryService.Search.
+func (c *registryServiceClient) Search(ctx context.Context, req *v1.SearchRequest) (*v1.SearchResponse, error) {
+	response, err := c.search.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
 }
 
 // ListImages calls core.registry.api.v1.RegistryService.ListImages.
@@ -293,6 +329,10 @@ type RegistryServiceHandler interface {
 	// Pull copies an image from its upstream registry into dinki, streaming
 	// Docker JSON-stream progress messages.
 	Pull(context.Context, *v1.PullRequest, *connect.ServerStream[v1.PullResponse]) error
+	// Push copies tenant image content to an upstream registry.
+	Push(context.Context, *v1.PushRequest, *connect.ServerStream[v1.PushResponse]) error
+	// Search queries a registry's Docker-compatible search service.
+	Search(context.Context, *v1.SearchRequest) (*v1.SearchResponse, error)
 	// ListImages lists the images in the caller's namespace.
 	ListImages(context.Context, *v1.ListImagesRequest) (*v1.ListImagesResponse, error)
 	// InspectImage describes one image in the caller's namespace.
@@ -334,6 +374,18 @@ func NewRegistryServiceHandler(svc RegistryServiceHandler, opts ...connect.Handl
 		RegistryServicePullProcedure,
 		svc.Pull,
 		connect.WithSchema(registryServiceMethods.ByName("Pull")),
+		connect.WithHandlerOptions(opts...),
+	)
+	registryServicePushHandler := connect.NewServerStreamHandlerSimple(
+		RegistryServicePushProcedure,
+		svc.Push,
+		connect.WithSchema(registryServiceMethods.ByName("Push")),
+		connect.WithHandlerOptions(opts...),
+	)
+	registryServiceSearchHandler := connect.NewUnaryHandlerSimple(
+		RegistryServiceSearchProcedure,
+		svc.Search,
+		connect.WithSchema(registryServiceMethods.ByName("Search")),
 		connect.WithHandlerOptions(opts...),
 	)
 	registryServiceListImagesHandler := connect.NewUnaryHandlerSimple(
@@ -396,6 +448,10 @@ func NewRegistryServiceHandler(svc RegistryServiceHandler, opts ...connect.Handl
 			registryServiceLoginHandler.ServeHTTP(w, r)
 		case RegistryServicePullProcedure:
 			registryServicePullHandler.ServeHTTP(w, r)
+		case RegistryServicePushProcedure:
+			registryServicePushHandler.ServeHTTP(w, r)
+		case RegistryServiceSearchProcedure:
+			registryServiceSearchHandler.ServeHTTP(w, r)
 		case RegistryServiceListImagesProcedure:
 			registryServiceListImagesHandler.ServeHTTP(w, r)
 		case RegistryServiceInspectImageProcedure:
@@ -429,6 +485,14 @@ func (UnimplementedRegistryServiceHandler) Login(context.Context, *v1.LoginReque
 
 func (UnimplementedRegistryServiceHandler) Pull(context.Context, *v1.PullRequest, *connect.ServerStream[v1.PullResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("core.registry.api.v1.RegistryService.Pull is not implemented"))
+}
+
+func (UnimplementedRegistryServiceHandler) Push(context.Context, *v1.PushRequest, *connect.ServerStream[v1.PushResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("core.registry.api.v1.RegistryService.Push is not implemented"))
+}
+
+func (UnimplementedRegistryServiceHandler) Search(context.Context, *v1.SearchRequest) (*v1.SearchResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("core.registry.api.v1.RegistryService.Search is not implemented"))
 }
 
 func (UnimplementedRegistryServiceHandler) ListImages(context.Context, *v1.ListImagesRequest) (*v1.ListImagesResponse, error) {

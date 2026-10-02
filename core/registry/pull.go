@@ -13,7 +13,6 @@ import (
 
 	"github.com/containerd/platforms"
 	"github.com/docker/oci"
-	"github.com/docker/oci/ocidigest"
 	"github.com/docker/oci/ociref"
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	"github.com/sysson/dink/core/identity"
@@ -27,8 +26,6 @@ func (r *RegistryService) ImagePrune()  {}
 func (r *RegistryService) LoadImage()   {}
 func (r *RegistryService) ImportImage() {}
 func (r *RegistryService) ExportImage() {}
-func (r *RegistryService) PushImage()   {}
-func (r *RegistryService) Search()      {}
 
 // TagImage copies an image into the target tenant repository and tags it.
 func (r *RegistryService) TagImage(ctx context.Context, name string, target ociref.Reference) error {
@@ -50,67 +47,20 @@ func (r *RegistryService) TagImage(ctx context.Context, name string, target ocir
 	sourceRef := ociref.Reference{Repository: source.repository, Digest: source.digest}
 	destination := repositoryFor(id, target)
 	destination.Digest = source.digest
-	descriptor, err := internal.ResolveManifest(ctx, source.repository, source.digest)
+	// Local tags retain the original index, including children not yet pulled.
+	descriptors, err := imageDescriptors(ctx, internal, sourceRef, true)
 	if err != nil {
 		return err
 	}
-	var descriptors []oci.Descriptor
-	if isIndex(descriptor.MediaType) {
-		tree, err := r.imageTree(ctx, source.repository, source.digest)
+	for _, descriptor := range descriptors {
+		if !isIndex(descriptor.MediaType) && !isManifest(descriptor.MediaType) {
+			continue
+		}
+		attached, err := (&manifest{client: internal, ref: sourceRef}).referrers(ctx, descriptor.Digest)
 		if err != nil {
 			return err
 		}
-		manifestDescriptor, err := getManifest(ctx, internal, sourceRef)
-		if err != nil {
-			return err
-		}
-		index, err := readBlob[oci.IndexOrManifest](bytes.NewReader(manifestDescriptor.Data))
-		if err != nil {
-			return err
-		}
-		available := make(map[string]bool, len(tree.Manifests))
-		for _, child := range tree.Manifests {
-			available[child.Digest] = child.Manifest != nil
-		}
-		children := make([]oci.Descriptor, 0, len(index.Manifests))
-		for _, child := range index.Manifests {
-			if !available[string(child.Digest)] {
-				continue
-			}
-			children = append(children, child)
-			childDescriptor, err := internal.ResolveManifest(ctx, source.repository, child.Digest)
-			if err != nil {
-				return err
-			}
-			childManifests := &manifest{client: internal, ref: sourceRef, descriptor: childDescriptor}
-			childDescriptors, err := childManifests.AllDescriptors(ctx)
-			if err != nil {
-				return err
-			}
-			descriptors = append(descriptors, childDescriptors...)
-		}
-		if len(children) == 0 {
-			return httpx.NotFound(fmt.Errorf("image %s has no stored platform manifests", name))
-		}
-		index.Manifests = children
-		data, err := json.Marshal(index)
-		if err != nil {
-			return err
-		}
-		descriptor = oci.Descriptor{
-			MediaType: descriptor.MediaType,
-			Digest:    ocidigest.FromBytes(data),
-			Size:      int64(len(data)),
-			Data:      data,
-		}
-		destination.Digest = descriptor.Digest
-		descriptors = append(descriptors, descriptor)
-	} else {
-		manifests := &manifest{client: internal, ref: sourceRef, descriptor: descriptor}
-		descriptors, err = manifests.AllDescriptors(ctx)
-		if err != nil {
-			return err
-		}
+		descriptors = append(descriptors, attached...)
 	}
 	copier := &copier{client: internal, destination: internal, srcRef: sourceRef, dstRef: destination}
 	if _, err := copier.copyBlobs(ctx, blobsFromDescriptors(descriptors)); err != nil {
@@ -360,23 +310,26 @@ type copier struct {
 	srcRef      ociref.Reference
 	dstRef      ociref.Reference
 	out         stream.ProgressWriter
+	pushing     bool
 }
 
 func (c *copier) copyBlobs(ctx context.Context, blobs <-chan oci.Descriptor) (bool, error) {
 	const maxConcurrentLayers = 3
 
 	var (
-		wg     sync.WaitGroup
-		slots  = make(chan struct{}, maxConcurrentLayers)
-		errs   = make(chan error, maxConcurrentLayers)
-		copied atomic.Bool
+		wg      sync.WaitGroup
+		slots   = make(chan struct{}, maxConcurrentLayers)
+		copied  atomic.Bool
+		mu      sync.Mutex
+		copyErr error
 	)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	stopAndReturn := func() (bool, error) {
 		wg.Wait()
-		close(errs)
-		if err := <-errs; err != nil {
-			return false, err
+		if copyErr != nil {
+			return false, copyErr
 		}
 		return copied.Load(), ctx.Err()
 	}
@@ -392,7 +345,12 @@ func (c *copier) copyBlobs(ctx context.Context, blobs <-chan oci.Descriptor) (bo
 		wg.Go(func() {
 			defer func() { <-slots }()
 			if ok, err := c.copyBlob(ctx, layer); err != nil {
-				errs <- err
+				mu.Lock()
+				if copyErr == nil {
+					copyErr = err
+				}
+				mu.Unlock()
+				cancel()
 			} else if ok {
 				copied.Store(true)
 			}
@@ -405,7 +363,7 @@ func (c *copier) copyBlob(ctx context.Context, desc oci.Descriptor) (bool, error
 	id := idForRef(desc.Digest)
 
 	report := func(msg string) {
-		if c.out != nil {
+		if c.out != nil && (!c.pushing || isImageLayer(desc.MediaType)) {
 			stream.Update(c.out, id, msg)
 		}
 	}
@@ -415,6 +373,10 @@ func (c *copier) copyBlob(ctx context.Context, desc oci.Descriptor) (bool, error
 			return
 		}
 		if isImageLayer(desc.MediaType) {
+			if c.pushing {
+				report("Pushed")
+				return
+			}
 			report("Pull Complete")
 			return
 		}
@@ -449,9 +411,11 @@ func (c *copier) copyBlob(ctx context.Context, desc oci.Descriptor) (bool, error
 
 	var reader io.Reader = blob
 
-	if c.out != nil && !isConfig(desc.MediaType) {
+	if c.out != nil && !isConfig(desc.MediaType) && (!c.pushing || isImageLayer(desc.MediaType)) {
 		msg := "Pulling"
-		if !isImageLayer(desc.MediaType) {
+		if c.pushing {
+			msg = "Pushing"
+		} else if !isImageLayer(desc.MediaType) {
 			msg = "Downloading"
 		}
 		pr := stream.NewProgressReader(blob, c.out, desc.Size, id, msg)

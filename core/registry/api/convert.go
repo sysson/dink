@@ -5,6 +5,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -159,7 +160,7 @@ func HeadersFromProto(headers map[string]*registryv1.HeaderValues) map[string][]
 	return result
 }
 
-func SummaryToProto(summary imagetypes.Summary) *registryv1.ImageSummary {
+func SummaryToProto(summary imagetypes.Summary) (*registryv1.ImageSummary, error) {
 	result := &registryv1.ImageSummary{
 		Id:          summary.ID,
 		RepoTags:    summary.RepoTags,
@@ -177,10 +178,17 @@ func SummaryToProto(summary imagetypes.Summary) *registryv1.ImageSummary {
 			result.Target.Platform = PlatformToProto(*descriptor.Platform)
 		}
 	}
-	return result
+	if len(summary.Manifests) > 0 {
+		manifests, err := json.Marshal(summary.Manifests)
+		if err != nil {
+			return nil, err
+		}
+		result.Manifests = manifests
+	}
+	return result, nil
 }
 
-func SummaryFromProto(summary *registryv1.ImageSummary) imagetypes.Summary {
+func SummaryFromProto(summary *registryv1.ImageSummary) (imagetypes.Summary, error) {
 	result := imagetypes.Summary{
 		ID:          summary.GetId(),
 		RepoTags:    summary.GetRepoTags(),
@@ -199,7 +207,12 @@ func SummaryFromProto(summary *registryv1.ImageSummary) imagetypes.Summary {
 			result.Descriptor.Platform = &platform
 		}
 	}
-	return result
+	if len(summary.GetManifests()) > 0 {
+		if err := json.Unmarshal(summary.GetManifests(), &result.Manifests); err != nil {
+			return imagetypes.Summary{}, err
+		}
+	}
+	return result, nil
 }
 
 // ToConnectError maps a service error to a Connect error so the client can

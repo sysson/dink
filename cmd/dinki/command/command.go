@@ -354,7 +354,7 @@ func newBackend(ctx context.Context, cfg config.Config) (*registryBackend, error
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("opening metadata store: %w", err), store.Close(), content.Close())
 	}
-	registry, err := ocistore.New(content, metadata)
+	registry, err := ocistore.New(content, metadata, ocistore.WithAllowMissingManifestChildren())
 	if err != nil {
 		return nil, errors.Join(err, content.Close(), metadata.Close())
 	}

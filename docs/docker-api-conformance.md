@@ -55,8 +55,8 @@ because dink mounts them alongside the Docker API routes.
 
 | Method and endpoint | Status | Caveats |
 | --- | --- | --- |
-| `GET /images/json` | Partial | Lists tenant-visible registry images, not a node-local Docker image store. `shared-size` is supported from API 1.42, `manifests` from 1.47, and `identity` from 1.54. Dink does not enforce Docker's validation that `identity=1` requires `manifests=1`. |
-| `GET /images/search` | Todo | Handler currently returns an empty success without a Docker response. |
+| `GET /images/json` | Partial | Lists tenant-visible registry images, not a node-local Docker image store. From API 1.47, `manifests=true` supports `docker image ls --tree`: all platforms in the stored index are listed, with availability and sizes based on content present in dinki. Missing platform manifests have zero content size; unpacked size is always zero. Parent size counts stored content once across platforms. `shared-size` and `identity` are parsed but not implemented; Dink does not enforce Docker's validation that `identity=1` requires `manifests=1`. |
+| `GET /images/search` | Partial | Queries Docker Hub by default, or a registry-qualified Docker-compatible `/v1/search` service. Supports `limit` (default 25, maximum 100), `stars`, `is-official`, auth, and `X-Meta-*` headers. Deprecated `is-automated=true` returns no results. OCI registries without a search service return an explicit error. |
 | `GET /images/get` | Todo | Image export is not implemented; handler currently returns an empty success. |
 | `GET /images/{name}/get` | Todo | Image export is not implemented; handler currently returns an empty success. |
 | `GET /images/{name}/history` | Partial | History comes from registry metadata; platform selection is supported from API 1.48. |
@@ -64,7 +64,7 @@ because dink mounts them alongside the Docker API routes.
 | `GET /images/{name}/attestations` | Partial | Registry-backed; only one `platform` value is accepted. Minimum API version 1.55. |
 | `POST /images/load` | Todo | Handler currently returns an empty success; image load is not implemented. |
 | `POST /images/create` | Partial | Pull delegates to the tenant registry. Multi-platform pulls only retain manifests available to the registry; platform option starts at API 1.32. |
-| `POST /images/{name}/push` | Todo | Handler currently returns an empty success; push is not implemented. |
+| `POST /images/{name}/push` | Partial | Pushes tenant-registry content to the named external registry, streaming Docker JSON progress. A tag selects one image; no tag pushes all repository tags. Supports registry auth and `X-Meta-*` headers. API 1.46 adds a single JSON-encoded `platform`; explicit platform pushes omit the index and attestations. Complete indexes are preserved; incomplete indexes fall back to an available platform with a Docker auxiliary notification. No content is fetched upstream to fill missing platforms. |
 | `POST /images/{name}/tag` | Partial | Copies image content in the tenant registry. For a pulled multi-platform index, only stored platform manifests are included. |
 | `POST /images/prune` | Partial | Prunes unused tagged tenant-registry images when `dangling=false`; default dangling-only prune returns no results because the registry does not store untagged images. Minimum API version 1.25. |
 | `DELETE /images/{name}` | Partial | Deletes tenant registry content, not node-local image data; behavior depends on registry capabilities and references. |
