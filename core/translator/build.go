@@ -2,6 +2,7 @@ package translator
 
 import (
 	"context"
+	"errors"
 
 	buildtypes "github.com/moby/moby/api/types/build"
 	"github.com/moby/moby/v2/daemon/server/buildbackend"
@@ -11,8 +12,12 @@ func (b *Builder) Build(context.Context, buildbackend.BuildConfig) (string, erro
 	return "", ErrNotImplemented
 }
 
-// PruneCache reports nothing pruned because Dink does not build images, so has no build cache.
+// PruneCache is empty when builds are disabled. Shared backend cache cannot
+// safely be pruned on behalf of a single tenant.
 func (b *Builder) PruneCache(context.Context, buildbackend.CachePruneOptions) (*buildtypes.CachePruneReport, error) {
+	if b.gateway != nil && b.gateway.Enabled() {
+		return nil, Unsupported(errors.New("pruning a shared BuildKit cache is not supported"))
+	}
 	return &buildtypes.CachePruneReport{CachesDeleted: []string{}}, nil
 }
 

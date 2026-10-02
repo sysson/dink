@@ -10,11 +10,11 @@ update_settings(max_parallel_updates=1)
 DINK='ghcr.io/sysson/dink'
 DINKI='ghcr.io/sysson/dinki'
 
-# The TLS Secrets are prerequisites for both Deployments.
+# The TLS Secrets are prerequisites for the service Deployments.
 local_resource(
     'certificates',
     cmd='make certificates',
-    deps=['pkg/certs', 'dinkle'],
+    deps=['cmd/dinkle', 'go.mod', 'go.sum'],
     labels=['setup'],
 )
 
@@ -56,4 +56,10 @@ k8s_resource(
     'dinki-node',
     resource_deps=['certificates', 'dinki'],
     labels=['registry'],
+)
+
+k8s_resource(
+    'buildkit',
+    resource_deps=['certificates'],
+    labels=['builder'],
 )

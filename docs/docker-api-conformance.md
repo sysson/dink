@@ -103,9 +103,9 @@ Containers using `--network host` bypass NetworkPolicy entirely.
 
 | Method and endpoint | Status | Caveats |
 | --- | --- | --- |
-| `POST /build` | Todo | Handler currently returns an empty success; image building is not implemented. |
-| `POST /build/prune` | Partial | Always reports nothing pruned: Dink does not build images, so has no build cache. Lets `docker system prune` complete. Minimum API version 1.31. |
-| `POST /build/cancel` | Todo | Handler currently returns an empty success; build cancellation is not implemented. |
+| `POST /build` | Todo | Returns an explicit unsupported error. Tagged modern Docker/Buildx builds use the optional gRPC BuildKit gateway instead; see [BuildKit integration](buildkit.md). |
+| `POST /build/prune` | Partial | Reports nothing pruned when builds are disabled. With an external backend, rejects pruning because its cache is shared. Minimum API version 1.31. |
+| `POST /build/cancel` | Todo | Returns an explicit unsupported error; cancel the Buildx request to cancel its solve. |
 | `OPTIONS /{anyroute:.*}` | Partial | Returns 200 for any matched path but does not implement Docker's complete OPTIONS response headers. |
 | `GET /_ping` | 100% | Returns `OK` with no-cache headers. |
 | `HEAD /_ping` | 100% | Returns the ping headers with an empty body. |
@@ -174,9 +174,9 @@ explanatory error because a Kubernetes cluster cannot join or leave a Swarm.
 | `GET /containers/{name}/checkpoints` | Todo | Route matches Docker's list method/path, but the handler is still a no-op and returns no checkpoint list. |
 | `POST /containers/{name}/checkpoints` | Todo | Route matches Docker's create method/path, but the handler is still a no-op. Minimum API version 1.31. |
 | `DELETE /containers/{name}/checkpoints/{checkpoint}` | Todo | Route matches Docker's delete method/path, but the handler is still a no-op. |
-| `GET /distribution/{name}/json` | Todo | Handler currently returns an empty success; distribution inspection is not implemented. Minimum API version 1.30. |
-| `POST /session` | Todo | Handler currently returns an empty success; Docker session upgrade/streaming is not implemented. |
-| `POST /grpc` | Todo | Handler currently returns an empty success; no gRPC request is served despite constructing a gRPC server. |
+| `GET /distribution/{name}/json` | Partial | Queries the upstream registry using request credentials and returns manifest/index digest, media type, size and platforms. Uses HTTPS except for loopback registries; schema1 and registry mirrors are not supported. Minimum API version 1.30. |
+| `POST /session` | Partial | Implements the h2c upgrade and proxies session services to configured external BuildKit, including scoped build auth. Builds must use the same Dink/backend replicas. |
+| `POST /grpc` | Partial | Implements the h2c upgrade; native HTTP/2 gRPC is also supported with identity/auth middleware. Forwards build control, progress and scoped frontend calls; translates tagged `moby` exports into Dinki publication. Build history listing, streaming, record updates and referenced content reads are identity-scoped. Cache administration, general content mutation, history archive imports and advanced build modes remain unsupported. See [BuildKit integration](buildkit.md). |
 
 ## Debug
 

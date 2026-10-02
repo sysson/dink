@@ -1,15 +1,16 @@
 package build
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/moby/moby/v2/daemon/server/buildbackend"
+	"github.com/sysson/dink/core/translator"
 	"github.com/sysson/syskit/httpx"
 )
 
 func (br *buildRouter) postBuild(w http.ResponseWriter, r *http.Request) error {
-	// Implement the postBuild handler
-	return nil
+	return translator.Unsupported(errors.New("POST /build is not supported; use Docker Buildx with the Docker driver"))
 }
 
 func (br *buildRouter) postPrune(w http.ResponseWriter, r *http.Request) error {
@@ -21,6 +22,5 @@ func (br *buildRouter) postPrune(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (br *buildRouter) postCancel(w http.ResponseWriter, r *http.Request) error {
-	// Implement the postCancel handler
-	return nil
+	return translator.Unsupported(errors.New("POST /build/cancel is not supported; cancel the Buildx request"))
 }

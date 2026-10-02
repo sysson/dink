@@ -1,7 +1,7 @@
 ---
 # Internal OCI registry for the dink system namespace. Port 5000 serves the OCI
-# distribution API read-only, and the internal RegistryService API that only
-# dink (authenticated by its client certificate subject) may call.
+# distribution API with read-only node access and scoped build uploads. Only
+# dink (authenticated by its client certificate subject) may call the internal API.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

@@ -186,7 +186,8 @@ Image operations use the tenant-visible `dinki` registry, not a node-local
 Docker image store. Pull, push, list, inspect, history, tag, prune, and attestations
 are registry-backed, with the limitations in the endpoint tracker. In
 particular, multi-platform operations can use only manifests stored in the
-registry. Docker image build, load, and export are not implemented.
+registry. Tagged builds can use the optional external backend described below;
+image load and export are not implemented.
 
 `docker image ls --tree` lists all platform manifests advertised by each stored
 image index, including platforms that have not been pulled. The Docker CLI dims
@@ -245,6 +246,32 @@ Environment values using `se://<provider>/<key>` are resolved through the
 named provider. The built-in Kubernetes provider refers to a Secret key; other
 providers use a Dink secrets plugin. Resolved plugin values are stored in an
 owned Kubernetes Secret rather than in the workload's Docker configuration.
+
+## Image Builds
+
+An optional external BuildKit gateway supports tagged, single-platform builds
+through the Docker driver's gRPC and session protocols. Execution can run in an
+operator-managed Kubernetes Pod, while results are pushed into Dinki using
+short-lived, repository-scoped credentials. Existing node pull credentials stay
+read-only. Explicit client-directed outputs are not redirected into the registry.
+
+Docker-driver `--push` adds an upstream image export using client session
+credentials while retaining the tenant-mapped Dinki image. Both exports must
+succeed; partial publications are not rolled back. Buildx may additionally use
+the existing HTTP push endpoint and upstream distribution inspection as a
+Docker-driver compatibility pass.
+
+Build history listing, event streaming, and record updates are scoped to the
+authenticated namespace and client common name. New references encode ownership
+so history remains attributable after Dink restarts without an in-memory index.
+Read-only content access is limited to descriptors referenced by owned history
+records. General content mutation, history archive imports, and pre-integration
+hash-only history are not supported.
+
+Local `FROM` resolution, untagged exports, push-by-digest, legacy HTTP
+builds, and shared-cache administration are not implemented. Backend TLS,
+registry trust, replica constraints, and validation instructions are documented
+in [External BuildKit builds](buildkit.md).
 
 ## System Information and Events
 

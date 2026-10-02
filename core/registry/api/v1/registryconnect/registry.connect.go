@@ -67,6 +67,12 @@ const (
 	// RegistryServiceRevokePullCredentialProcedure is the fully-qualified name of the RegistryService's
 	// RevokePullCredential RPC.
 	RegistryServiceRevokePullCredentialProcedure = "/core.registry.api.v1.RegistryService/RevokePullCredential"
+	// RegistryServiceIssueBuildCredentialProcedure is the fully-qualified name of the RegistryService's
+	// IssueBuildCredential RPC.
+	RegistryServiceIssueBuildCredentialProcedure = "/core.registry.api.v1.RegistryService/IssueBuildCredential"
+	// RegistryServiceRevokeBuildCredentialProcedure is the fully-qualified name of the
+	// RegistryService's RevokeBuildCredential RPC.
+	RegistryServiceRevokeBuildCredentialProcedure = "/core.registry.api.v1.RegistryService/RevokeBuildCredential"
 )
 
 // RegistryServiceClient is a client for the core.registry.api.v1.RegistryService service.
@@ -102,6 +108,10 @@ type RegistryServiceClient interface {
 	IssuePullCredential(context.Context, *v1.IssuePullCredentialRequest) (*v1.IssuePullCredentialResponse, error)
 	// RevokePullCredential removes the namespace's pull credential.
 	RevokePullCredential(context.Context, *v1.RevokePullCredentialRequest) (*v1.RevokePullCredentialResponse, error)
+	// Build credentials are short-lived and permit uploads only to the mapped
+	// repositories of the supplied tenant image names. Node access stays read-only.
+	IssueBuildCredential(context.Context, *v1.IssueBuildCredentialRequest) (*v1.IssueBuildCredentialResponse, error)
+	RevokeBuildCredential(context.Context, *v1.RevokeBuildCredentialRequest) (*v1.RevokeBuildCredentialResponse, error)
 }
 
 // NewRegistryServiceClient constructs a client for the core.registry.api.v1.RegistryService
@@ -193,24 +203,38 @@ func NewRegistryServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(registryServiceMethods.ByName("RevokePullCredential")),
 			connect.WithClientOptions(opts...),
 		),
+		issueBuildCredential: connect.NewClient[v1.IssueBuildCredentialRequest, v1.IssueBuildCredentialResponse](
+			httpClient,
+			baseURL+RegistryServiceIssueBuildCredentialProcedure,
+			connect.WithSchema(registryServiceMethods.ByName("IssueBuildCredential")),
+			connect.WithClientOptions(opts...),
+		),
+		revokeBuildCredential: connect.NewClient[v1.RevokeBuildCredentialRequest, v1.RevokeBuildCredentialResponse](
+			httpClient,
+			baseURL+RegistryServiceRevokeBuildCredentialProcedure,
+			connect.WithSchema(registryServiceMethods.ByName("RevokeBuildCredential")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // registryServiceClient implements RegistryServiceClient.
 type registryServiceClient struct {
-	login                *connect.Client[v1.LoginRequest, v1.LoginResponse]
-	pull                 *connect.Client[v1.PullRequest, v1.PullResponse]
-	push                 *connect.Client[v1.PushRequest, v1.PushResponse]
-	search               *connect.Client[v1.SearchRequest, v1.SearchResponse]
-	listImages           *connect.Client[v1.ListImagesRequest, v1.ListImagesResponse]
-	inspectImage         *connect.Client[v1.InspectImageRequest, v1.InspectImageResponse]
-	imageHistory         *connect.Client[v1.ImageHistoryRequest, v1.ImageHistoryResponse]
-	imageAttestations    *connect.Client[v1.ImageAttestationsRequest, v1.ImageAttestationsResponse]
-	removeImage          *connect.Client[v1.RemoveImageRequest, v1.RemoveImageResponse]
-	tagImage             *connect.Client[v1.TagImageRequest, v1.TagImageResponse]
-	query                *connect.Client[v1.QueryRequest, v1.QueryResponse]
-	issuePullCredential  *connect.Client[v1.IssuePullCredentialRequest, v1.IssuePullCredentialResponse]
-	revokePullCredential *connect.Client[v1.RevokePullCredentialRequest, v1.RevokePullCredentialResponse]
+	login                 *connect.Client[v1.LoginRequest, v1.LoginResponse]
+	pull                  *connect.Client[v1.PullRequest, v1.PullResponse]
+	push                  *connect.Client[v1.PushRequest, v1.PushResponse]
+	search                *connect.Client[v1.SearchRequest, v1.SearchResponse]
+	listImages            *connect.Client[v1.ListImagesRequest, v1.ListImagesResponse]
+	inspectImage          *connect.Client[v1.InspectImageRequest, v1.InspectImageResponse]
+	imageHistory          *connect.Client[v1.ImageHistoryRequest, v1.ImageHistoryResponse]
+	imageAttestations     *connect.Client[v1.ImageAttestationsRequest, v1.ImageAttestationsResponse]
+	removeImage           *connect.Client[v1.RemoveImageRequest, v1.RemoveImageResponse]
+	tagImage              *connect.Client[v1.TagImageRequest, v1.TagImageResponse]
+	query                 *connect.Client[v1.QueryRequest, v1.QueryResponse]
+	issuePullCredential   *connect.Client[v1.IssuePullCredentialRequest, v1.IssuePullCredentialResponse]
+	revokePullCredential  *connect.Client[v1.RevokePullCredentialRequest, v1.RevokePullCredentialResponse]
+	issueBuildCredential  *connect.Client[v1.IssueBuildCredentialRequest, v1.IssueBuildCredentialResponse]
+	revokeBuildCredential *connect.Client[v1.RevokeBuildCredentialRequest, v1.RevokeBuildCredentialResponse]
 }
 
 // Login calls core.registry.api.v1.RegistryService.Login.
@@ -322,6 +346,24 @@ func (c *registryServiceClient) RevokePullCredential(ctx context.Context, req *v
 	return nil, err
 }
 
+// IssueBuildCredential calls core.registry.api.v1.RegistryService.IssueBuildCredential.
+func (c *registryServiceClient) IssueBuildCredential(ctx context.Context, req *v1.IssueBuildCredentialRequest) (*v1.IssueBuildCredentialResponse, error) {
+	response, err := c.issueBuildCredential.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// RevokeBuildCredential calls core.registry.api.v1.RegistryService.RevokeBuildCredential.
+func (c *registryServiceClient) RevokeBuildCredential(ctx context.Context, req *v1.RevokeBuildCredentialRequest) (*v1.RevokeBuildCredentialResponse, error) {
+	response, err := c.revokeBuildCredential.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
 // RegistryServiceHandler is an implementation of the core.registry.api.v1.RegistryService service.
 type RegistryServiceHandler interface {
 	// Login verifies credentials against a registry. Nothing is persisted.
@@ -355,6 +397,10 @@ type RegistryServiceHandler interface {
 	IssuePullCredential(context.Context, *v1.IssuePullCredentialRequest) (*v1.IssuePullCredentialResponse, error)
 	// RevokePullCredential removes the namespace's pull credential.
 	RevokePullCredential(context.Context, *v1.RevokePullCredentialRequest) (*v1.RevokePullCredentialResponse, error)
+	// Build credentials are short-lived and permit uploads only to the mapped
+	// repositories of the supplied tenant image names. Node access stays read-only.
+	IssueBuildCredential(context.Context, *v1.IssueBuildCredentialRequest) (*v1.IssueBuildCredentialResponse, error)
+	RevokeBuildCredential(context.Context, *v1.RevokeBuildCredentialRequest) (*v1.RevokeBuildCredentialResponse, error)
 }
 
 // NewRegistryServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -442,6 +488,18 @@ func NewRegistryServiceHandler(svc RegistryServiceHandler, opts ...connect.Handl
 		connect.WithSchema(registryServiceMethods.ByName("RevokePullCredential")),
 		connect.WithHandlerOptions(opts...),
 	)
+	registryServiceIssueBuildCredentialHandler := connect.NewUnaryHandlerSimple(
+		RegistryServiceIssueBuildCredentialProcedure,
+		svc.IssueBuildCredential,
+		connect.WithSchema(registryServiceMethods.ByName("IssueBuildCredential")),
+		connect.WithHandlerOptions(opts...),
+	)
+	registryServiceRevokeBuildCredentialHandler := connect.NewUnaryHandlerSimple(
+		RegistryServiceRevokeBuildCredentialProcedure,
+		svc.RevokeBuildCredential,
+		connect.WithSchema(registryServiceMethods.ByName("RevokeBuildCredential")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/core.registry.api.v1.RegistryService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case RegistryServiceLoginProcedure:
@@ -470,6 +528,10 @@ func NewRegistryServiceHandler(svc RegistryServiceHandler, opts ...connect.Handl
 			registryServiceIssuePullCredentialHandler.ServeHTTP(w, r)
 		case RegistryServiceRevokePullCredentialProcedure:
 			registryServiceRevokePullCredentialHandler.ServeHTTP(w, r)
+		case RegistryServiceIssueBuildCredentialProcedure:
+			registryServiceIssueBuildCredentialHandler.ServeHTTP(w, r)
+		case RegistryServiceRevokeBuildCredentialProcedure:
+			registryServiceRevokeBuildCredentialHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -529,4 +591,12 @@ func (UnimplementedRegistryServiceHandler) IssuePullCredential(context.Context, 
 
 func (UnimplementedRegistryServiceHandler) RevokePullCredential(context.Context, *v1.RevokePullCredentialRequest) (*v1.RevokePullCredentialResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("core.registry.api.v1.RegistryService.RevokePullCredential is not implemented"))
+}
+
+func (UnimplementedRegistryServiceHandler) IssueBuildCredential(context.Context, *v1.IssueBuildCredentialRequest) (*v1.IssueBuildCredentialResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("core.registry.api.v1.RegistryService.IssueBuildCredential is not implemented"))
+}
+
+func (UnimplementedRegistryServiceHandler) RevokeBuildCredential(context.Context, *v1.RevokeBuildCredentialRequest) (*v1.RevokeBuildCredentialResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("core.registry.api.v1.RegistryService.RevokeBuildCredential is not implemented"))
 }

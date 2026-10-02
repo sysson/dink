@@ -1,8 +1,6 @@
 package grpc
 
 import (
-	"net/http"
-
 	"github.com/sysson/dink/core/server/router"
 	"google.golang.org/grpc"
 )
@@ -10,14 +8,12 @@ import (
 type grpcRouter struct {
 	routes     []router.Route
 	grpcServer *grpc.Server
-	h2Server   *http.Server
 }
 
 func New(translator Translator) *grpcRouter {
 
 	r := &grpcRouter{
-		grpcServer: grpc.NewServer(),
-		h2Server:   &http.Server{},
+		grpcServer: translator.GRPCServer(),
 	}
 	r.initRoutes()
 	return r

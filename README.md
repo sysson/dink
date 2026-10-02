@@ -45,8 +45,10 @@ Kubernetes cluster as an active Swarm, so Portainer may display Dink as a Swarm
 environment. Swarm membership and node administration still belong to
 Kubernetes tooling.
 
-This is not a complete Docker Engine implementation. Image build, load, export,
-and push are not implemented; Docker plugin inventory is limited to read-only
+This is not a complete Docker Engine implementation. Tagged Docker-driver builds
+can use an optional external BuildKit backend; see the
+[BuildKit integration](docs/buildkit.md) for configuration and first-pass limits.
+Image load and export are not implemented; Docker plugin inventory is limited to read-only
 views of Dink plugin registrations, and Docker plugin lifecycle operations are
 unsupported. Other routes may support only part of Docker's options or
 semantics. See the [endpoint status tracker](docs/docker-api-conformance.md)

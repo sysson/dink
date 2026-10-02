@@ -4,6 +4,7 @@ resources:
   - dink.yaml
   - dinki.yaml
   - dinki-node.yaml
+  - buildkit.yaml
 images:
   - name: ghcr.io/sysson/dink
     #   ghcr.io/sysson/dink:v0.1.2-beta.1

@@ -14,6 +14,7 @@ import (
 	imagetypes "github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
+	"github.com/sysson/dink/core/buildkit"
 	"github.com/sysson/dink/core/config"
 	"github.com/sysson/dink/core/k8s"
 	"github.com/sysson/dink/core/plugins"
@@ -21,6 +22,7 @@ import (
 	"github.com/sysson/dink/core/secrets"
 	"github.com/sysson/dink/core/types"
 	"github.com/sysson/syskit/logx"
+	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/remotecommand"
@@ -69,7 +71,9 @@ type Swarm struct {
 }
 
 type Builder struct {
-	k8s *k8s.KubeClient
+	k8s     *k8s.KubeClient
+	gateway *buildkit.Gateway
+	grpc    *grpc.Server
 }
 
 type Registry struct {
@@ -85,6 +89,16 @@ func New(ctx context.Context, cfg *config.Config) (*Translator, error) {
 	}
 
 	r := newRegistryService(cfg)
+	buildGateway, err := buildkit.New(cfg.BuildKit, cfg.Registry.URL, r)
+	if err != nil {
+		return nil, fmt.Errorf("configuring BuildKit: %w", err)
+	}
+	initialized := false
+	defer func() {
+		if !initialized {
+			_ = buildGateway.Close()
+		}
+	}()
 
 	static := make([]plugins.Static, 0, len(cfg.Auth.Plugins))
 	for _, p := range cfg.Auth.Plugins {
@@ -109,7 +123,7 @@ func New(ctx context.Context, cfg *config.Config) (*Translator, error) {
 			defaultResources: cfg.Kubernetes.DefaultResources,
 			nodePlacement:    cfg.Kubernetes.NodePlacement,
 		},
-		builder:  Builder{k8s: k},
+		builder:  Builder{k8s: k, gateway: buildGateway, grpc: buildGateway.GRPCServer()},
 		registry: Registry{registry: r, k8s: k},
 		plugins:  pluginRegistry,
 	}
@@ -125,7 +139,13 @@ func New(ctx context.Context, cfg *config.Config) (*Translator, error) {
 		logx.G(ctx).WithError(err).Warn("default namespace not available", "namespace", cfg.Kubernetes.DefaultNamespace)
 	}
 
+	initialized = true
 	return t, nil
+}
+
+func (t *Translator) Close() error {
+	t.builder.grpc.Stop()
+	return t.builder.gateway.Close()
 }
 
 func (t *Translator) Docker() *Docker {

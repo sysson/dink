@@ -269,6 +269,20 @@ func TestBuildKitValidate(t *testing.T) {
 			buildKit: BuildKit{},
 		},
 		{
+			name:     "backend mTLS",
+			buildKit: BuildKit{URL: "tcp://buildkitd:1234", CAFile: "/ca.pem", CertFile: "/cert.pem", KeyFile: "/key.pem", ServerName: "buildkitd", RegistryURL: "https://dinki:5000"},
+		},
+		{
+			name:     "missing client key",
+			buildKit: BuildKit{URL: "tcp://buildkitd:1234", CertFile: "/cert.pem"},
+			wantErr:  "must be set together",
+		},
+		{
+			name:     "TLS on unix",
+			buildKit: BuildKit{URL: "unix:///run/buildkit.sock", CAFile: "/ca.pem"},
+			wantErr:  "TLS settings require a tcp endpoint",
+		},
+		{
 			name:     "tcp host and port",
 			buildKit: BuildKit{URL: "tcp://buildkitd:1234"},
 		},

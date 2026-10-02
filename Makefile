@@ -30,8 +30,8 @@ CTX_ENDPOINT := host=$(DINK_HOST),ca=$(DOCKER_CERT_DIR)/ca.pem,cert=$(DOCKER_CER
 HOST_DOCKER := env -u DOCKER_HOST -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH DOCKER_CONTEXT=minikube
 
 .PHONY: all build test generate lint clean fix dev image image-minikube load ca-generate ca-generate-local ca-rotate server registry-server certificates tenant bootstrap \
-	context context-sync context-use context-default context-rm port-forward restart release show-image \
-	deploy undeploy logs docker-env start clean-images
+	buildkit-server context context-sync context-use context-default context-rm port-forward restart release show-image \
+	deploy undeploy logs docker-env start clean-images clean-buildkit
 
 all: build
 
@@ -101,10 +101,15 @@ server:
 registry-server:
 	$(GO) run $(DINKLE) --certsDir $(CERT_DIR) server issue --systemNamespace $(NAMESPACE) --serviceName dinki --serverSecretName dinki-tls
 
-## certificates: Ensure the CA and both server TLS Secrets exist
+## buildkit-server: Issue the BuildKit server certificate from the existing CA
+buildkit-server:
+	$(GO) run $(DINKLE) --certsDir $(CERT_DIR) server issue --systemNamespace $(NAMESPACE) --serviceName buildkit --serverSecretName buildkit-tls
+
+## certificates: Ensure the CA and service TLS Secrets exist
 certificates: ca-generate
 	@$(KUBECTL) -n $(NAMESPACE) get secret dink-tls >/dev/null 2>&1 || $(MAKE) --no-print-directory server
 	@$(KUBECTL) -n $(NAMESPACE) get secret dinki-tls >/dev/null 2>&1 || $(MAKE) --no-print-directory registry-server
+	@$(KUBECTL) -n $(NAMESPACE) get secret buildkit-tls >/dev/null 2>&1 || $(MAKE) --no-print-directory buildkit-server
 
 ## tenant: Create the '$(TENANT)' tenant and refresh the local docker context for it
 tenant:
@@ -200,3 +205,13 @@ docker-env:
 clean-images:
 	@$(HOST_DOCKER) $(DOCKER) system prune -a
 	@$(HOST_DOCKER) $(DOCKER) exec -it $(MINIKUBE_PROFILE) ctr -n k8s.io images prune --all
+
+## clean-buildkit: Prune all unused cache from the shared BuildKit pod (all tenants)
+clean-buildkit:
+	$(KUBECTL) -n $(NAMESPACE) exec deployment/buildkit -c buildkit -- \
+		buildctl --addr=tcp://127.0.0.1:1234 \
+		--tlsservername=buildkit.$(NAMESPACE).svc.cluster.local \
+		--tlscacert=/etc/buildkit/tls/ca.crt \
+		--tlscert=/etc/buildkit/tls/tls.crt \
+		--tlskey=/etc/buildkit/tls/tls.key \
+		prune --all

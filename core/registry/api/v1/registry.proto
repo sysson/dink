@@ -41,7 +41,29 @@ service RegistryService {
   rpc IssuePullCredential(IssuePullCredentialRequest) returns (IssuePullCredentialResponse);
   // RevokePullCredential removes the namespace's pull credential.
   rpc RevokePullCredential(RevokePullCredentialRequest) returns (RevokePullCredentialResponse);
+  // Build credentials are short-lived and permit uploads only to the mapped
+  // repositories of the supplied tenant image names. Node access stays read-only.
+  rpc IssueBuildCredential(IssueBuildCredentialRequest) returns (IssueBuildCredentialResponse);
+  rpc RevokeBuildCredential(RevokeBuildCredentialRequest) returns (RevokeBuildCredentialResponse);
 }
+
+message IssueBuildCredentialRequest {
+  Identity identity = 1;
+  repeated string names = 2;
+}
+
+message IssueBuildCredentialResponse {
+  string username = 1;
+  string password = 2;
+  repeated string references = 3;
+}
+
+message RevokeBuildCredentialRequest {
+  Identity identity = 1;
+  string username = 2;
+}
+
+message RevokeBuildCredentialResponse {}
 
 // Identity is the tenant a request is made for.
 message Identity {

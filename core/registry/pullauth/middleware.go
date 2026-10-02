@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/sysson/syskit/logx"
 )
@@ -11,6 +12,10 @@ import (
 // Verifier checks a namespace's pull credential.
 type Verifier interface {
 	Verify(ctx context.Context, namespace, password string) (bool, error)
+}
+
+type BuildVerifier interface {
+	VerifyBuild(context.Context, string, string) (string, []string, error)
 }
 
 type contextKey struct{}
@@ -34,6 +39,26 @@ func Middleware(verifier Verifier) func(http.Handler) http.Handler {
 			namespace, password, ok := r.BasicAuth()
 			if !ok {
 				unauthorized(w, "authentication required")
+				return
+			}
+			if strings.HasPrefix(namespace, "build_") {
+				buildVerifier, ok := verifier.(BuildVerifier)
+				if !ok {
+					unauthorized(w, "build credentials are unavailable")
+					return
+				}
+				tenant, repositories, err := buildVerifier.VerifyBuild(r.Context(), namespace, password)
+				if err != nil {
+					logx.G(r.Context()).WithError(err).Error("verifying build credential")
+					http.Error(w, "unable to verify build credential", http.StatusInternalServerError)
+					return
+				}
+				if tenant == "" {
+					unauthorized(w, "invalid or expired build credential")
+					return
+				}
+				ctx := withBuildScope(NewContext(r.Context(), tenant), repositories)
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 			valid, err := verifier.Verify(r.Context(), namespace, password)

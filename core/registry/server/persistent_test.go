@@ -166,7 +166,7 @@ func TestPersistentManifestAndTagSurviveRestart(t *testing.T) {
 	}
 }
 
-func persistentHandler(t *testing.T, ctx context.Context, dir string) (*Handler, func() error) {
+func persistentHandler(t *testing.T, ctx context.Context, dir string, opts ...ocistore.Option) (*Handler, func() error) {
 	t.Helper()
 	content, err := fileblob.Open(ctx, filepath.Join(dir, "blobs"))
 	if err != nil {
@@ -177,7 +177,7 @@ func persistentHandler(t *testing.T, ctx context.Context, dir string) (*Handler,
 		_ = content.Close()
 		t.Fatal(err)
 	}
-	backend, err := ocistore.New(content, metadata)
+	backend, err := ocistore.New(content, metadata, opts...)
 	if err != nil {
 		_ = content.Close()
 		_ = metadata.Close()
@@ -219,7 +219,7 @@ func pushBlobForTest(t *testing.T, handler http.Handler, content []byte, digest 
 
 func TestPushIndexWithMissingChildren(t *testing.T) {
 	ctx := context.Background()
-	handler, closeStores := persistentHandler(t, ctx, t.TempDir())
+	handler, closeStores := persistentHandler(t, ctx, t.TempDir(), ocistore.WithAllowMissingManifestChildren())
 	defer func() { _ = closeStores() }()
 
 	missing := oci.Descriptor{

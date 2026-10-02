@@ -100,6 +100,26 @@ func (o *options) addFlags(flags *[]cli.Flag) {
 			Destination: &o.cfg.BuildKit.URL,
 		},
 		&cli.StringFlag{
+			Name: "buildKitCAFile", Usage: "CA bundle PEM for the BuildKit backend",
+			Sources: cli.EnvVars(types.DefaultEnvPrefix + "_BUILDKIT_CA_FILE"), Destination: &o.cfg.BuildKit.CAFile,
+		},
+		&cli.StringFlag{
+			Name: "buildKitCertFile", Usage: "Client certificate PEM for the BuildKit backend",
+			Sources: cli.EnvVars(types.DefaultEnvPrefix + "_BUILDKIT_CERT_FILE"), Destination: &o.cfg.BuildKit.CertFile,
+		},
+		&cli.StringFlag{
+			Name: "buildKitKeyFile", Usage: "Client private key PEM for the BuildKit backend",
+			Sources: cli.EnvVars(types.DefaultEnvPrefix + "_BUILDKIT_KEY_FILE"), Destination: &o.cfg.BuildKit.KeyFile,
+		},
+		&cli.StringFlag{
+			Name: "buildKitServerName", Usage: "TLS server name of the BuildKit backend",
+			Sources: cli.EnvVars(types.DefaultEnvPrefix + "_BUILDKIT_SERVER_NAME"), Destination: &o.cfg.BuildKit.ServerName,
+		},
+		&cli.StringFlag{
+			Name: "buildKitRegistryURL", Usage: "Dinki OCI address reachable from BuildKit; defaults to registryURL",
+			Sources: cli.EnvVars(types.DefaultEnvPrefix + "_BUILDKIT_REGISTRY_URL"), Destination: &o.cfg.BuildKit.RegistryURL,
+		},
+		&cli.StringFlag{
 			Name:        "pluginDir",
 			Usage:       "Plugin directory path",
 			DefaultText: o.defaults.Auth.PluginDir,
