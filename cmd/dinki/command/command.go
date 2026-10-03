@@ -130,9 +130,8 @@ func healthHandler() http.Handler {
 	return mux
 }
 
-// newHandler serves the registry read-only to holders of a namespace pull
-// credential and, unless disabled, the internal API and GraphQL to dink's
-// client certificate.
+// newHandler serves read-only node access and repository-scoped build uploads.
+// The internal API and GraphQL require dink's client certificate.
 func newHandler(cfg config.Config, backend *registryBackend) (http.Handler, error) {
 	store := backend.registry
 	ociHandler, err := server.New(pullauth.Scope(store))
@@ -354,7 +353,7 @@ func newBackend(ctx context.Context, cfg config.Config) (*registryBackend, error
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("opening metadata store: %w", err), store.Close(), content.Close())
 	}
-	registry, err := ocistore.New(content, metadata)
+	registry, err := ocistore.New(content, metadata, ocistore.WithAllowMissingManifestChildren())
 	if err != nil {
 		return nil, errors.Join(err, content.Close(), metadata.Close())
 	}

@@ -26,6 +26,7 @@ func repositoryFor(id identity.Identity, ref ociref.Reference) ociref.Reference 
 	} else {
 		repo = id.Namespace + "/" + repositoryHost(ref.Host) + "/" + ref.Repository
 	}
+
 	tag := ref.Tag
 	if ref.Tag == "" && ref.Digest != "" {
 		tag = digestTag(oci.Digest(ref.Digest))
@@ -35,6 +36,11 @@ func repositoryFor(id identity.Identity, ref ociref.Reference) ociref.Reference 
 		Tag:        tag,
 		Digest:     ref.Digest,
 	}
+}
+
+// BuildReference uses the same tenant mapping as pulls and tags.
+func BuildReference(id identity.Identity, ref ociref.Reference) ociref.Reference {
+	return repositoryFor(id, ref)
 }
 
 // repositoryHost renders a registry host as a repository path component.

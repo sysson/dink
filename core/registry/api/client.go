@@ -94,18 +94,22 @@ func (c *Client) PullImage(ctx context.Context, ref ociref.Reference, options im
 }
 
 // Images lists the images in the caller's namespace.
-func (c *Client) Images(ctx context.Context, _ types.ImageListOptions) ([]imagetypes.Summary, error) {
+func (c *Client) Images(ctx context.Context, options types.ImageListOptions) ([]imagetypes.Summary, error) {
 	id, err := c.requestIdentity(ctx)
 	if err != nil {
 		return nil, err
 	}
-	response, err := c.rpc.ListImages(ctx, &registryv1.ListImagesRequest{Identity: id})
+	response, err := c.rpc.ListImages(ctx, &registryv1.ListImagesRequest{Identity: id, Manifests: options.Manifests})
 	if err != nil {
 		return nil, FromConnectError(err)
 	}
 	summaries := make([]imagetypes.Summary, 0, len(response.GetImages()))
 	for _, summary := range response.GetImages() {
-		summaries = append(summaries, SummaryFromProto(summary))
+		image, err := SummaryFromProto(summary)
+		if err != nil {
+			return nil, fmt.Errorf("decoding image summary: %w", err)
+		}
+		summaries = append(summaries, image)
 	}
 	return summaries, nil
 }
@@ -237,11 +241,16 @@ func (c *Client) Query(ctx context.Context, document, operationName string, vari
 // IssuePullCredential creates, or replaces, the caller's namespace pull
 // credential and returns its username and password.
 func (c *Client) IssuePullCredential(ctx context.Context) (string, string, error) {
+	return c.EnsurePullCredential(ctx, "")
+}
+
+// EnsurePullCredential reuses a valid password or replaces a stale credential.
+func (c *Client) EnsurePullCredential(ctx context.Context, existingPassword string) (string, string, error) {
 	id, err := c.requestIdentity(ctx)
 	if err != nil {
 		return "", "", err
 	}
-	response, err := c.rpc.IssuePullCredential(ctx, &registryv1.IssuePullCredentialRequest{Identity: id})
+	response, err := c.rpc.IssuePullCredential(ctx, &registryv1.IssuePullCredentialRequest{Identity: id, ExistingPassword: existingPassword})
 	if err != nil {
 		return "", "", FromConnectError(err)
 	}

@@ -15,6 +15,10 @@ service RegistryService {
   // Pull copies an image from its upstream registry into dinki, streaming
   // Docker JSON-stream progress messages.
   rpc Pull(PullRequest) returns (stream PullResponse);
+  // Push copies tenant image content to an upstream registry.
+  rpc Push(PushRequest) returns (stream PushResponse);
+  // Search queries a registry's Docker-compatible search service.
+  rpc Search(SearchRequest) returns (SearchResponse);
   // ListImages lists the images in the caller's namespace.
   rpc ListImages(ListImagesRequest) returns (ListImagesResponse);
   // InspectImage describes one image in the caller's namespace.
@@ -33,11 +37,33 @@ service RegistryService {
   rpc Query(QueryRequest) returns (QueryResponse);
   // IssuePullCredential creates, or replaces, the Basic credential that
   // nodes use to pull the images of the identity's namespace. The password
-  // is only ever returned here.
+  // is only ever returned here. A valid existing password is reused.
   rpc IssuePullCredential(IssuePullCredentialRequest) returns (IssuePullCredentialResponse);
   // RevokePullCredential removes the namespace's pull credential.
   rpc RevokePullCredential(RevokePullCredentialRequest) returns (RevokePullCredentialResponse);
+  // Build credentials are short-lived and permit uploads only to the mapped
+  // repositories of the supplied tenant image names. Node access stays read-only.
+  rpc IssueBuildCredential(IssueBuildCredentialRequest) returns (IssueBuildCredentialResponse);
+  rpc RevokeBuildCredential(RevokeBuildCredentialRequest) returns (RevokeBuildCredentialResponse);
 }
+
+message IssueBuildCredentialRequest {
+  Identity identity = 1;
+  repeated string names = 2;
+}
+
+message IssueBuildCredentialResponse {
+  string username = 1;
+  string password = 2;
+  repeated string references = 3;
+}
+
+message RevokeBuildCredentialRequest {
+  Identity identity = 1;
+  string username = 2;
+}
+
+message RevokeBuildCredentialResponse {}
 
 // Identity is the tenant a request is made for.
 message Identity {
@@ -99,8 +125,35 @@ message PullResponse {
   bytes message = 1;
 }
 
+message PushRequest {
+  Identity identity = 1;
+  Reference reference = 2;
+  RegistryAuth auth = 3;
+  map<string, HeaderValues> meta_headers = 4;
+  repeated Platform platforms = 5;
+}
+
+message PushResponse {
+  bytes message = 1;
+}
+
+message SearchRequest {
+  Identity identity = 1;
+  string term = 2;
+  int64 limit = 3;
+  string filters = 4;
+  RegistryAuth auth = 5;
+  map<string, HeaderValues> meta_headers = 6;
+}
+
+message SearchResponse {
+  // JSON-encoded Docker search results.
+  bytes results = 1;
+}
+
 message ListImagesRequest {
   Identity identity = 1;
+  bool manifests = 2;
 }
 
 message Descriptor {
@@ -118,6 +171,8 @@ message ImageSummary {
   int64 size = 5;
   // What the image reference resolves to.
   Descriptor target = 6;
+  // JSON-encoded Docker manifest summaries, including unavailable platforms.
+  bytes manifests = 7;
 }
 
 message ListImagesResponse {
@@ -207,6 +262,8 @@ message QueryResponse {
 
 message IssuePullCredentialRequest {
   Identity identity = 1;
+  // If still valid, reuse this password rather than rotating the credential.
+  string existing_password = 2;
 }
 
 message IssuePullCredentialResponse {

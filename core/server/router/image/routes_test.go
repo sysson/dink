@@ -10,8 +10,71 @@ import (
 
 	"github.com/docker/oci/ociref"
 	imagetypes "github.com/moby/moby/api/types/image"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sysson/dink/core/types"
 	"github.com/sysson/dink/pkg/filters"
 )
+
+type listTranslatorStub struct {
+	Translator
+	options types.ImageListOptions
+}
+
+func (s *listTranslatorStub) Images(_ context.Context, options types.ImageListOptions) ([]imagetypes.Summary, error) {
+	s.options = options
+	image := imagetypes.Summary{ID: "sha256:index", RepoTags: []string{"app:latest"}}
+	if options.Manifests {
+		image.Manifests = []imagetypes.ManifestSummary{{
+			ID: "sha256:amd64", Available: true, Kind: imagetypes.ManifestKindImage,
+			ImageData: &imagetypes.ImageProperties{Platform: ocispec.Platform{OS: "linux", Architecture: "amd64"}},
+		}, {
+			ID: "sha256:arm64", Available: false, Kind: imagetypes.ManifestKindImage,
+			ImageData: &imagetypes.ImageProperties{Platform: ocispec.Platform{OS: "linux", Architecture: "arm64"}},
+		}}
+	}
+	return []imagetypes.Summary{image}, nil
+}
+
+func TestGetImagesJSONManifests(t *testing.T) {
+	for _, tc := range []struct {
+		version   string
+		query     string
+		manifests bool
+	}{
+		{version: "1.46", query: "?manifests=true"},
+		{version: "1.47", query: "?manifests=true", manifests: true},
+		{version: "1.55", query: "?manifests=false"},
+		{version: "1.55"},
+	} {
+		t.Run(tc.version+tc.query, func(t *testing.T) {
+			stub := &listTranslatorStub{}
+			api := &imageRouter{translator: stub}
+			request := httptest.NewRequest(http.MethodGet, "/images/json"+tc.query, nil)
+			request.SetPathValue("version", tc.version)
+			response := httptest.NewRecorder()
+			if err := api.getImagesJSON(response, request); err != nil {
+				t.Fatal(err)
+			}
+			if response.Code != http.StatusOK || stub.options.Manifests != tc.manifests {
+				t.Fatalf("status/options = %d/%+v", response.Code, stub.options)
+			}
+			var images []imagetypes.Summary
+			if err := json.Unmarshal(response.Body.Bytes(), &images); err != nil {
+				t.Fatal(err)
+			}
+			if len(images) != 1 {
+				t.Fatalf("images = %+v", images)
+			}
+			if tc.manifests {
+				if len(images[0].Manifests) != 2 || !images[0].Manifests[0].Available || images[0].Manifests[1].Available {
+					t.Fatalf("manifest availability = %+v", images[0].Manifests)
+				}
+			} else if strings.Contains(response.Body.String(), `"Manifests"`) {
+				t.Fatalf("ordinary list includes manifests: %s", response.Body.String())
+			}
+		})
+	}
+}
 
 type tagTranslatorStub struct {
 	Translator

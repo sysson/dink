@@ -11,9 +11,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/docker/oci/ociref"
+	control "github.com/moby/buildkit/api/services/control"
 	imagetypes "github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
+	"github.com/sysson/dink/core/buildkit"
 	"github.com/sysson/dink/core/config"
 	"github.com/sysson/dink/core/k8s"
 	"github.com/sysson/dink/core/plugins"
@@ -21,6 +24,7 @@ import (
 	"github.com/sysson/dink/core/secrets"
 	"github.com/sysson/dink/core/types"
 	"github.com/sysson/syskit/logx"
+	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/remotecommand"
@@ -30,7 +34,8 @@ import (
 type dockerRegistry interface {
 	Authenticate(ctx context.Context, auth *registry.AuthConfig) (string, error)
 	ImageInspect(ctx context.Context, name string, options imagebackend.ImageInspectOpts) (*imagebackend.InspectData, error)
-	IssuePullCredential(ctx context.Context) (string, string, error)
+	PullImage(ctx context.Context, ref ociref.Reference, options imagebackend.PullOptions) error
+	EnsurePullCredential(ctx context.Context, existingPassword string) (string, string, error)
 	Images(ctx context.Context, options types.ImageListOptions) ([]imagetypes.Summary, error)
 }
 
@@ -68,8 +73,18 @@ type Swarm struct {
 	systemNamespace string
 }
 
+type builderGateway interface {
+	Enabled() bool
+	DiskUsage(context.Context, *control.DiskUsageRequest) (*control.DiskUsageResponse, error)
+	PruneCache(context.Context, *control.PruneRequest) ([]*control.UsageRecord, error)
+	HandleHTTPRequest(context.Context, http.ResponseWriter, *http.Request) error
+	Close() error
+}
+
 type Builder struct {
-	k8s *k8s.KubeClient
+	k8s     *k8s.KubeClient
+	gateway builderGateway
+	grpc    *grpc.Server
 }
 
 type Registry struct {
@@ -85,6 +100,16 @@ func New(ctx context.Context, cfg *config.Config) (*Translator, error) {
 	}
 
 	r := newRegistryService(cfg)
+	buildGateway, err := buildkit.New(cfg.BuildKit, cfg.Registry.URL, r)
+	if err != nil {
+		return nil, fmt.Errorf("configuring BuildKit: %w", err)
+	}
+	initialized := false
+	defer func() {
+		if !initialized {
+			_ = buildGateway.Close()
+		}
+	}()
 
 	static := make([]plugins.Static, 0, len(cfg.Auth.Plugins))
 	for _, p := range cfg.Auth.Plugins {
@@ -109,7 +134,7 @@ func New(ctx context.Context, cfg *config.Config) (*Translator, error) {
 			defaultResources: cfg.Kubernetes.DefaultResources,
 			nodePlacement:    cfg.Kubernetes.NodePlacement,
 		},
-		builder:  Builder{k8s: k},
+		builder:  Builder{k8s: k, gateway: buildGateway, grpc: buildGateway.GRPCServer()},
 		registry: Registry{registry: r, k8s: k},
 		plugins:  pluginRegistry,
 	}
@@ -125,7 +150,13 @@ func New(ctx context.Context, cfg *config.Config) (*Translator, error) {
 		logx.G(ctx).WithError(err).Warn("default namespace not available", "namespace", cfg.Kubernetes.DefaultNamespace)
 	}
 
+	initialized = true
 	return t, nil
+}
+
+func (t *Translator) Close() error {
+	t.builder.grpc.Stop()
+	return t.builder.gateway.Close()
 }
 
 func (t *Translator) Docker() *Docker {

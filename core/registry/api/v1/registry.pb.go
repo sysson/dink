@@ -21,6 +21,206 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type IssueBuildCredentialRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Identity      *Identity              `protobuf:"bytes,1,opt,name=identity,proto3" json:"identity,omitempty"`
+	Names         []string               `protobuf:"bytes,2,rep,name=names,proto3" json:"names,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *IssueBuildCredentialRequest) Reset() {
+	*x = IssueBuildCredentialRequest{}
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IssueBuildCredentialRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IssueBuildCredentialRequest) ProtoMessage() {}
+
+func (x *IssueBuildCredentialRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use IssueBuildCredentialRequest.ProtoReflect.Descriptor instead.
+func (*IssueBuildCredentialRequest) Descriptor() ([]byte, []int) {
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *IssueBuildCredentialRequest) GetIdentity() *Identity {
+	if x != nil {
+		return x.Identity
+	}
+	return nil
+}
+
+func (x *IssueBuildCredentialRequest) GetNames() []string {
+	if x != nil {
+		return x.Names
+	}
+	return nil
+}
+
+type IssueBuildCredentialResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
+	Password      string                 `protobuf:"bytes,2,opt,name=password,proto3" json:"password,omitempty"`
+	References    []string               `protobuf:"bytes,3,rep,name=references,proto3" json:"references,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *IssueBuildCredentialResponse) Reset() {
+	*x = IssueBuildCredentialResponse{}
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IssueBuildCredentialResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IssueBuildCredentialResponse) ProtoMessage() {}
+
+func (x *IssueBuildCredentialResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use IssueBuildCredentialResponse.ProtoReflect.Descriptor instead.
+func (*IssueBuildCredentialResponse) Descriptor() ([]byte, []int) {
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *IssueBuildCredentialResponse) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *IssueBuildCredentialResponse) GetPassword() string {
+	if x != nil {
+		return x.Password
+	}
+	return ""
+}
+
+func (x *IssueBuildCredentialResponse) GetReferences() []string {
+	if x != nil {
+		return x.References
+	}
+	return nil
+}
+
+type RevokeBuildCredentialRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Identity      *Identity              `protobuf:"bytes,1,opt,name=identity,proto3" json:"identity,omitempty"`
+	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeBuildCredentialRequest) Reset() {
+	*x = RevokeBuildCredentialRequest{}
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeBuildCredentialRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeBuildCredentialRequest) ProtoMessage() {}
+
+func (x *RevokeBuildCredentialRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeBuildCredentialRequest.ProtoReflect.Descriptor instead.
+func (*RevokeBuildCredentialRequest) Descriptor() ([]byte, []int) {
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *RevokeBuildCredentialRequest) GetIdentity() *Identity {
+	if x != nil {
+		return x.Identity
+	}
+	return nil
+}
+
+func (x *RevokeBuildCredentialRequest) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+type RevokeBuildCredentialResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeBuildCredentialResponse) Reset() {
+	*x = RevokeBuildCredentialResponse{}
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeBuildCredentialResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeBuildCredentialResponse) ProtoMessage() {}
+
+func (x *RevokeBuildCredentialResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeBuildCredentialResponse.ProtoReflect.Descriptor instead.
+func (*RevokeBuildCredentialResponse) Descriptor() ([]byte, []int) {
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{3}
+}
+
 // Identity is the tenant a request is made for.
 type Identity struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -34,7 +234,7 @@ type Identity struct {
 
 func (x *Identity) Reset() {
 	*x = Identity{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[0]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -46,7 +246,7 @@ func (x *Identity) String() string {
 func (*Identity) ProtoMessage() {}
 
 func (x *Identity) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[0]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -59,7 +259,7 @@ func (x *Identity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Identity.ProtoReflect.Descriptor instead.
 func (*Identity) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{0}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Identity) GetNamespace() string {
@@ -104,7 +304,7 @@ type RegistryAuth struct {
 
 func (x *RegistryAuth) Reset() {
 	*x = RegistryAuth{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[1]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -116,7 +316,7 @@ func (x *RegistryAuth) String() string {
 func (*RegistryAuth) ProtoMessage() {}
 
 func (x *RegistryAuth) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[1]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -129,7 +329,7 @@ func (x *RegistryAuth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegistryAuth.ProtoReflect.Descriptor instead.
 func (*RegistryAuth) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{1}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RegistryAuth) GetUsername() string {
@@ -180,7 +380,7 @@ type Platform struct {
 
 func (x *Platform) Reset() {
 	*x = Platform{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[2]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -192,7 +392,7 @@ func (x *Platform) String() string {
 func (*Platform) ProtoMessage() {}
 
 func (x *Platform) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[2]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -205,7 +405,7 @@ func (x *Platform) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Platform.ProtoReflect.Descriptor instead.
 func (*Platform) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{2}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Platform) GetOs() string {
@@ -252,7 +452,7 @@ type HeaderValues struct {
 
 func (x *HeaderValues) Reset() {
 	*x = HeaderValues{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[3]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -264,7 +464,7 @@ func (x *HeaderValues) String() string {
 func (*HeaderValues) ProtoMessage() {}
 
 func (x *HeaderValues) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[3]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -277,7 +477,7 @@ func (x *HeaderValues) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeaderValues.ProtoReflect.Descriptor instead.
 func (*HeaderValues) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{3}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *HeaderValues) GetValues() []string {
@@ -296,7 +496,7 @@ type LoginRequest struct {
 
 func (x *LoginRequest) Reset() {
 	*x = LoginRequest{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[4]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -308,7 +508,7 @@ func (x *LoginRequest) String() string {
 func (*LoginRequest) ProtoMessage() {}
 
 func (x *LoginRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[4]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -321,7 +521,7 @@ func (x *LoginRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LoginRequest.ProtoReflect.Descriptor instead.
 func (*LoginRequest) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{4}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *LoginRequest) GetAuth() *RegistryAuth {
@@ -340,7 +540,7 @@ type LoginResponse struct {
 
 func (x *LoginResponse) Reset() {
 	*x = LoginResponse{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[5]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -352,7 +552,7 @@ func (x *LoginResponse) String() string {
 func (*LoginResponse) ProtoMessage() {}
 
 func (x *LoginResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[5]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -365,7 +565,7 @@ func (x *LoginResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LoginResponse.ProtoReflect.Descriptor instead.
 func (*LoginResponse) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{5}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *LoginResponse) GetIdentityToken() string {
@@ -389,7 +589,7 @@ type Reference struct {
 
 func (x *Reference) Reset() {
 	*x = Reference{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[6]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -401,7 +601,7 @@ func (x *Reference) String() string {
 func (*Reference) ProtoMessage() {}
 
 func (x *Reference) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[6]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -414,7 +614,7 @@ func (x *Reference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Reference.ProtoReflect.Descriptor instead.
 func (*Reference) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{6}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Reference) GetHost() string {
@@ -459,7 +659,7 @@ type PullRequest struct {
 
 func (x *PullRequest) Reset() {
 	*x = PullRequest{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[7]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -471,7 +671,7 @@ func (x *PullRequest) String() string {
 func (*PullRequest) ProtoMessage() {}
 
 func (x *PullRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[7]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -484,7 +684,7 @@ func (x *PullRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PullRequest.ProtoReflect.Descriptor instead.
 func (*PullRequest) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{7}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *PullRequest) GetIdentity() *Identity {
@@ -532,7 +732,7 @@ type PullResponse struct {
 
 func (x *PullResponse) Reset() {
 	*x = PullResponse{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[8]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -544,7 +744,7 @@ func (x *PullResponse) String() string {
 func (*PullResponse) ProtoMessage() {}
 
 func (x *PullResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[8]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -557,7 +757,7 @@ func (x *PullResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PullResponse.ProtoReflect.Descriptor instead.
 func (*PullResponse) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{8}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *PullResponse) GetMessage() []byte {
@@ -567,16 +767,266 @@ func (x *PullResponse) GetMessage() []byte {
 	return nil
 }
 
+type PushRequest struct {
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	Identity      *Identity                `protobuf:"bytes,1,opt,name=identity,proto3" json:"identity,omitempty"`
+	Reference     *Reference               `protobuf:"bytes,2,opt,name=reference,proto3" json:"reference,omitempty"`
+	Auth          *RegistryAuth            `protobuf:"bytes,3,opt,name=auth,proto3" json:"auth,omitempty"`
+	MetaHeaders   map[string]*HeaderValues `protobuf:"bytes,4,rep,name=meta_headers,json=metaHeaders,proto3" json:"meta_headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Platforms     []*Platform              `protobuf:"bytes,5,rep,name=platforms,proto3" json:"platforms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PushRequest) Reset() {
+	*x = PushRequest{}
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PushRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PushRequest) ProtoMessage() {}
+
+func (x *PushRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PushRequest.ProtoReflect.Descriptor instead.
+func (*PushRequest) Descriptor() ([]byte, []int) {
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *PushRequest) GetIdentity() *Identity {
+	if x != nil {
+		return x.Identity
+	}
+	return nil
+}
+
+func (x *PushRequest) GetReference() *Reference {
+	if x != nil {
+		return x.Reference
+	}
+	return nil
+}
+
+func (x *PushRequest) GetAuth() *RegistryAuth {
+	if x != nil {
+		return x.Auth
+	}
+	return nil
+}
+
+func (x *PushRequest) GetMetaHeaders() map[string]*HeaderValues {
+	if x != nil {
+		return x.MetaHeaders
+	}
+	return nil
+}
+
+func (x *PushRequest) GetPlatforms() []*Platform {
+	if x != nil {
+		return x.Platforms
+	}
+	return nil
+}
+
+type PushResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Message       []byte                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PushResponse) Reset() {
+	*x = PushResponse{}
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PushResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PushResponse) ProtoMessage() {}
+
+func (x *PushResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PushResponse.ProtoReflect.Descriptor instead.
+func (*PushResponse) Descriptor() ([]byte, []int) {
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *PushResponse) GetMessage() []byte {
+	if x != nil {
+		return x.Message
+	}
+	return nil
+}
+
+type SearchRequest struct {
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	Identity      *Identity                `protobuf:"bytes,1,opt,name=identity,proto3" json:"identity,omitempty"`
+	Term          string                   `protobuf:"bytes,2,opt,name=term,proto3" json:"term,omitempty"`
+	Limit         int64                    `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	Filters       string                   `protobuf:"bytes,4,opt,name=filters,proto3" json:"filters,omitempty"`
+	Auth          *RegistryAuth            `protobuf:"bytes,5,opt,name=auth,proto3" json:"auth,omitempty"`
+	MetaHeaders   map[string]*HeaderValues `protobuf:"bytes,6,rep,name=meta_headers,json=metaHeaders,proto3" json:"meta_headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchRequest) Reset() {
+	*x = SearchRequest{}
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchRequest) ProtoMessage() {}
+
+func (x *SearchRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchRequest.ProtoReflect.Descriptor instead.
+func (*SearchRequest) Descriptor() ([]byte, []int) {
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *SearchRequest) GetIdentity() *Identity {
+	if x != nil {
+		return x.Identity
+	}
+	return nil
+}
+
+func (x *SearchRequest) GetTerm() string {
+	if x != nil {
+		return x.Term
+	}
+	return ""
+}
+
+func (x *SearchRequest) GetLimit() int64 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *SearchRequest) GetFilters() string {
+	if x != nil {
+		return x.Filters
+	}
+	return ""
+}
+
+func (x *SearchRequest) GetAuth() *RegistryAuth {
+	if x != nil {
+		return x.Auth
+	}
+	return nil
+}
+
+func (x *SearchRequest) GetMetaHeaders() map[string]*HeaderValues {
+	if x != nil {
+		return x.MetaHeaders
+	}
+	return nil
+}
+
+type SearchResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// JSON-encoded Docker search results.
+	Results       []byte `protobuf:"bytes,1,opt,name=results,proto3" json:"results,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchResponse) Reset() {
+	*x = SearchResponse{}
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchResponse) ProtoMessage() {}
+
+func (x *SearchResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchResponse.ProtoReflect.Descriptor instead.
+func (*SearchResponse) Descriptor() ([]byte, []int) {
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *SearchResponse) GetResults() []byte {
+	if x != nil {
+		return x.Results
+	}
+	return nil
+}
+
 type ListImagesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Identity      *Identity              `protobuf:"bytes,1,opt,name=identity,proto3" json:"identity,omitempty"`
+	Manifests     bool                   `protobuf:"varint,2,opt,name=manifests,proto3" json:"manifests,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListImagesRequest) Reset() {
 	*x = ListImagesRequest{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[9]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -588,7 +1038,7 @@ func (x *ListImagesRequest) String() string {
 func (*ListImagesRequest) ProtoMessage() {}
 
 func (x *ListImagesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[9]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -601,7 +1051,7 @@ func (x *ListImagesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListImagesRequest.ProtoReflect.Descriptor instead.
 func (*ListImagesRequest) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{9}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ListImagesRequest) GetIdentity() *Identity {
@@ -609,6 +1059,13 @@ func (x *ListImagesRequest) GetIdentity() *Identity {
 		return x.Identity
 	}
 	return nil
+}
+
+func (x *ListImagesRequest) GetManifests() bool {
+	if x != nil {
+		return x.Manifests
+	}
+	return false
 }
 
 type Descriptor struct {
@@ -623,7 +1080,7 @@ type Descriptor struct {
 
 func (x *Descriptor) Reset() {
 	*x = Descriptor{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[10]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -635,7 +1092,7 @@ func (x *Descriptor) String() string {
 func (*Descriptor) ProtoMessage() {}
 
 func (x *Descriptor) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[10]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -648,7 +1105,7 @@ func (x *Descriptor) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Descriptor.ProtoReflect.Descriptor instead.
 func (*Descriptor) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{10}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *Descriptor) GetMediaType() string {
@@ -687,14 +1144,16 @@ type ImageSummary struct {
 	Created     int64                  `protobuf:"varint,4,opt,name=created,proto3" json:"created,omitempty"`
 	Size        int64                  `protobuf:"varint,5,opt,name=size,proto3" json:"size,omitempty"`
 	// What the image reference resolves to.
-	Target        *Descriptor `protobuf:"bytes,6,opt,name=target,proto3" json:"target,omitempty"`
+	Target *Descriptor `protobuf:"bytes,6,opt,name=target,proto3" json:"target,omitempty"`
+	// JSON-encoded Docker manifest summaries, including unavailable platforms.
+	Manifests     []byte `protobuf:"bytes,7,opt,name=manifests,proto3" json:"manifests,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ImageSummary) Reset() {
 	*x = ImageSummary{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[11]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -706,7 +1165,7 @@ func (x *ImageSummary) String() string {
 func (*ImageSummary) ProtoMessage() {}
 
 func (x *ImageSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[11]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -719,7 +1178,7 @@ func (x *ImageSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImageSummary.ProtoReflect.Descriptor instead.
 func (*ImageSummary) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{11}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ImageSummary) GetId() string {
@@ -764,6 +1223,13 @@ func (x *ImageSummary) GetTarget() *Descriptor {
 	return nil
 }
 
+func (x *ImageSummary) GetManifests() []byte {
+	if x != nil {
+		return x.Manifests
+	}
+	return nil
+}
+
 type ListImagesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Images        []*ImageSummary        `protobuf:"bytes,1,rep,name=images,proto3" json:"images,omitempty"`
@@ -773,7 +1239,7 @@ type ListImagesResponse struct {
 
 func (x *ListImagesResponse) Reset() {
 	*x = ListImagesResponse{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[12]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -785,7 +1251,7 @@ func (x *ListImagesResponse) String() string {
 func (*ListImagesResponse) ProtoMessage() {}
 
 func (x *ListImagesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[12]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -798,7 +1264,7 @@ func (x *ListImagesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListImagesResponse.ProtoReflect.Descriptor instead.
 func (*ListImagesResponse) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{12}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ListImagesResponse) GetImages() []*ImageSummary {
@@ -823,7 +1289,7 @@ type InspectImageRequest struct {
 
 func (x *InspectImageRequest) Reset() {
 	*x = InspectImageRequest{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[13]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -835,7 +1301,7 @@ func (x *InspectImageRequest) String() string {
 func (*InspectImageRequest) ProtoMessage() {}
 
 func (x *InspectImageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[13]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -848,7 +1314,7 @@ func (x *InspectImageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InspectImageRequest.ProtoReflect.Descriptor instead.
 func (*InspectImageRequest) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{13}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *InspectImageRequest) GetIdentity() *Identity {
@@ -889,7 +1355,7 @@ type InspectImageResponse struct {
 
 func (x *InspectImageResponse) Reset() {
 	*x = InspectImageResponse{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[14]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -901,7 +1367,7 @@ func (x *InspectImageResponse) String() string {
 func (*InspectImageResponse) ProtoMessage() {}
 
 func (x *InspectImageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[14]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -914,7 +1380,7 @@ func (x *InspectImageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InspectImageResponse.ProtoReflect.Descriptor instead.
 func (*InspectImageResponse) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{14}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *InspectImageResponse) GetImage() []byte {
@@ -935,7 +1401,7 @@ type ImageHistoryRequest struct {
 
 func (x *ImageHistoryRequest) Reset() {
 	*x = ImageHistoryRequest{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[15]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -947,7 +1413,7 @@ func (x *ImageHistoryRequest) String() string {
 func (*ImageHistoryRequest) ProtoMessage() {}
 
 func (x *ImageHistoryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[15]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -960,7 +1426,7 @@ func (x *ImageHistoryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImageHistoryRequest.ProtoReflect.Descriptor instead.
 func (*ImageHistoryRequest) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{15}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ImageHistoryRequest) GetIdentity() *Identity {
@@ -994,7 +1460,7 @@ type ImageHistoryResponse struct {
 
 func (x *ImageHistoryResponse) Reset() {
 	*x = ImageHistoryResponse{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[16]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1006,7 +1472,7 @@ func (x *ImageHistoryResponse) String() string {
 func (*ImageHistoryResponse) ProtoMessage() {}
 
 func (x *ImageHistoryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[16]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1019,7 +1485,7 @@ func (x *ImageHistoryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImageHistoryResponse.ProtoReflect.Descriptor instead.
 func (*ImageHistoryResponse) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{16}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ImageHistoryResponse) GetHistory() []byte {
@@ -1044,7 +1510,7 @@ type ImageAttestationsRequest struct {
 
 func (x *ImageAttestationsRequest) Reset() {
 	*x = ImageAttestationsRequest{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[17]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1056,7 +1522,7 @@ func (x *ImageAttestationsRequest) String() string {
 func (*ImageAttestationsRequest) ProtoMessage() {}
 
 func (x *ImageAttestationsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[17]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1069,7 +1535,7 @@ func (x *ImageAttestationsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImageAttestationsRequest.ProtoReflect.Descriptor instead.
 func (*ImageAttestationsRequest) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{17}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ImageAttestationsRequest) GetIdentity() *Identity {
@@ -1117,7 +1583,7 @@ type ImageAttestationsResponse struct {
 
 func (x *ImageAttestationsResponse) Reset() {
 	*x = ImageAttestationsResponse{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[18]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1129,7 +1595,7 @@ func (x *ImageAttestationsResponse) String() string {
 func (*ImageAttestationsResponse) ProtoMessage() {}
 
 func (x *ImageAttestationsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[18]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1142,7 +1608,7 @@ func (x *ImageAttestationsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImageAttestationsResponse.ProtoReflect.Descriptor instead.
 func (*ImageAttestationsResponse) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{18}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ImageAttestationsResponse) GetStatements() []byte {
@@ -1164,7 +1630,7 @@ type RemoveImageRequest struct {
 
 func (x *RemoveImageRequest) Reset() {
 	*x = RemoveImageRequest{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[19]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1176,7 +1642,7 @@ func (x *RemoveImageRequest) String() string {
 func (*RemoveImageRequest) ProtoMessage() {}
 
 func (x *RemoveImageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[19]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1189,7 +1655,7 @@ func (x *RemoveImageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveImageRequest.ProtoReflect.Descriptor instead.
 func (*RemoveImageRequest) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{19}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *RemoveImageRequest) GetIdentity() *Identity {
@@ -1223,7 +1689,7 @@ type RemoveImageRecord struct {
 
 func (x *RemoveImageRecord) Reset() {
 	*x = RemoveImageRecord{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[20]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1235,7 +1701,7 @@ func (x *RemoveImageRecord) String() string {
 func (*RemoveImageRecord) ProtoMessage() {}
 
 func (x *RemoveImageRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[20]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1248,7 +1714,7 @@ func (x *RemoveImageRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveImageRecord.ProtoReflect.Descriptor instead.
 func (*RemoveImageRecord) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{20}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *RemoveImageRecord) GetUntagged() string {
@@ -1274,7 +1740,7 @@ type RemoveImageResponse struct {
 
 func (x *RemoveImageResponse) Reset() {
 	*x = RemoveImageResponse{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[21]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1286,7 +1752,7 @@ func (x *RemoveImageResponse) String() string {
 func (*RemoveImageResponse) ProtoMessage() {}
 
 func (x *RemoveImageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[21]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1299,7 +1765,7 @@ func (x *RemoveImageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveImageResponse.ProtoReflect.Descriptor instead.
 func (*RemoveImageResponse) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{21}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *RemoveImageResponse) GetRecords() []*RemoveImageRecord {
@@ -1320,7 +1786,7 @@ type TagImageRequest struct {
 
 func (x *TagImageRequest) Reset() {
 	*x = TagImageRequest{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[22]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1332,7 +1798,7 @@ func (x *TagImageRequest) String() string {
 func (*TagImageRequest) ProtoMessage() {}
 
 func (x *TagImageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[22]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1345,7 +1811,7 @@ func (x *TagImageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TagImageRequest.ProtoReflect.Descriptor instead.
 func (*TagImageRequest) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{22}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *TagImageRequest) GetIdentity() *Identity {
@@ -1377,7 +1843,7 @@ type TagImageResponse struct {
 
 func (x *TagImageResponse) Reset() {
 	*x = TagImageResponse{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[23]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1389,7 +1855,7 @@ func (x *TagImageResponse) String() string {
 func (*TagImageResponse) ProtoMessage() {}
 
 func (x *TagImageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[23]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1402,7 +1868,7 @@ func (x *TagImageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TagImageResponse.ProtoReflect.Descriptor instead.
 func (*TagImageResponse) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{23}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{31}
 }
 
 type QueryRequest struct {
@@ -1417,7 +1883,7 @@ type QueryRequest struct {
 
 func (x *QueryRequest) Reset() {
 	*x = QueryRequest{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[24]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1429,7 +1895,7 @@ func (x *QueryRequest) String() string {
 func (*QueryRequest) ProtoMessage() {}
 
 func (x *QueryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[24]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1442,7 +1908,7 @@ func (x *QueryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryRequest.ProtoReflect.Descriptor instead.
 func (*QueryRequest) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{24}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *QueryRequest) GetQuery() string {
@@ -1476,7 +1942,7 @@ type QueryResponse struct {
 
 func (x *QueryResponse) Reset() {
 	*x = QueryResponse{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[25]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1488,7 +1954,7 @@ func (x *QueryResponse) String() string {
 func (*QueryResponse) ProtoMessage() {}
 
 func (x *QueryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[25]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1501,7 +1967,7 @@ func (x *QueryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryResponse.ProtoReflect.Descriptor instead.
 func (*QueryResponse) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{25}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *QueryResponse) GetResponse() []byte {
@@ -1512,15 +1978,17 @@ func (x *QueryResponse) GetResponse() []byte {
 }
 
 type IssuePullCredentialRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Identity      *Identity              `protobuf:"bytes,1,opt,name=identity,proto3" json:"identity,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Identity *Identity              `protobuf:"bytes,1,opt,name=identity,proto3" json:"identity,omitempty"`
+	// If still valid, reuse this password rather than rotating the credential.
+	ExistingPassword string `protobuf:"bytes,2,opt,name=existing_password,json=existingPassword,proto3" json:"existing_password,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *IssuePullCredentialRequest) Reset() {
 	*x = IssuePullCredentialRequest{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[26]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1532,7 +2000,7 @@ func (x *IssuePullCredentialRequest) String() string {
 func (*IssuePullCredentialRequest) ProtoMessage() {}
 
 func (x *IssuePullCredentialRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[26]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1545,7 +2013,7 @@ func (x *IssuePullCredentialRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IssuePullCredentialRequest.ProtoReflect.Descriptor instead.
 func (*IssuePullCredentialRequest) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{26}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *IssuePullCredentialRequest) GetIdentity() *Identity {
@@ -1553,6 +2021,13 @@ func (x *IssuePullCredentialRequest) GetIdentity() *Identity {
 		return x.Identity
 	}
 	return nil
+}
+
+func (x *IssuePullCredentialRequest) GetExistingPassword() string {
+	if x != nil {
+		return x.ExistingPassword
+	}
+	return ""
 }
 
 type IssuePullCredentialResponse struct {
@@ -1565,7 +2040,7 @@ type IssuePullCredentialResponse struct {
 
 func (x *IssuePullCredentialResponse) Reset() {
 	*x = IssuePullCredentialResponse{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[27]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1577,7 +2052,7 @@ func (x *IssuePullCredentialResponse) String() string {
 func (*IssuePullCredentialResponse) ProtoMessage() {}
 
 func (x *IssuePullCredentialResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[27]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1590,7 +2065,7 @@ func (x *IssuePullCredentialResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IssuePullCredentialResponse.ProtoReflect.Descriptor instead.
 func (*IssuePullCredentialResponse) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{27}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *IssuePullCredentialResponse) GetUsername() string {
@@ -1616,7 +2091,7 @@ type RevokePullCredentialRequest struct {
 
 func (x *RevokePullCredentialRequest) Reset() {
 	*x = RevokePullCredentialRequest{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[28]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1628,7 +2103,7 @@ func (x *RevokePullCredentialRequest) String() string {
 func (*RevokePullCredentialRequest) ProtoMessage() {}
 
 func (x *RevokePullCredentialRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[28]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1641,7 +2116,7 @@ func (x *RevokePullCredentialRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokePullCredentialRequest.ProtoReflect.Descriptor instead.
 func (*RevokePullCredentialRequest) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{28}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *RevokePullCredentialRequest) GetIdentity() *Identity {
@@ -1659,7 +2134,7 @@ type RevokePullCredentialResponse struct {
 
 func (x *RevokePullCredentialResponse) Reset() {
 	*x = RevokePullCredentialResponse{}
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[29]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1671,7 +2146,7 @@ func (x *RevokePullCredentialResponse) String() string {
 func (*RevokePullCredentialResponse) ProtoMessage() {}
 
 func (x *RevokePullCredentialResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_core_registry_api_v1_registry_proto_msgTypes[29]
+	mi := &file_core_registry_api_v1_registry_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1684,14 +2159,27 @@ func (x *RevokePullCredentialResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokePullCredentialResponse.ProtoReflect.Descriptor instead.
 func (*RevokePullCredentialResponse) Descriptor() ([]byte, []int) {
-	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{29}
+	return file_core_registry_api_v1_registry_proto_rawDescGZIP(), []int{37}
 }
 
 var File_core_registry_api_v1_registry_proto protoreflect.FileDescriptor
 
 const file_core_registry_api_v1_registry_proto_rawDesc = "" +
 	"\n" +
-	"#core/registry/api/v1/registry.proto\x12\x14core.registry.api.v1\"\x8b\x01\n" +
+	"#core/registry/api/v1/registry.proto\x12\x14core.registry.api.v1\"o\n" +
+	"\x1bIssueBuildCredentialRequest\x12:\n" +
+	"\bidentity\x18\x01 \x01(\v2\x1e.core.registry.api.v1.IdentityR\bidentity\x12\x14\n" +
+	"\x05names\x18\x02 \x03(\tR\x05names\"v\n" +
+	"\x1cIssueBuildCredentialResponse\x12\x1a\n" +
+	"\busername\x18\x01 \x01(\tR\busername\x12\x1a\n" +
+	"\bpassword\x18\x02 \x01(\tR\bpassword\x12\x1e\n" +
+	"\n" +
+	"references\x18\x03 \x03(\tR\n" +
+	"references\"v\n" +
+	"\x1cRevokeBuildCredentialRequest\x12:\n" +
+	"\bidentity\x18\x01 \x01(\v2\x1e.core.registry.api.v1.IdentityR\bidentity\x12\x1a\n" +
+	"\busername\x18\x02 \x01(\tR\busername\"\x1f\n" +
+	"\x1dRevokeBuildCredentialResponse\"\x8b\x01\n" +
 	"\bIdentity\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\"\n" +
 	"\forganization\x18\x02 \x01(\tR\forganization\x12\x1f\n" +
@@ -1735,23 +2223,48 @@ const file_core_registry_api_v1_registry_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x128\n" +
 	"\x05value\x18\x02 \x01(\v2\".core.registry.api.v1.HeaderValuesR\x05value:\x028\x01\"(\n" +
 	"\fPullResponse\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\fR\amessage\"O\n" +
+	"\amessage\x18\x01 \x01(\fR\amessage\"\xb9\x03\n" +
+	"\vPushRequest\x12:\n" +
+	"\bidentity\x18\x01 \x01(\v2\x1e.core.registry.api.v1.IdentityR\bidentity\x12=\n" +
+	"\treference\x18\x02 \x01(\v2\x1f.core.registry.api.v1.ReferenceR\treference\x126\n" +
+	"\x04auth\x18\x03 \x01(\v2\".core.registry.api.v1.RegistryAuthR\x04auth\x12U\n" +
+	"\fmeta_headers\x18\x04 \x03(\v22.core.registry.api.v1.PushRequest.MetaHeadersEntryR\vmetaHeaders\x12<\n" +
+	"\tplatforms\x18\x05 \x03(\v2\x1e.core.registry.api.v1.PlatformR\tplatforms\x1ab\n" +
+	"\x10MetaHeadersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x128\n" +
+	"\x05value\x18\x02 \x01(\v2\".core.registry.api.v1.HeaderValuesR\x05value:\x028\x01\"(\n" +
+	"\fPushResponse\x12\x18\n" +
+	"\amessage\x18\x01 \x01(\fR\amessage\"\x84\x03\n" +
+	"\rSearchRequest\x12:\n" +
+	"\bidentity\x18\x01 \x01(\v2\x1e.core.registry.api.v1.IdentityR\bidentity\x12\x12\n" +
+	"\x04term\x18\x02 \x01(\tR\x04term\x12\x14\n" +
+	"\x05limit\x18\x03 \x01(\x03R\x05limit\x12\x18\n" +
+	"\afilters\x18\x04 \x01(\tR\afilters\x126\n" +
+	"\x04auth\x18\x05 \x01(\v2\".core.registry.api.v1.RegistryAuthR\x04auth\x12W\n" +
+	"\fmeta_headers\x18\x06 \x03(\v24.core.registry.api.v1.SearchRequest.MetaHeadersEntryR\vmetaHeaders\x1ab\n" +
+	"\x10MetaHeadersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x128\n" +
+	"\x05value\x18\x02 \x01(\v2\".core.registry.api.v1.HeaderValuesR\x05value:\x028\x01\"*\n" +
+	"\x0eSearchResponse\x12\x18\n" +
+	"\aresults\x18\x01 \x01(\fR\aresults\"m\n" +
 	"\x11ListImagesRequest\x12:\n" +
-	"\bidentity\x18\x01 \x01(\v2\x1e.core.registry.api.v1.IdentityR\bidentity\"\x93\x01\n" +
+	"\bidentity\x18\x01 \x01(\v2\x1e.core.registry.api.v1.IdentityR\bidentity\x12\x1c\n" +
+	"\tmanifests\x18\x02 \x01(\bR\tmanifests\"\x93\x01\n" +
 	"\n" +
 	"Descriptor\x12\x1d\n" +
 	"\n" +
 	"media_type\x18\x01 \x01(\tR\tmediaType\x12\x16\n" +
 	"\x06digest\x18\x02 \x01(\tR\x06digest\x12\x12\n" +
 	"\x04size\x18\x03 \x01(\x03R\x04size\x12:\n" +
-	"\bplatform\x18\x04 \x01(\v2\x1e.core.registry.api.v1.PlatformR\bplatform\"\xc6\x01\n" +
+	"\bplatform\x18\x04 \x01(\v2\x1e.core.registry.api.v1.PlatformR\bplatform\"\xe4\x01\n" +
 	"\fImageSummary\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\trepo_tags\x18\x02 \x03(\tR\brepoTags\x12!\n" +
 	"\frepo_digests\x18\x03 \x03(\tR\vrepoDigests\x12\x18\n" +
 	"\acreated\x18\x04 \x01(\x03R\acreated\x12\x12\n" +
 	"\x04size\x18\x05 \x01(\x03R\x04size\x128\n" +
-	"\x06target\x18\x06 \x01(\v2 .core.registry.api.v1.DescriptorR\x06target\"P\n" +
+	"\x06target\x18\x06 \x01(\v2 .core.registry.api.v1.DescriptorR\x06target\x12\x1c\n" +
+	"\tmanifests\x18\a \x01(\fR\tmanifests\"P\n" +
 	"\x12ListImagesResponse\x12:\n" +
 	"\x06images\x18\x01 \x03(\v2\".core.registry.api.v1.ImageSummaryR\x06images\"\xbf\x01\n" +
 	"\x13InspectImageRequest\x12:\n" +
@@ -1796,18 +2309,21 @@ const file_core_registry_api_v1_registry_proto_rawDesc = "" +
 	"\x0eoperation_name\x18\x02 \x01(\tR\roperationName\x12\x1c\n" +
 	"\tvariables\x18\x03 \x01(\fR\tvariables\"+\n" +
 	"\rQueryResponse\x12\x1a\n" +
-	"\bresponse\x18\x01 \x01(\fR\bresponse\"X\n" +
+	"\bresponse\x18\x01 \x01(\fR\bresponse\"\x85\x01\n" +
 	"\x1aIssuePullCredentialRequest\x12:\n" +
-	"\bidentity\x18\x01 \x01(\v2\x1e.core.registry.api.v1.IdentityR\bidentity\"U\n" +
+	"\bidentity\x18\x01 \x01(\v2\x1e.core.registry.api.v1.IdentityR\bidentity\x12+\n" +
+	"\x11existing_password\x18\x02 \x01(\tR\x10existingPassword\"U\n" +
 	"\x1bIssuePullCredentialResponse\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x1a\n" +
 	"\bpassword\x18\x02 \x01(\tR\bpassword\"Y\n" +
 	"\x1bRevokePullCredentialRequest\x12:\n" +
 	"\bidentity\x18\x01 \x01(\v2\x1e.core.registry.api.v1.IdentityR\bidentity\"\x1e\n" +
-	"\x1cRevokePullCredentialResponse2\xe5\b\n" +
+	"\x1cRevokePullCredentialResponse2\x8d\f\n" +
 	"\x0fRegistryService\x12P\n" +
 	"\x05Login\x12\".core.registry.api.v1.LoginRequest\x1a#.core.registry.api.v1.LoginResponse\x12O\n" +
-	"\x04Pull\x12!.core.registry.api.v1.PullRequest\x1a\".core.registry.api.v1.PullResponse0\x01\x12_\n" +
+	"\x04Pull\x12!.core.registry.api.v1.PullRequest\x1a\".core.registry.api.v1.PullResponse0\x01\x12O\n" +
+	"\x04Push\x12!.core.registry.api.v1.PushRequest\x1a\".core.registry.api.v1.PushResponse0\x01\x12S\n" +
+	"\x06Search\x12#.core.registry.api.v1.SearchRequest\x1a$.core.registry.api.v1.SearchResponse\x12_\n" +
 	"\n" +
 	"ListImages\x12'.core.registry.api.v1.ListImagesRequest\x1a(.core.registry.api.v1.ListImagesResponse\x12e\n" +
 	"\fInspectImage\x12).core.registry.api.v1.InspectImageRequest\x1a*.core.registry.api.v1.InspectImageResponse\x12e\n" +
@@ -1817,7 +2333,9 @@ const file_core_registry_api_v1_registry_proto_rawDesc = "" +
 	"\bTagImage\x12%.core.registry.api.v1.TagImageRequest\x1a&.core.registry.api.v1.TagImageResponse\x12P\n" +
 	"\x05Query\x12\".core.registry.api.v1.QueryRequest\x1a#.core.registry.api.v1.QueryResponse\x12z\n" +
 	"\x13IssuePullCredential\x120.core.registry.api.v1.IssuePullCredentialRequest\x1a1.core.registry.api.v1.IssuePullCredentialResponse\x12}\n" +
-	"\x14RevokePullCredential\x121.core.registry.api.v1.RevokePullCredentialRequest\x1a2.core.registry.api.v1.RevokePullCredentialResponseB\xd2\x01\n" +
+	"\x14RevokePullCredential\x121.core.registry.api.v1.RevokePullCredentialRequest\x1a2.core.registry.api.v1.RevokePullCredentialResponse\x12}\n" +
+	"\x14IssueBuildCredential\x121.core.registry.api.v1.IssueBuildCredentialRequest\x1a2.core.registry.api.v1.IssueBuildCredentialResponse\x12\x80\x01\n" +
+	"\x15RevokeBuildCredential\x122.core.registry.api.v1.RevokeBuildCredentialRequest\x1a3.core.registry.api.v1.RevokeBuildCredentialResponseB\xd2\x01\n" +
 	"\x18com.core.registry.api.v1B\rRegistryProtoP\x01Z4github.com/sysson/dink/core/registry/api/v1;registry\xa2\x02\x03CRA\xaa\x02\x14Core.Registry.Api.V1\xca\x02\x14Core\\Registry\\Api\\V1\xe2\x02 Core\\Registry\\Api\\V1\\GPBMetadata\xea\x02\x17Core::Registry::Api::V1b\x06proto3"
 
 var (
@@ -1832,92 +2350,122 @@ func file_core_registry_api_v1_registry_proto_rawDescGZIP() []byte {
 	return file_core_registry_api_v1_registry_proto_rawDescData
 }
 
-var file_core_registry_api_v1_registry_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
+var file_core_registry_api_v1_registry_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
 var file_core_registry_api_v1_registry_proto_goTypes = []any{
-	(*Identity)(nil),                     // 0: core.registry.api.v1.Identity
-	(*RegistryAuth)(nil),                 // 1: core.registry.api.v1.RegistryAuth
-	(*Platform)(nil),                     // 2: core.registry.api.v1.Platform
-	(*HeaderValues)(nil),                 // 3: core.registry.api.v1.HeaderValues
-	(*LoginRequest)(nil),                 // 4: core.registry.api.v1.LoginRequest
-	(*LoginResponse)(nil),                // 5: core.registry.api.v1.LoginResponse
-	(*Reference)(nil),                    // 6: core.registry.api.v1.Reference
-	(*PullRequest)(nil),                  // 7: core.registry.api.v1.PullRequest
-	(*PullResponse)(nil),                 // 8: core.registry.api.v1.PullResponse
-	(*ListImagesRequest)(nil),            // 9: core.registry.api.v1.ListImagesRequest
-	(*Descriptor)(nil),                   // 10: core.registry.api.v1.Descriptor
-	(*ImageSummary)(nil),                 // 11: core.registry.api.v1.ImageSummary
-	(*ListImagesResponse)(nil),           // 12: core.registry.api.v1.ListImagesResponse
-	(*InspectImageRequest)(nil),          // 13: core.registry.api.v1.InspectImageRequest
-	(*InspectImageResponse)(nil),         // 14: core.registry.api.v1.InspectImageResponse
-	(*ImageHistoryRequest)(nil),          // 15: core.registry.api.v1.ImageHistoryRequest
-	(*ImageHistoryResponse)(nil),         // 16: core.registry.api.v1.ImageHistoryResponse
-	(*ImageAttestationsRequest)(nil),     // 17: core.registry.api.v1.ImageAttestationsRequest
-	(*ImageAttestationsResponse)(nil),    // 18: core.registry.api.v1.ImageAttestationsResponse
-	(*RemoveImageRequest)(nil),           // 19: core.registry.api.v1.RemoveImageRequest
-	(*RemoveImageRecord)(nil),            // 20: core.registry.api.v1.RemoveImageRecord
-	(*RemoveImageResponse)(nil),          // 21: core.registry.api.v1.RemoveImageResponse
-	(*TagImageRequest)(nil),              // 22: core.registry.api.v1.TagImageRequest
-	(*TagImageResponse)(nil),             // 23: core.registry.api.v1.TagImageResponse
-	(*QueryRequest)(nil),                 // 24: core.registry.api.v1.QueryRequest
-	(*QueryResponse)(nil),                // 25: core.registry.api.v1.QueryResponse
-	(*IssuePullCredentialRequest)(nil),   // 26: core.registry.api.v1.IssuePullCredentialRequest
-	(*IssuePullCredentialResponse)(nil),  // 27: core.registry.api.v1.IssuePullCredentialResponse
-	(*RevokePullCredentialRequest)(nil),  // 28: core.registry.api.v1.RevokePullCredentialRequest
-	(*RevokePullCredentialResponse)(nil), // 29: core.registry.api.v1.RevokePullCredentialResponse
-	nil,                                  // 30: core.registry.api.v1.PullRequest.MetaHeadersEntry
+	(*IssueBuildCredentialRequest)(nil),   // 0: core.registry.api.v1.IssueBuildCredentialRequest
+	(*IssueBuildCredentialResponse)(nil),  // 1: core.registry.api.v1.IssueBuildCredentialResponse
+	(*RevokeBuildCredentialRequest)(nil),  // 2: core.registry.api.v1.RevokeBuildCredentialRequest
+	(*RevokeBuildCredentialResponse)(nil), // 3: core.registry.api.v1.RevokeBuildCredentialResponse
+	(*Identity)(nil),                      // 4: core.registry.api.v1.Identity
+	(*RegistryAuth)(nil),                  // 5: core.registry.api.v1.RegistryAuth
+	(*Platform)(nil),                      // 6: core.registry.api.v1.Platform
+	(*HeaderValues)(nil),                  // 7: core.registry.api.v1.HeaderValues
+	(*LoginRequest)(nil),                  // 8: core.registry.api.v1.LoginRequest
+	(*LoginResponse)(nil),                 // 9: core.registry.api.v1.LoginResponse
+	(*Reference)(nil),                     // 10: core.registry.api.v1.Reference
+	(*PullRequest)(nil),                   // 11: core.registry.api.v1.PullRequest
+	(*PullResponse)(nil),                  // 12: core.registry.api.v1.PullResponse
+	(*PushRequest)(nil),                   // 13: core.registry.api.v1.PushRequest
+	(*PushResponse)(nil),                  // 14: core.registry.api.v1.PushResponse
+	(*SearchRequest)(nil),                 // 15: core.registry.api.v1.SearchRequest
+	(*SearchResponse)(nil),                // 16: core.registry.api.v1.SearchResponse
+	(*ListImagesRequest)(nil),             // 17: core.registry.api.v1.ListImagesRequest
+	(*Descriptor)(nil),                    // 18: core.registry.api.v1.Descriptor
+	(*ImageSummary)(nil),                  // 19: core.registry.api.v1.ImageSummary
+	(*ListImagesResponse)(nil),            // 20: core.registry.api.v1.ListImagesResponse
+	(*InspectImageRequest)(nil),           // 21: core.registry.api.v1.InspectImageRequest
+	(*InspectImageResponse)(nil),          // 22: core.registry.api.v1.InspectImageResponse
+	(*ImageHistoryRequest)(nil),           // 23: core.registry.api.v1.ImageHistoryRequest
+	(*ImageHistoryResponse)(nil),          // 24: core.registry.api.v1.ImageHistoryResponse
+	(*ImageAttestationsRequest)(nil),      // 25: core.registry.api.v1.ImageAttestationsRequest
+	(*ImageAttestationsResponse)(nil),     // 26: core.registry.api.v1.ImageAttestationsResponse
+	(*RemoveImageRequest)(nil),            // 27: core.registry.api.v1.RemoveImageRequest
+	(*RemoveImageRecord)(nil),             // 28: core.registry.api.v1.RemoveImageRecord
+	(*RemoveImageResponse)(nil),           // 29: core.registry.api.v1.RemoveImageResponse
+	(*TagImageRequest)(nil),               // 30: core.registry.api.v1.TagImageRequest
+	(*TagImageResponse)(nil),              // 31: core.registry.api.v1.TagImageResponse
+	(*QueryRequest)(nil),                  // 32: core.registry.api.v1.QueryRequest
+	(*QueryResponse)(nil),                 // 33: core.registry.api.v1.QueryResponse
+	(*IssuePullCredentialRequest)(nil),    // 34: core.registry.api.v1.IssuePullCredentialRequest
+	(*IssuePullCredentialResponse)(nil),   // 35: core.registry.api.v1.IssuePullCredentialResponse
+	(*RevokePullCredentialRequest)(nil),   // 36: core.registry.api.v1.RevokePullCredentialRequest
+	(*RevokePullCredentialResponse)(nil),  // 37: core.registry.api.v1.RevokePullCredentialResponse
+	nil,                                   // 38: core.registry.api.v1.PullRequest.MetaHeadersEntry
+	nil,                                   // 39: core.registry.api.v1.PushRequest.MetaHeadersEntry
+	nil,                                   // 40: core.registry.api.v1.SearchRequest.MetaHeadersEntry
 }
 var file_core_registry_api_v1_registry_proto_depIdxs = []int32{
-	1,  // 0: core.registry.api.v1.LoginRequest.auth:type_name -> core.registry.api.v1.RegistryAuth
-	0,  // 1: core.registry.api.v1.PullRequest.identity:type_name -> core.registry.api.v1.Identity
-	6,  // 2: core.registry.api.v1.PullRequest.reference:type_name -> core.registry.api.v1.Reference
-	1,  // 3: core.registry.api.v1.PullRequest.auth:type_name -> core.registry.api.v1.RegistryAuth
-	30, // 4: core.registry.api.v1.PullRequest.meta_headers:type_name -> core.registry.api.v1.PullRequest.MetaHeadersEntry
-	2,  // 5: core.registry.api.v1.PullRequest.platforms:type_name -> core.registry.api.v1.Platform
-	0,  // 6: core.registry.api.v1.ListImagesRequest.identity:type_name -> core.registry.api.v1.Identity
-	2,  // 7: core.registry.api.v1.Descriptor.platform:type_name -> core.registry.api.v1.Platform
-	10, // 8: core.registry.api.v1.ImageSummary.target:type_name -> core.registry.api.v1.Descriptor
-	11, // 9: core.registry.api.v1.ListImagesResponse.images:type_name -> core.registry.api.v1.ImageSummary
-	0,  // 10: core.registry.api.v1.InspectImageRequest.identity:type_name -> core.registry.api.v1.Identity
-	2,  // 11: core.registry.api.v1.InspectImageRequest.platform:type_name -> core.registry.api.v1.Platform
-	0,  // 12: core.registry.api.v1.ImageHistoryRequest.identity:type_name -> core.registry.api.v1.Identity
-	2,  // 13: core.registry.api.v1.ImageHistoryRequest.platform:type_name -> core.registry.api.v1.Platform
-	0,  // 14: core.registry.api.v1.ImageAttestationsRequest.identity:type_name -> core.registry.api.v1.Identity
-	2,  // 15: core.registry.api.v1.ImageAttestationsRequest.platform:type_name -> core.registry.api.v1.Platform
-	0,  // 16: core.registry.api.v1.RemoveImageRequest.identity:type_name -> core.registry.api.v1.Identity
-	2,  // 17: core.registry.api.v1.RemoveImageRequest.platforms:type_name -> core.registry.api.v1.Platform
-	20, // 18: core.registry.api.v1.RemoveImageResponse.records:type_name -> core.registry.api.v1.RemoveImageRecord
-	0,  // 19: core.registry.api.v1.TagImageRequest.identity:type_name -> core.registry.api.v1.Identity
-	6,  // 20: core.registry.api.v1.TagImageRequest.target:type_name -> core.registry.api.v1.Reference
-	0,  // 21: core.registry.api.v1.IssuePullCredentialRequest.identity:type_name -> core.registry.api.v1.Identity
-	0,  // 22: core.registry.api.v1.RevokePullCredentialRequest.identity:type_name -> core.registry.api.v1.Identity
-	3,  // 23: core.registry.api.v1.PullRequest.MetaHeadersEntry.value:type_name -> core.registry.api.v1.HeaderValues
-	4,  // 24: core.registry.api.v1.RegistryService.Login:input_type -> core.registry.api.v1.LoginRequest
-	7,  // 25: core.registry.api.v1.RegistryService.Pull:input_type -> core.registry.api.v1.PullRequest
-	9,  // 26: core.registry.api.v1.RegistryService.ListImages:input_type -> core.registry.api.v1.ListImagesRequest
-	13, // 27: core.registry.api.v1.RegistryService.InspectImage:input_type -> core.registry.api.v1.InspectImageRequest
-	15, // 28: core.registry.api.v1.RegistryService.ImageHistory:input_type -> core.registry.api.v1.ImageHistoryRequest
-	17, // 29: core.registry.api.v1.RegistryService.ImageAttestations:input_type -> core.registry.api.v1.ImageAttestationsRequest
-	19, // 30: core.registry.api.v1.RegistryService.RemoveImage:input_type -> core.registry.api.v1.RemoveImageRequest
-	22, // 31: core.registry.api.v1.RegistryService.TagImage:input_type -> core.registry.api.v1.TagImageRequest
-	24, // 32: core.registry.api.v1.RegistryService.Query:input_type -> core.registry.api.v1.QueryRequest
-	26, // 33: core.registry.api.v1.RegistryService.IssuePullCredential:input_type -> core.registry.api.v1.IssuePullCredentialRequest
-	28, // 34: core.registry.api.v1.RegistryService.RevokePullCredential:input_type -> core.registry.api.v1.RevokePullCredentialRequest
-	5,  // 35: core.registry.api.v1.RegistryService.Login:output_type -> core.registry.api.v1.LoginResponse
-	8,  // 36: core.registry.api.v1.RegistryService.Pull:output_type -> core.registry.api.v1.PullResponse
-	12, // 37: core.registry.api.v1.RegistryService.ListImages:output_type -> core.registry.api.v1.ListImagesResponse
-	14, // 38: core.registry.api.v1.RegistryService.InspectImage:output_type -> core.registry.api.v1.InspectImageResponse
-	16, // 39: core.registry.api.v1.RegistryService.ImageHistory:output_type -> core.registry.api.v1.ImageHistoryResponse
-	18, // 40: core.registry.api.v1.RegistryService.ImageAttestations:output_type -> core.registry.api.v1.ImageAttestationsResponse
-	21, // 41: core.registry.api.v1.RegistryService.RemoveImage:output_type -> core.registry.api.v1.RemoveImageResponse
-	23, // 42: core.registry.api.v1.RegistryService.TagImage:output_type -> core.registry.api.v1.TagImageResponse
-	25, // 43: core.registry.api.v1.RegistryService.Query:output_type -> core.registry.api.v1.QueryResponse
-	27, // 44: core.registry.api.v1.RegistryService.IssuePullCredential:output_type -> core.registry.api.v1.IssuePullCredentialResponse
-	29, // 45: core.registry.api.v1.RegistryService.RevokePullCredential:output_type -> core.registry.api.v1.RevokePullCredentialResponse
-	35, // [35:46] is the sub-list for method output_type
-	24, // [24:35] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	4,  // 0: core.registry.api.v1.IssueBuildCredentialRequest.identity:type_name -> core.registry.api.v1.Identity
+	4,  // 1: core.registry.api.v1.RevokeBuildCredentialRequest.identity:type_name -> core.registry.api.v1.Identity
+	5,  // 2: core.registry.api.v1.LoginRequest.auth:type_name -> core.registry.api.v1.RegistryAuth
+	4,  // 3: core.registry.api.v1.PullRequest.identity:type_name -> core.registry.api.v1.Identity
+	10, // 4: core.registry.api.v1.PullRequest.reference:type_name -> core.registry.api.v1.Reference
+	5,  // 5: core.registry.api.v1.PullRequest.auth:type_name -> core.registry.api.v1.RegistryAuth
+	38, // 6: core.registry.api.v1.PullRequest.meta_headers:type_name -> core.registry.api.v1.PullRequest.MetaHeadersEntry
+	6,  // 7: core.registry.api.v1.PullRequest.platforms:type_name -> core.registry.api.v1.Platform
+	4,  // 8: core.registry.api.v1.PushRequest.identity:type_name -> core.registry.api.v1.Identity
+	10, // 9: core.registry.api.v1.PushRequest.reference:type_name -> core.registry.api.v1.Reference
+	5,  // 10: core.registry.api.v1.PushRequest.auth:type_name -> core.registry.api.v1.RegistryAuth
+	39, // 11: core.registry.api.v1.PushRequest.meta_headers:type_name -> core.registry.api.v1.PushRequest.MetaHeadersEntry
+	6,  // 12: core.registry.api.v1.PushRequest.platforms:type_name -> core.registry.api.v1.Platform
+	4,  // 13: core.registry.api.v1.SearchRequest.identity:type_name -> core.registry.api.v1.Identity
+	5,  // 14: core.registry.api.v1.SearchRequest.auth:type_name -> core.registry.api.v1.RegistryAuth
+	40, // 15: core.registry.api.v1.SearchRequest.meta_headers:type_name -> core.registry.api.v1.SearchRequest.MetaHeadersEntry
+	4,  // 16: core.registry.api.v1.ListImagesRequest.identity:type_name -> core.registry.api.v1.Identity
+	6,  // 17: core.registry.api.v1.Descriptor.platform:type_name -> core.registry.api.v1.Platform
+	18, // 18: core.registry.api.v1.ImageSummary.target:type_name -> core.registry.api.v1.Descriptor
+	19, // 19: core.registry.api.v1.ListImagesResponse.images:type_name -> core.registry.api.v1.ImageSummary
+	4,  // 20: core.registry.api.v1.InspectImageRequest.identity:type_name -> core.registry.api.v1.Identity
+	6,  // 21: core.registry.api.v1.InspectImageRequest.platform:type_name -> core.registry.api.v1.Platform
+	4,  // 22: core.registry.api.v1.ImageHistoryRequest.identity:type_name -> core.registry.api.v1.Identity
+	6,  // 23: core.registry.api.v1.ImageHistoryRequest.platform:type_name -> core.registry.api.v1.Platform
+	4,  // 24: core.registry.api.v1.ImageAttestationsRequest.identity:type_name -> core.registry.api.v1.Identity
+	6,  // 25: core.registry.api.v1.ImageAttestationsRequest.platform:type_name -> core.registry.api.v1.Platform
+	4,  // 26: core.registry.api.v1.RemoveImageRequest.identity:type_name -> core.registry.api.v1.Identity
+	6,  // 27: core.registry.api.v1.RemoveImageRequest.platforms:type_name -> core.registry.api.v1.Platform
+	28, // 28: core.registry.api.v1.RemoveImageResponse.records:type_name -> core.registry.api.v1.RemoveImageRecord
+	4,  // 29: core.registry.api.v1.TagImageRequest.identity:type_name -> core.registry.api.v1.Identity
+	10, // 30: core.registry.api.v1.TagImageRequest.target:type_name -> core.registry.api.v1.Reference
+	4,  // 31: core.registry.api.v1.IssuePullCredentialRequest.identity:type_name -> core.registry.api.v1.Identity
+	4,  // 32: core.registry.api.v1.RevokePullCredentialRequest.identity:type_name -> core.registry.api.v1.Identity
+	7,  // 33: core.registry.api.v1.PullRequest.MetaHeadersEntry.value:type_name -> core.registry.api.v1.HeaderValues
+	7,  // 34: core.registry.api.v1.PushRequest.MetaHeadersEntry.value:type_name -> core.registry.api.v1.HeaderValues
+	7,  // 35: core.registry.api.v1.SearchRequest.MetaHeadersEntry.value:type_name -> core.registry.api.v1.HeaderValues
+	8,  // 36: core.registry.api.v1.RegistryService.Login:input_type -> core.registry.api.v1.LoginRequest
+	11, // 37: core.registry.api.v1.RegistryService.Pull:input_type -> core.registry.api.v1.PullRequest
+	13, // 38: core.registry.api.v1.RegistryService.Push:input_type -> core.registry.api.v1.PushRequest
+	15, // 39: core.registry.api.v1.RegistryService.Search:input_type -> core.registry.api.v1.SearchRequest
+	17, // 40: core.registry.api.v1.RegistryService.ListImages:input_type -> core.registry.api.v1.ListImagesRequest
+	21, // 41: core.registry.api.v1.RegistryService.InspectImage:input_type -> core.registry.api.v1.InspectImageRequest
+	23, // 42: core.registry.api.v1.RegistryService.ImageHistory:input_type -> core.registry.api.v1.ImageHistoryRequest
+	25, // 43: core.registry.api.v1.RegistryService.ImageAttestations:input_type -> core.registry.api.v1.ImageAttestationsRequest
+	27, // 44: core.registry.api.v1.RegistryService.RemoveImage:input_type -> core.registry.api.v1.RemoveImageRequest
+	30, // 45: core.registry.api.v1.RegistryService.TagImage:input_type -> core.registry.api.v1.TagImageRequest
+	32, // 46: core.registry.api.v1.RegistryService.Query:input_type -> core.registry.api.v1.QueryRequest
+	34, // 47: core.registry.api.v1.RegistryService.IssuePullCredential:input_type -> core.registry.api.v1.IssuePullCredentialRequest
+	36, // 48: core.registry.api.v1.RegistryService.RevokePullCredential:input_type -> core.registry.api.v1.RevokePullCredentialRequest
+	0,  // 49: core.registry.api.v1.RegistryService.IssueBuildCredential:input_type -> core.registry.api.v1.IssueBuildCredentialRequest
+	2,  // 50: core.registry.api.v1.RegistryService.RevokeBuildCredential:input_type -> core.registry.api.v1.RevokeBuildCredentialRequest
+	9,  // 51: core.registry.api.v1.RegistryService.Login:output_type -> core.registry.api.v1.LoginResponse
+	12, // 52: core.registry.api.v1.RegistryService.Pull:output_type -> core.registry.api.v1.PullResponse
+	14, // 53: core.registry.api.v1.RegistryService.Push:output_type -> core.registry.api.v1.PushResponse
+	16, // 54: core.registry.api.v1.RegistryService.Search:output_type -> core.registry.api.v1.SearchResponse
+	20, // 55: core.registry.api.v1.RegistryService.ListImages:output_type -> core.registry.api.v1.ListImagesResponse
+	22, // 56: core.registry.api.v1.RegistryService.InspectImage:output_type -> core.registry.api.v1.InspectImageResponse
+	24, // 57: core.registry.api.v1.RegistryService.ImageHistory:output_type -> core.registry.api.v1.ImageHistoryResponse
+	26, // 58: core.registry.api.v1.RegistryService.ImageAttestations:output_type -> core.registry.api.v1.ImageAttestationsResponse
+	29, // 59: core.registry.api.v1.RegistryService.RemoveImage:output_type -> core.registry.api.v1.RemoveImageResponse
+	31, // 60: core.registry.api.v1.RegistryService.TagImage:output_type -> core.registry.api.v1.TagImageResponse
+	33, // 61: core.registry.api.v1.RegistryService.Query:output_type -> core.registry.api.v1.QueryResponse
+	35, // 62: core.registry.api.v1.RegistryService.IssuePullCredential:output_type -> core.registry.api.v1.IssuePullCredentialResponse
+	37, // 63: core.registry.api.v1.RegistryService.RevokePullCredential:output_type -> core.registry.api.v1.RevokePullCredentialResponse
+	1,  // 64: core.registry.api.v1.RegistryService.IssueBuildCredential:output_type -> core.registry.api.v1.IssueBuildCredentialResponse
+	3,  // 65: core.registry.api.v1.RegistryService.RevokeBuildCredential:output_type -> core.registry.api.v1.RevokeBuildCredentialResponse
+	51, // [51:66] is the sub-list for method output_type
+	36, // [36:51] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_core_registry_api_v1_registry_proto_init() }
@@ -1931,7 +2479,7 @@ func file_core_registry_api_v1_registry_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_core_registry_api_v1_registry_proto_rawDesc), len(file_core_registry_api_v1_registry_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   31,
+			NumMessages:   41,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

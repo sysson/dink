@@ -18,6 +18,8 @@ CLIENT ?= default
 DOCKER_CTX ?= dink
 DINK_HOST ?= tcp://localhost:2376
 DINK_PORT ?= 2376
+DINK_INTEGRATION_CONTEXT ?= $(DOCKER_CTX)
+INTEGRATION_TESTS ?= ^TestBuildKit
 
 # Image reference to build; tilt overrides this with the tag it expects.
 REF ?= $(IMAGE):$(TAG)
@@ -30,8 +32,8 @@ CTX_ENDPOINT := host=$(DINK_HOST),ca=$(DOCKER_CERT_DIR)/ca.pem,cert=$(DOCKER_CER
 HOST_DOCKER := env -u DOCKER_HOST -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH DOCKER_CONTEXT=minikube
 
 .PHONY: all build test generate lint clean fix dev image image-minikube load ca-generate ca-generate-local ca-rotate server registry-server certificates tenant bootstrap \
-	context context-sync context-use context-default context-rm port-forward restart release show-image \
-	deploy undeploy logs docker-env start clean-images
+	buildkit-server context context-sync context-use context-default context-rm port-forward restart release show-image \
+	deploy undeploy logs docker-env start clean-images clean-buildkit test-integration
 
 all: build
 
@@ -42,6 +44,17 @@ build:
 test:
 	$(GO) test -race ./...
 	cd sdk && $(GO) test -race ./...
+
+## test-integration: Run real-setup tests (requires deployment and Tilt or make port-forward)
+test-integration:
+	$(MAKE) --no-print-directory context DOCKER_CTX="$(DINK_INTEGRATION_CONTEXT)"
+	@env -u DOCKER_HOST -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH \
+		$(DOCKER) --context "$(DINK_INTEGRATION_CONTEXT)" version >/dev/null || { \
+		echo "Dink is not reachable; start Tilt or run 'make port-forward' in another terminal" >&2; \
+		exit 1; \
+	}
+	DINK_INTEGRATION_CONTEXT="$(DINK_INTEGRATION_CONTEXT)" \
+		$(GO) test -race ./testing/integration -run "$(INTEGRATION_TESTS)" -count=1 -v
 
 ## generate: Re-generate protobuf + gRPC stubs from proto/ into sdk/*/gen/
 generate:
@@ -101,10 +114,15 @@ server:
 registry-server:
 	$(GO) run $(DINKLE) --certsDir $(CERT_DIR) server issue --systemNamespace $(NAMESPACE) --serviceName dinki --serverSecretName dinki-tls
 
-## certificates: Ensure the CA and both server TLS Secrets exist
+## buildkit-server: Issue the BuildKit server certificate from the existing CA
+buildkit-server:
+	$(GO) run $(DINKLE) --certsDir $(CERT_DIR) server issue --systemNamespace $(NAMESPACE) --serviceName buildkit --serverSecretName buildkit-tls
+
+## certificates: Ensure the CA and service TLS Secrets exist
 certificates: ca-generate
 	@$(KUBECTL) -n $(NAMESPACE) get secret dink-tls >/dev/null 2>&1 || $(MAKE) --no-print-directory server
 	@$(KUBECTL) -n $(NAMESPACE) get secret dinki-tls >/dev/null 2>&1 || $(MAKE) --no-print-directory registry-server
+	@$(KUBECTL) -n $(NAMESPACE) get secret buildkit-tls >/dev/null 2>&1 || $(MAKE) --no-print-directory buildkit-server
 
 ## tenant: Create the '$(TENANT)' tenant and refresh the local docker context for it
 tenant:
@@ -200,3 +218,13 @@ docker-env:
 clean-images:
 	@$(HOST_DOCKER) $(DOCKER) system prune -a
 	@$(HOST_DOCKER) $(DOCKER) exec -it $(MINIKUBE_PROFILE) ctr -n k8s.io images prune --all
+
+## clean-buildkit: Prune all unused cache from the shared BuildKit pod (all tenants)
+clean-buildkit:
+	$(KUBECTL) -n $(NAMESPACE) exec deployment/buildkit -c buildkit -- \
+		buildctl --addr=tcp://127.0.0.1:1234 \
+		--tlsservername=buildkit.$(NAMESPACE).svc.cluster.local \
+		--tlscacert=/etc/buildkit/tls/ca.crt \
+		--tlscert=/etc/buildkit/tls/tls.crt \
+		--tlskey=/etc/buildkit/tls/tls.key \
+		prune --all

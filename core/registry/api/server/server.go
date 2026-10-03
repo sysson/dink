@@ -34,6 +34,7 @@ type Querier interface {
 type Credentials interface {
 	Issue(ctx context.Context, namespace string) (string, error)
 	Revoke(ctx context.Context, namespace string) error
+	Verify(ctx context.Context, namespace, password string) (bool, error)
 }
 
 // Server implements registryconnect.RegistryServiceHandler.
@@ -75,6 +76,15 @@ func (s *Server) IssuePullCredential(ctx context.Context, request *registryv1.Is
 	namespace, err := credentialNamespace(request.GetIdentity())
 	if err != nil {
 		return nil, err
+	}
+	if password := request.GetExistingPassword(); password != "" {
+		valid, err := s.credentials.Verify(ctx, namespace, password)
+		if err != nil {
+			return nil, api.ToConnectError(err)
+		}
+		if valid {
+			return &registryv1.IssuePullCredentialResponse{Username: namespace, Password: password}, nil
+		}
 	}
 	password, err := s.credentials.Issue(ctx, namespace)
 	if err != nil {
@@ -144,13 +154,17 @@ func (s *Server) ListImages(ctx context.Context, request *registryv1.ListImagesR
 	if err != nil {
 		return nil, err
 	}
-	summaries, err := s.images.Images(ctx, types.ImageListOptions{})
+	summaries, err := s.images.Images(ctx, types.ImageListOptions{Manifests: request.GetManifests()})
 	if err != nil {
 		return nil, api.ToConnectError(err)
 	}
 	response := &registryv1.ListImagesResponse{Images: make([]*registryv1.ImageSummary, 0, len(summaries))}
 	for _, summary := range summaries {
-		response.Images = append(response.Images, api.SummaryToProto(summary))
+		image, err := api.SummaryToProto(summary)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		response.Images = append(response.Images, image)
 	}
 	return response, nil
 }

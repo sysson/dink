@@ -109,7 +109,7 @@ func newAPIWithCredentials(t *testing.T) (*api.Client, *pullauth.Store) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = metadata.Close() })
-	local, err := ocistore.New(content, metadata)
+	local, err := ocistore.New(content, metadata, ocistore.WithAllowMissingManifestChildren())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,6 +140,10 @@ func TestPullCredentials(t *testing.T) {
 	if ok, err := credentials.Verify(ctx, username, password); err != nil || !ok {
 		t.Fatalf("Verify(issued) = %v, %v", ok, err)
 	}
+	_, reused, err := client.EnsurePullCredential(ctx, password)
+	if err != nil || reused != password {
+		t.Fatalf("valid credential was not reused: %v", err)
+	}
 	_, rotated, err := client.IssuePullCredential(ctx)
 	if err != nil || rotated == password {
 		t.Fatalf("reissued password = %q, %v; want a new one", rotated, err)
@@ -152,6 +156,13 @@ func TestPullCredentials(t *testing.T) {
 	}
 	if ok, _ := credentials.Verify(ctx, username, rotated); ok {
 		t.Fatal("revoked password still verifies")
+	}
+	_, recovered, err := client.EnsurePullCredential(ctx, rotated)
+	if err != nil || recovered == "" || recovered == rotated {
+		t.Fatalf("stale credential was not replaced: %v", err)
+	}
+	if ok, err := credentials.Verify(ctx, username, recovered); err != nil || !ok {
+		t.Fatalf("Verify(recovered) = %v, %v", ok, err)
 	}
 	invalid := identity.NewContext(context.Background(), identity.Identity{Namespace: "Not_Valid"})
 	if _, _, err := client.IssuePullCredential(invalid); statusCode(err) != http.StatusBadRequest {
@@ -192,6 +203,20 @@ func TestPullListQueryRemove(t *testing.T) {
 	slices.Sort(tags)
 	if want := []string{display + ":v1", display + ":v2"}; !slices.Equal(tags, want) {
 		t.Fatalf("image tags = %v, want %v", tags, want)
+	}
+	treeImages, err := client.Images(ctx, types.ImageListOptions{Manifests: true})
+	if err != nil || len(treeImages) != 2 {
+		t.Fatalf("single-platform tree images = %+v, %v", treeImages, err)
+	}
+	for _, image := range treeImages {
+		if len(image.Manifests) != 1 {
+			t.Fatalf("single-platform image manifests = %+v", image.Manifests)
+		}
+		manifest := image.Manifests[0]
+		if manifest.ID != image.ID || !manifest.Available || manifest.ImageData == nil ||
+			manifest.ImageData.Platform.Architecture != "amd64" || manifest.Size.Content != image.Size {
+			t.Fatalf("single-platform manifest = %+v, parent size = %d", manifest, image.Size)
+		}
 	}
 	other := identity.NewContext(context.Background(), identity.Identity{Namespace: "other"})
 	if images, err := client.Images(other, types.ImageListOptions{}); err != nil || len(images) != 0 {
@@ -283,8 +308,23 @@ func TestTagImageCopiesIntoTargetRepository(t *testing.T) {
 		t.Fatalf("TagImage() error = %v", err)
 	}
 	aliased, err := client.ImageInspect(ctx, "alias/app:release", imagebackend.ImageInspectOpts{})
-	if err != nil || aliased.ID == string(image.Digest) || aliased.Architecture != "amd64" || !slices.Equal(aliased.RepoTags, []string{"alias/app:release"}) {
+	if err != nil || aliased.ID != string(image.Digest) || aliased.Architecture != "amd64" ||
+		!slices.Equal(aliased.RepoTags, []string{"alias/app:release"}) {
 		t.Fatalf("tagged image inspect = %+v, %v", aliased, err)
+	}
+	images, err := client.Images(ctx, types.ImageListOptions{Manifests: true})
+	if err != nil || len(images) != 2 {
+		t.Fatalf("tagged image list = %+v, %v", images, err)
+	}
+	for _, entry := range images {
+		if entry.ID != string(image.Digest) || len(entry.Manifests) != 2 {
+			t.Fatalf("tagged image summary = %+v", entry)
+		}
+		for _, summary := range entry.Manifests {
+			if summary.Available != (summary.ID == string(amd64.Digest)) {
+				t.Fatalf("tagged platform availability = %+v", summary)
+			}
+		}
 	}
 	if _, err := client.ImageInspect(ctx, "alias/app:release", imagebackend.ImageInspectOpts{Platform: &ocispec.Platform{OS: "linux", Architecture: "s390x"}}); statusCode(err) != http.StatusNotFound {
 		t.Fatalf("ImageInspect(unpulled platform) error = %v, want 404", err)
@@ -441,6 +481,75 @@ func TestPullSinglePlatformOfIndex(t *testing.T) {
 	if platform := images[0].Descriptor.Platform; platform == nil || platform.Architecture != "s390x" {
 		t.Fatalf("image platform = %v, want s390x", platform)
 	}
+	if len(images[0].Manifests) != 0 {
+		t.Fatal("ordinary image list unexpectedly includes manifests")
+	}
+	configSize := func(image oci.Descriptor) int64 {
+		t.Helper()
+		reader, err := up.registry.GetManifest(ctx, "multi", image.Digest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = reader.Close() }()
+		var manifest struct {
+			Config oci.Descriptor `json:"config"`
+		}
+		if err := json.NewDecoder(reader).Decode(&manifest); err != nil {
+			t.Fatal(err)
+		}
+		return manifest.Config.Size
+	}
+	amd64Size := amd64.Size + configSize(amd64) + shared.Size + amd64Layer.Size
+	s390xSize := s390x.Size + configSize(s390x) + shared.Size + s390xLayer.Size
+	checkTree := func(amd64Available bool) {
+		t.Helper()
+		images, err := client.Images(ctx, types.ImageListOptions{Manifests: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(images) != 1 || len(images[0].Manifests) != 2 {
+			t.Fatalf("tree images = %+v, want one image with two platforms", images)
+		}
+		if images[0].Descriptor.Size != index.Size || images[0].Descriptor.Platform != nil {
+			t.Fatalf("index descriptor = %+v, want size %d and no platform", images[0].Descriptor, index.Size)
+		}
+		for _, manifest := range images[0].Manifests {
+			if manifest.ImageData == nil || manifest.Kind != "image" || manifest.Descriptor.Platform == nil {
+				t.Fatalf("manifest lacks platform image data: %+v", manifest)
+			}
+			var available bool
+			var size int64
+			switch manifest.ID {
+			case string(amd64.Digest):
+				available = amd64Available
+				if available {
+					size = amd64Size
+				}
+				if manifest.ImageData.Platform.Architecture != "amd64" {
+					t.Fatalf("amd64 platform = %+v", manifest.ImageData.Platform)
+				}
+			case string(s390x.Digest):
+				available, size = true, s390xSize
+				if manifest.ImageData.Platform.Architecture != "s390x" {
+					t.Fatalf("s390x platform = %+v", manifest.ImageData.Platform)
+				}
+			default:
+				t.Fatalf("unexpected manifest %s", manifest.ID)
+			}
+			if manifest.Available != available || manifest.Size.Content != size || manifest.Size.Total != size ||
+				manifest.ImageData.Size.Unpacked != 0 {
+				t.Fatalf("manifest = %+v, want available=%v and content/total=%d", manifest, available, size)
+			}
+		}
+		size := index.Size + s390xSize
+		if amd64Available {
+			size += amd64Size - shared.Size
+		}
+		if images[0].Size != size {
+			t.Fatalf("parent size = %d, want %d (shared layer counted once)", images[0].Size, size)
+		}
+	}
+	checkTree(false)
 
 	if progress := pull("s390x"); !strings.Contains(progress, "Image is up to date") {
 		t.Fatalf("repeated pull progress = %q", progress)
@@ -451,6 +560,7 @@ func TestPullSinglePlatformOfIndex(t *testing.T) {
 	if present := children(); !present[string(s390x.Digest)] || !present[string(amd64.Digest)] {
 		t.Fatalf("children after amd64 pull = %v, want both", present)
 	}
+	checkTree(true)
 
 	records, err := client.ImageDelete(ctx, up.host+"/multi:latest", imagebackend.RemoveOptions{})
 	if err != nil {

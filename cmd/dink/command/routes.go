@@ -30,7 +30,7 @@ func buildRouters(t *translator.Translator) []router.Router {
 		image.New(t.Registry(), t.Registry()),
 		network.New(t.Docker(), t.Swarm()),
 		plugin.New(t.Docker()),
-		session.New(t.Docker()),
+		session.New(t.Builder()),
 		swarm.New(t.Swarm()),
 		system.New(t.Docker(), t.Swarm(), t.Builder(), func() map[string]bool { return map[string]bool{} }),
 		volume.New(t.Docker(), t.Swarm()),

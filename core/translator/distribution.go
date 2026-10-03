@@ -3,11 +3,10 @@ package translator
 import (
 	"context"
 
-	"github.com/distribution/reference"
-	"github.com/docker/distribution"
 	"github.com/moby/moby/api/types/registry"
+	internalregistry "github.com/sysson/dink/core/registry"
 )
 
-func (d *Docker) GetRepositories(context.Context, reference.Named, *registry.AuthConfig) ([]distribution.Repository, error) {
-	return nil, ErrNotImplemented
+func (d *Docker) GetDistributionInfo(ctx context.Context, name string, auth *registry.AuthConfig) (registry.DistributionInspect, error) {
+	return internalregistry.InspectDistribution(ctx, name, auth)
 }

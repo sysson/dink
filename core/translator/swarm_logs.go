@@ -3,8 +3,10 @@ package translator
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 
+	swarmtypes "github.com/moby/moby/api/types/swarm"
 	"github.com/moby/moby/v2/daemon/server/backend"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,15 +29,48 @@ func (s *Swarm) ServiceLogs(ctx context.Context, selector *backend.LogSelector, 
 	if len(pods) == 0 {
 		return nil, NotFound(fmt.Errorf("no running task found for the selected service"))
 	}
+	tasks, err := s.tasks(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	byPod := make(map[string]swarmtypes.Task, len(tasks))
+	for _, task := range tasks {
+		byPod[task.Name] = task
+	}
 	streams := make([]<-chan *backend.LogMessage, 0, len(pods))
 	for index := range pods {
 		stream, err := s.docker.podLogs(ctx, namespace, &pods[index], options)
 		if err != nil {
 			return nil, err
 		}
-		streams = append(streams, stream)
+		task := byPod[pods[index].Name]
+		streams = append(streams, withLogAttrs(ctx, stream, []backend.LogAttr{
+			{Key: "com.docker.swarm.node.id", Value: task.NodeID},
+			{Key: "com.docker.swarm.service.id", Value: task.ServiceID},
+			{Key: "com.docker.swarm.task.id", Value: task.ID},
+		}))
 	}
 	return mergeLogStreams(ctx, streams), nil
+}
+
+// withLogAttrs tags each message with the Swarm context the Docker CLI reads
+// from log details to prefix lines with their task and node.
+func withLogAttrs(ctx context.Context, stream <-chan *backend.LogMessage, attrs []backend.LogAttr) <-chan *backend.LogMessage {
+	tagged := make(chan *backend.LogMessage)
+	go func() {
+		defer close(tagged)
+		for message := range stream {
+			if message.Err == nil {
+				message.Attrs = append(slices.Clone(attrs), message.Attrs...)
+			}
+			select {
+			case tagged <- message:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return tagged
 }
 
 func (s *Swarm) selectedPods(ctx context.Context, namespace string, selector *backend.LogSelector) ([]corev1.Pod, error) {

@@ -140,7 +140,7 @@ func (s *systemRouter) getInfo(w http.ResponseWriter, r *http.Request) error {
 		}
 		info.Swarm = swarmInfo
 	}
-	return httpx.WriteJSON(w, http.StatusOK, info)
+	return httpx.WriteJSON(w, http.StatusOK, info, json.FormatDurationAsNano(true))
 }
 
 func (s *systemRouter) getVersion(w http.ResponseWriter, r *http.Request) error {

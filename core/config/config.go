@@ -145,7 +145,12 @@ type Auth struct {
 }
 
 type BuildKit struct {
-	URL string `json:"url,omitempty"`
+	URL         string `json:"url,omitempty"`
+	CAFile      string `json:"caFile,omitempty"`
+	CertFile    string `json:"certFile,omitempty"`
+	KeyFile     string `json:"keyFile,omitempty"`
+	ServerName  string `json:"serverName,omitempty"`
+	RegistryURL string `json:"registryURL,omitempty"`
 }
 
 // Registry is how dink reaches dinki's internal RegistryService API. dink
@@ -347,7 +352,22 @@ func (r *Registry) Validate() error {
 }
 
 func (b *BuildKit) Validate() error {
-	return validateURL(b.URL, "buildKitURL", "tcp")
+	var errs []error
+	if err := validateURL(b.URL, "buildKitURL", "tcp"); err != nil {
+		errs = append(errs, err)
+	}
+	if (b.CertFile == "") != (b.KeyFile == "") {
+		errs = append(errs, errors.New("buildKit.certFile and buildKit.keyFile must be set together"))
+	}
+	if b.RegistryURL != "" {
+		if err := validateURL(b.RegistryURL, "buildKit.registryURL", "http", "https"); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if strings.HasPrefix(b.URL, "unix://") && (b.CAFile != "" || b.CertFile != "" || b.ServerName != "") {
+		errs = append(errs, errors.New("BuildKit TLS settings require a tcp endpoint"))
+	}
+	return errors.Join(errs...)
 }
 
 func (c *Config) Validate() error {

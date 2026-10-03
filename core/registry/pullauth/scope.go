@@ -2,28 +2,68 @@ package pullauth
 
 import (
 	"context"
+	"io"
 	"iter"
 	"strings"
 
 	"github.com/docker/oci"
 )
 
-// Scope returns a read-only view of r limited to the repositories of the
+// Scope returns a view of r limited to the repositories of the
 // namespace in each request's context. Other repositories, and every
 // repository when the context has no namespace, are reported as unknown.
+// Writes require a build credential scoped to the exact repository.
 func Scope(r oci.Interface) oci.Interface {
 	return &scoped{Funcs: &oci.Funcs{}, r: r}
 }
 
-// scoped embeds empty Funcs so every mutating method is unsupported.
+// Deletion remains unsupported, including for build credentials.
 type scoped struct {
 	*oci.Funcs
 	r oci.Interface
 }
 
 func allowed(ctx context.Context, repo string) bool {
+	if _, build := ctx.Value(buildScopeKey{}).([]string); build {
+		return canWrite(ctx, repo)
+	}
 	namespace, ok := FromContext(ctx)
 	return ok && strings.HasPrefix(repo, namespace+"/")
+}
+
+func (s *scoped) PushBlob(ctx context.Context, repo string, desc oci.Descriptor, r io.Reader) (oci.Descriptor, error) {
+	if !canWrite(ctx, repo) {
+		return oci.Descriptor{}, oci.ErrUnsupported
+	}
+	return s.r.PushBlob(ctx, repo, desc, r)
+}
+
+func (s *scoped) PushBlobChunked(ctx context.Context, repo string, size int) (oci.BlobWriter, error) {
+	if !canWrite(ctx, repo) {
+		return nil, oci.ErrUnsupported
+	}
+	return s.r.PushBlobChunked(ctx, repo, size)
+}
+
+func (s *scoped) PushBlobChunkedResume(ctx context.Context, repo, id string, offset int64, size int) (oci.BlobWriter, error) {
+	if !canWrite(ctx, repo) {
+		return nil, oci.ErrUnsupported
+	}
+	return s.r.PushBlobChunkedResume(ctx, repo, id, offset, size)
+}
+
+func (s *scoped) MountBlob(ctx context.Context, from, to string, digest oci.Digest) (oci.Descriptor, error) {
+	if !canWrite(ctx, from) || !canWrite(ctx, to) {
+		return oci.Descriptor{}, oci.ErrUnsupported
+	}
+	return s.r.MountBlob(ctx, from, to, digest)
+}
+
+func (s *scoped) PushManifest(ctx context.Context, repo string, data []byte, mediaType string, params *oci.PushManifestParameters) (oci.Descriptor, error) {
+	if !canWrite(ctx, repo) {
+		return oci.Descriptor{}, oci.ErrUnsupported
+	}
+	return s.r.PushManifest(ctx, repo, data, mediaType, params)
 }
 
 func (s *scoped) GetBlob(ctx context.Context, repo string, digest oci.Digest) (oci.BlobReader, error) {
@@ -106,6 +146,9 @@ func (s *scoped) Repositories(ctx context.Context, startAfter string) iter.Seq2[
 			}
 			if !strings.HasPrefix(repo, prefix) {
 				return
+			}
+			if !allowed(ctx, repo) {
+				continue
 			}
 			if !yield(repo, nil) {
 				return

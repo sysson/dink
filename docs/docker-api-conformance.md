@@ -55,8 +55,8 @@ because dink mounts them alongside the Docker API routes.
 
 | Method and endpoint | Status | Caveats |
 | --- | --- | --- |
-| `GET /images/json` | Partial | Lists tenant-visible registry images, not a node-local Docker image store. `shared-size` is supported from API 1.42, `manifests` from 1.47, and `identity` from 1.54. Dink does not enforce Docker's validation that `identity=1` requires `manifests=1`. |
-| `GET /images/search` | Todo | Handler currently returns an empty success without a Docker response. |
+| `GET /images/json` | Partial | Lists tenant-visible registry images, not a node-local Docker image store. From API 1.47, `manifests=true` supports `docker image ls --tree`: all platforms in the stored index are listed, with availability and sizes based on content present in dinki. Missing platform manifests have zero content size; unpacked size is always zero. Parent size counts stored content once across platforms. `shared-size` and `identity` are parsed but not implemented; Dink does not enforce Docker's validation that `identity=1` requires `manifests=1`. |
+| `GET /images/search` | Partial | Queries Docker Hub by default, or a registry-qualified Docker-compatible `/v1/search` service. Supports `limit` (default 25, maximum 100), `stars`, `is-official`, auth, and `X-Meta-*` headers. Deprecated `is-automated=true` returns no results. OCI registries without a search service return an explicit error. |
 | `GET /images/get` | Todo | Image export is not implemented; handler currently returns an empty success. |
 | `GET /images/{name}/get` | Todo | Image export is not implemented; handler currently returns an empty success. |
 | `GET /images/{name}/history` | Partial | History comes from registry metadata; platform selection is supported from API 1.48. |
@@ -64,7 +64,7 @@ because dink mounts them alongside the Docker API routes.
 | `GET /images/{name}/attestations` | Partial | Registry-backed; only one `platform` value is accepted. Minimum API version 1.55. |
 | `POST /images/load` | Todo | Handler currently returns an empty success; image load is not implemented. |
 | `POST /images/create` | Partial | Pull delegates to the tenant registry. Multi-platform pulls only retain manifests available to the registry; platform option starts at API 1.32. |
-| `POST /images/{name}/push` | Todo | Handler currently returns an empty success; push is not implemented. |
+| `POST /images/{name}/push` | Partial | Pushes tenant-registry content to the named external registry, streaming Docker JSON progress. A tag selects one image; no tag pushes all repository tags. Supports registry auth and `X-Meta-*` headers. API 1.46 adds a single JSON-encoded `platform`; explicit platform pushes omit the index and attestations. Complete indexes are preserved; incomplete indexes fall back to an available platform with a Docker auxiliary notification. No content is fetched upstream to fill missing platforms. |
 | `POST /images/{name}/tag` | Partial | Copies image content in the tenant registry. For a pulled multi-platform index, only stored platform manifests are included. |
 | `POST /images/prune` | Partial | Prunes unused tagged tenant-registry images when `dangling=false`; default dangling-only prune returns no results because the registry does not store untagged images. Minimum API version 1.25. |
 | `DELETE /images/{name}` | Partial | Deletes tenant registry content, not node-local image data; behavior depends on registry capabilities and references. |
@@ -103,9 +103,9 @@ Containers using `--network host` bypass NetworkPolicy entirely.
 
 | Method and endpoint | Status | Caveats |
 | --- | --- | --- |
-| `POST /build` | Todo | Handler currently returns an empty success; image building is not implemented. |
-| `POST /build/prune` | Partial | Always reports nothing pruned: Dink does not build images, so has no build cache. Lets `docker system prune` complete. Minimum API version 1.31. |
-| `POST /build/cancel` | Todo | Handler currently returns an empty success; build cancellation is not implemented. |
+| `POST /build` | Todo | Returns an explicit unsupported error. Tagged modern Docker/Buildx builds use the optional gRPC BuildKit gateway instead; see [BuildKit integration](buildkit.md). |
+| `POST /build/prune` | Partial | Reports nothing pruned when builds are disabled. With an external backend, rejects pruning because its cache is shared. Minimum API version 1.31. |
+| `POST /build/cancel` | Todo | Returns an explicit unsupported error; cancel the Buildx request to cancel its solve. |
 | `OPTIONS /{anyroute:.*}` | Partial | Returns 200 for any matched path but does not implement Docker's complete OPTIONS response headers. |
 | `GET /_ping` | 100% | Returns `OK` with no-cache headers. |
 | `HEAD /_ping` | 100% | Returns the ping headers with an empty body. |
@@ -137,12 +137,12 @@ explanatory error because a Kubernetes cluster cannot join or leave a Swarm.
 | `POST /services/create` | Partial | Creates a Deployment, a ClusterIP Service for the VIP, a LoadBalancer Service for ingress-published ports, and a Service per network alias. `mode=host` ports become Kubernetes `hostPort` bindings instead, and a host-mode port with no published port falls back to the target port with a warning. The service joins the Docker networks named in `TaskTemplate.Networks`, plus `ingress` when it publishes a port, and `bridge` when it asks for neither. Replicated mode only; global and job modes are rejected. Mounts support volumes and tmpfs; binds are rejected. Secrets and configs mount from Kubernetes Secrets/ConfigMaps. Placement constraints map to node affinity for `node.hostname`, `node.role`, `node.labels.*`, and `engine.labels.*`. User, privileges, init, isolation, ulimits, stop signal, and restart policy are reported as warnings. |
 | `POST /services/{id}/update` | Partial | Rebuilds the Deployment from the new spec and uses `version` as the Kubernetes resourceVersion. Already-allocated node ports are retained so published ports do not move. Renaming and server-side rollback are rejected. |
 | `DELETE /services/{id}` | Partial | Deletes the Deployment; owned Services are garbage-collected by Kubernetes. |
-| `GET /services/{id}/logs` | Partial | Merges the Pod logs of the service's tasks. Only stdout is emitted; stderr-only requests and log `details` return 501. Interleaving across tasks is not ordered by timestamp. |
+| `GET /services/{id}/logs` | Partial | Merges the Pod logs of the service's tasks. Only stdout is emitted; stderr-only requests return 501. With `details`, each line carries the `com.docker.swarm.node.id`, `service.id`, and `task.id` attributes the Docker CLI uses to label lines. Interleaving across tasks is not ordered by timestamp. |
 | `GET /nodes` | Partial | Cluster-wide list of Kubernetes nodes. Control-plane nodes report as managers; cordoned nodes report as `drain`. Supports `id`, `name`, `role`, `membership`, and `label` filters. Requires cluster `nodes` read permission. |
 | `GET /nodes/{id}` | Partial | Matches on node name or Swarm ID prefix. |
 | `DELETE /nodes/{id}` | Todo | Returns an error directing the caller to `kubectl delete node` and provider node lifecycle tooling. |
 | `POST /nodes/{id}/update` | Todo | Returns an error directing the caller to `kubectl label`, `kubectl cordon`, and `kubectl drain`. |
-| `GET /tasks` | Partial | Lists the Pods behind the namespace's Swarm services. Slots are assigned by creation order, not Swarm slot identity. `NetworksAttachments` reports the task's Docker networks and its Pod IP. Node IDs need cluster node read permission. Supports `id`, `name`, `label`, `node`, `service`, and `desired-state` filters. |
+| `GET /tasks` | Partial | Lists the Pods behind the namespace's Swarm services. Slots are assigned by creation order, not Swarm slot identity. `NetworksAttachments` reports the task's Docker networks and its Pod IP. Node IDs need cluster node read permission. Supports `id`, `name`, `label`, `node`, `service`, and `desired-state` filters, plus the CLI's internal `_up-to-date` filter, which keeps only Pods from each Deployment's current ReplicaSet. |
 | `GET /tasks/{id}` | Partial | Matches on task ID prefix; task IDs change when a Pod is replaced. |
 | `GET /tasks/{id}/logs` | Partial | Same Pod log limitations as service logs. |
 | `GET /secrets` | Partial | Lists tenant Kubernetes Secrets labelled as Swarm secrets. Minimum API version 1.25. |
@@ -174,9 +174,9 @@ explanatory error because a Kubernetes cluster cannot join or leave a Swarm.
 | `GET /containers/{name}/checkpoints` | Todo | Route matches Docker's list method/path, but the handler is still a no-op and returns no checkpoint list. |
 | `POST /containers/{name}/checkpoints` | Todo | Route matches Docker's create method/path, but the handler is still a no-op. Minimum API version 1.31. |
 | `DELETE /containers/{name}/checkpoints/{checkpoint}` | Todo | Route matches Docker's delete method/path, but the handler is still a no-op. |
-| `GET /distribution/{name}/json` | Todo | Handler currently returns an empty success; distribution inspection is not implemented. Minimum API version 1.30. |
-| `POST /session` | Todo | Handler currently returns an empty success; Docker session upgrade/streaming is not implemented. |
-| `POST /grpc` | Todo | Handler currently returns an empty success; no gRPC request is served despite constructing a gRPC server. |
+| `GET /distribution/{name}/json` | Partial | Queries the upstream registry using request credentials and returns manifest/index digest, media type, size and platforms. Uses HTTPS except for loopback registries; schema1 and registry mirrors are not supported. Minimum API version 1.30. |
+| `POST /session` | Partial | Implements the h2c upgrade and proxies session services to configured external BuildKit, including scoped build auth. Builds must use the same Dink/backend replicas. |
+| `POST /grpc` | Partial | Implements the h2c upgrade; native HTTP/2 gRPC is also supported with identity/auth middleware. Forwards build control, progress and scoped frontend calls; translates tagged `moby` exports into Dinki publication. Build history listing, streaming, record updates and referenced content reads are identity-scoped. Cache administration, general content mutation, history archive imports and advanced build modes remain unsupported. See [BuildKit integration](buildkit.md). |
 
 ## Debug
 

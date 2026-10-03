@@ -23,7 +23,6 @@ import (
 	"github.com/sysson/syskit/logx"
 	"github.com/sysson/syskit/tlsconfig"
 	"github.com/urfave/cli/v3"
-	"google.golang.org/grpc"
 )
 
 type dinkCLI struct {
@@ -131,6 +130,11 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 	if err != nil {
 		return fmt.Errorf("unable to create translator: %w", err)
 	}
+	defer func() {
+		if err := translator.Close(); err != nil {
+			logx.G(ctx).WithError(err).Error("closing BuildKit gateway")
+		}
+	}()
 
 	httpServer := &http.Server{
 		ReadHeaderTimeout: 5 * time.Minute,
@@ -189,14 +193,14 @@ func (c *dinkCLI) start(ctx context.Context) (retErr error) {
 	}))
 	server.Use(auth.Middleware(translator.Plugins()))
 	router := buildRouters(translator)
-	gs := grpc.NewServer()
+	gs := translator.Builder().GRPCServer()
 
 	proto := new(http.Protocols)
 	proto.SetHTTP1(true)
 	proto.SetHTTP2(true)
 	proto.SetUnencryptedHTTP2(true)
 	httpServer.Protocols = proto
-	httpServer.Handler = newHTTPHandler(ctx, server.CreateMux(ctx, router...), gs)
+	httpServer.Handler = newHTTPHandler(ctx, server.CreateMux(ctx, router...), server.Wrap(gs))
 	logx.G(ctx).Info("completed initialization;")
 
 	var (

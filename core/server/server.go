@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 
 	"github.com/sysson/dink/core/server/router"
 	"github.com/sysson/dink/core/translator"
@@ -26,6 +27,14 @@ func New() *Server {
 
 func (s *Server) Use(m func(http.Handler) http.Handler) {
 	s.middlewares = append(s.middlewares, m)
+}
+
+// Wrap applies the same identity and authorization chain to native gRPC.
+func (s *Server) Wrap(handler http.Handler) http.Handler {
+	for _, v := range slices.Backward(s.middlewares) {
+		handler = v(handler)
+	}
+	return handler
 }
 
 func (s *Server) CreateMux(ctx context.Context, routers ...router.Router) http.Handler {

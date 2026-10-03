@@ -4,17 +4,15 @@ import (
 	"context"
 	"net/http"
 	"strings"
-
-	"google.golang.org/grpc"
 )
 
 type httpHandler struct {
 	ctx        context.Context
 	apiServer  http.Handler
-	grpcServer *grpc.Server
+	grpcServer http.Handler
 }
 
-func newHTTPHandler(ctx context.Context, apiServer http.Handler, grpcServer *grpc.Server) *httpHandler {
+func newHTTPHandler(ctx context.Context, apiServer http.Handler, grpcServer http.Handler) *httpHandler {
 	return &httpHandler{
 		ctx:        ctx,
 		apiServer:  apiServer,

@@ -205,7 +205,7 @@ func annotationList(annotations map[string]string) []storedAnnotation {
 // Images lists the tagged images in the caller's namespace from the metadata
 // index. Index images are summarised by the manifest for the default
 // platform; tags whose image content was never pulled are omitted.
-func (r *RegistryService) Images(ctx context.Context, _ types.ImageListOptions) ([]imagetypes.Summary, error) {
+func (r *RegistryService) Images(ctx context.Context, options types.ImageListOptions) ([]imagetypes.Summary, error) {
 	id, ok := identity.FromContext(ctx)
 	if !ok {
 		return nil, fmt.Errorf("missing identity in context")
@@ -231,6 +231,18 @@ func (r *RegistryService) Images(ctx context.Context, _ types.ImageListOptions) 
 					return nil, err
 				}
 				if summary, ok := imageSummary(id.Namespace, repo, tag.Tag, tree); ok {
+					if options.Manifests {
+						manifests, size, err := r.listManifestSummaries(ctx, repo, tree)
+						if err != nil {
+							return nil, err
+						}
+						summary.Manifests = manifests
+						summary.Size = size
+						summary.Descriptor.Size = tree.Size
+						if isIndex(tree.MediaType) {
+							summary.Descriptor.Platform = nil
+						}
+					}
 					summaries = append(summaries, summary)
 				}
 			}

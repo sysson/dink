@@ -5,5 +5,5 @@ import (
 )
 
 func (sr *sessionRouter) startSession(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	return sr.translator.HandleHTTPRequest(r.Context(), w, r)
 }

@@ -183,10 +183,65 @@ allocated NodePorts.
 ## Images, Volumes, and Plugins
 
 Image operations use the tenant-visible `dinki` registry, not a node-local
-Docker image store. Pull, list, inspect, history, tag, prune, and attestations
+Docker image store. Pull, push, list, inspect, history, tag, prune, and attestations
 are registry-backed, with the limitations in the endpoint tracker. In
 particular, multi-platform operations can use only manifests stored in the
-registry. Docker image build, load, export, search, and push are not implemented.
+registry. Tagged builds can use the optional external backend described below;
+image load and export are not implemented.
+
+Before creating a container or Swarm service, Dink verifies the tenant's
+existing node pull credential with dinki. Valid credentials are reused; stale
+credentials (for example after registry storage replacement) are regenerated
+and the existing `dinki-pull` Secret is updated. Registry verification errors
+abort creation rather than rotating credentials or using unverified auth.
+Existing workloads share this Secret and can recover on subsequent pull retries.
+Swarm service creation generates a name when `--name` is omitted. If its image
+is not yet in the tenant registry, Dink pulls it before creating the service;
+`--with-registry-auth` credentials are forwarded for that pull.
+
+`docker image ls --tree` lists all platform manifests advertised by each stored
+image index, including platforms that have not been pulled. The Docker CLI dims
+unavailable platforms. Availability means the manifest, config, and layers are
+present in dinki, not cached or unpacked on a Kubernetes node. Content sizes
+include only stored content; unavailable platform manifests have zero content
+size. Dink has no unpacked image store, so unpacked sizes remain zero.
+
+Retagging preserves the original manifest or index bytes and image ID, including
+unpulled platform descriptors. Available content is copied into the destination
+tenant repository; missing platforms remain unavailable.
+
+`docker image rm <tag>` can remove an extra tag from an in-use image when
+another reference in the same tenant repository retains its digest. An alias
+in a different repository can be removed if no workload uses that repository's
+digest. Removing the last reference needed by a workload is rejected, even
+with `--force`; another repository's copy cannot retain that pinned reference.
+Removal by image ID or repository digest remains blocked for in-use images.
+Image pruning continues to skip all references to an in-use image.
+
+`docker search` queries Docker Hub by default. Registry-qualified terms use that
+registry's Docker-compatible `/v1/search` endpoint, not the OCI catalog or the
+tenant image list. Stars and official-image filters are supported; the deprecated
+automated-image filter returns no results when true. Registries without search
+support return an error. Credentials supplied by the client support Basic,
+bearer, and identity-token authentication. Search does not forward credentials
+across origins on redirects.
+
+`docker push` copies images from the tenant registry to the registry named in
+the image reference. Tag an image with the destination name first when publishing
+to a different repository. A named tag pushes that tag; `--all-tags` pushes all
+tags of that tenant repository, excluding synthetic digest tags. Only layers
+produce per-blob push progress rows; configs and manifests are uploaded without
+separate rows. Progress and
+failures use Docker's JSON stream format. A complete multi-platform index is
+pushed unchanged. If content is missing, Dink follows Moby's single-platform
+fallback and emits a `manifestPushedInsteadOfIndex` auxiliary notification.
+When multiple stored platforms are ambiguous, specify `--platform` (API 1.46+).
+An explicit platform push excludes the index and attestations. Missing platforms
+are never automatically pulled during push.
+
+Search and push use the request's `X-Registry-Auth` credentials and `X-Meta-*`
+headers. As with Dink's pull endpoint, malformed auth headers are rejected.
+External registries use HTTPS, except loopback registries which use HTTP.
 
 The omitted or `local` volume driver creates a PVC using the cluster's default
 StorageClass, with a default request of `1Gi` and access mode `ReadWriteOnce`.
@@ -209,6 +264,32 @@ Environment values using `se://<provider>/<key>` are resolved through the
 named provider. The built-in Kubernetes provider refers to a Secret key; other
 providers use a Dink secrets plugin. Resolved plugin values are stored in an
 owned Kubernetes Secret rather than in the workload's Docker configuration.
+
+## Image Builds
+
+An optional external BuildKit gateway supports tagged, single-platform builds
+through the Docker driver's gRPC and session protocols. Execution can run in an
+operator-managed Kubernetes Pod, while results are pushed into Dinki using
+short-lived, repository-scoped credentials. Existing node pull credentials stay
+read-only. Explicit client-directed outputs are not redirected into the registry.
+
+Docker-driver `--push` adds an upstream image export using client session
+credentials while retaining the tenant-mapped Dinki image. Both exports must
+succeed; partial publications are not rolled back. Buildx may additionally use
+the existing HTTP push endpoint and upstream distribution inspection as a
+Docker-driver compatibility pass.
+
+Build history listing, event streaming, and record updates are scoped to the
+authenticated namespace and client common name. New references encode ownership
+so history remains attributable after Dink restarts without an in-memory index.
+Read-only content access is limited to descriptors referenced by owned history
+records. General content mutation, history archive imports, and pre-integration
+hash-only history are not supported.
+
+Local `FROM` resolution, untagged exports, push-by-digest, legacy HTTP
+builds, and shared-cache administration are not implemented. Backend TLS,
+registry trust, replica constraints, and validation instructions are documented
+in [External BuildKit builds](buildkit.md).
 
 ## System Information and Events
 

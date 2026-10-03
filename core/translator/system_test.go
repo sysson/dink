@@ -2,17 +2,39 @@ package translator
 
 import (
 	"context"
+	"net/http"
 	"testing"
+	"time"
 
+	control "github.com/moby/buildkit/api/services/control"
 	imagetypes "github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/v2/daemon/server/backend"
+	"github.com/moby/moby/v2/daemon/server/buildbackend"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/k8s"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	kubernetesfake "k8s.io/client-go/kubernetes/fake"
 )
+
+type testBuilderGateway struct {
+	response *control.DiskUsageResponse
+	err      error
+}
+
+func (g *testBuilderGateway) Enabled() bool { return true }
+func (g *testBuilderGateway) DiskUsage(context.Context, *control.DiskUsageRequest) (*control.DiskUsageResponse, error) {
+	return g.response, g.err
+}
+func (g *testBuilderGateway) PruneCache(context.Context, *control.PruneRequest) ([]*control.UsageRecord, error) {
+	return nil, nil
+}
+func (g *testBuilderGateway) HandleHTTPRequest(context.Context, http.ResponseWriter, *http.Request) error {
+	return nil
+}
+func (g *testBuilderGateway) Close() error { return nil }
 
 func TestSystemInfoIsNamespaceScoped(t *testing.T) {
 	replicas := int32(1)
@@ -62,6 +84,55 @@ func TestSystemInfoIsNamespaceScoped(t *testing.T) {
 	}
 	if info.Name != "dink" || info.ServerVersion == "" || len(info.Warnings) == 0 {
 		t.Fatalf("system identity or scope warnings missing: %+v", info)
+	}
+}
+
+func TestBuilderDiskUsageMapsBuildKitRecords(t *testing.T) {
+	created := timestamppb.New(time.Unix(100, 0))
+	lastUsed := timestamppb.New(time.Unix(200, 0))
+	gateway := &testBuilderGateway{response: &control.DiskUsageResponse{Record: []*control.UsageRecord{
+		{
+			ID: "active", Size: 50, InUse: true, Shared: true, RecordType: "regular",
+			Parents: []string{"parent"}, Description: "active record", UsageCount: 3,
+			CreatedAt: created, LastUsedAt: lastUsed,
+		},
+		{ID: "reclaimable", Size: 30, InUse: false, Shared: false},
+		{ID: "shared", Size: 20, InUse: false, Shared: true},
+	}}}
+	builder := &Builder{gateway: gateway}
+	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
+
+	usage, err := builder.DiskUsage(ctx, buildbackend.DiskUsageOptions{Verbose: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usage.TotalCount != 3 || usage.TotalSize != 100 || usage.ActiveCount != 1 || usage.Reclaimable != 30 {
+		t.Fatalf("disk usage totals = %+v", usage)
+	}
+	if len(usage.Items) != 3 {
+		t.Fatalf("records = %+v, want 3", usage.Items)
+	}
+	record := usage.Items[0]
+	if record.ID != "active" || record.Type != "regular" || record.Size != 50 || !record.InUse || !record.Shared ||
+		record.Description != "active record" || record.UsageCount != 3 || len(record.Parents) != 1 ||
+		!record.CreatedAt.Equal(time.Unix(100, 0)) || record.LastUsedAt == nil || !record.LastUsedAt.Equal(time.Unix(200, 0)) {
+		t.Fatalf("verbose cache record = %+v", record)
+	}
+}
+
+func TestBuilderDiskUsageOmitsRecordsUnlessVerbose(t *testing.T) {
+	gateway := &testBuilderGateway{response: &control.DiskUsageResponse{Record: []*control.UsageRecord{
+		{ID: "active", Size: 50, InUse: true},
+	}}}
+	builder := &Builder{gateway: gateway}
+	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
+
+	usage, err := builder.DiskUsage(ctx, buildbackend.DiskUsageOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usage.TotalCount != 1 || usage.TotalSize != 50 || usage.ActiveCount != 1 || len(usage.Items) != 0 {
+		t.Fatalf("summary disk usage = %+v", usage)
 	}
 }
 

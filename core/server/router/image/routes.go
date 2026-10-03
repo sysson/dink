@@ -13,10 +13,6 @@ import (
 	"github.com/sysson/syskit/httpx"
 )
 
-func (ir *imageRouter) getImagesSearch(w http.ResponseWriter, r *http.Request) error {
-	return nil
-}
-
 func (ir *imageRouter) getImagesGet(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
@@ -47,10 +43,6 @@ func decodePlatform(value string) (*ocispec.Platform, error) {
 }
 
 func (ir *imageRouter) postImagesLoad(w http.ResponseWriter, r *http.Request) error {
-	return nil
-}
-
-func (ir *imageRouter) postImagesPush(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
