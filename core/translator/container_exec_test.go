@@ -31,7 +31,7 @@ func TestContainerExecCreateInspect(t *testing.T) {
 	}
 	if _, err := client.CoreV1().Pods("tenant").Create(ctx, &corev1.Pod{
 		Name: "web-pod", Namespace: "tenant", UID: "pod-uid", Labels: map[string]string{"app": "web"},
-		Spec:   corev1.PodSpec{Containers: []corev1.Container{{Name: "web"}}},
+		Spec:   corev1.PodSpec{Containers: []corev1.Container{{Name: "injected-sidecar"}, {Name: "web"}}},
 		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestContainerExecCreateInspect(t *testing.T) {
 	}
 	var stdout bytes.Buffer
 	docker.podStream = func(_ context.Context, namespace, podName string, options corev1.PodExecOptions, streams remotecommand.StreamOptions, attach bool) error {
-		if namespace != "tenant" || podName != "web-pod" || attach || len(options.Command) != 2 || options.Command[0] != "echo" || !options.Stdout {
+		if namespace != "tenant" || podName != "web-pod" || options.Container != "web" || attach || len(options.Command) != 2 || options.Command[0] != "echo" || !options.Stdout {
 			t.Errorf("unexpected exec options: namespace = %q, pod = %q, options = %+v, attach = %v", namespace, podName, options, attach)
 		}
 		_, _ = streams.Stdout.Write([]byte("hello\n"))

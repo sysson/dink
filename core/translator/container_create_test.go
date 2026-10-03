@@ -369,7 +369,11 @@ func TestContainerCreateMergesImageDefaults(t *testing.T) {
 					ExposedPorts: map[string]struct{}{
 						"8080/tcp": {},
 					},
-					Labels: map[string]string{"from-image": "yes", "owner": "image"},
+					Labels: map[string]string{
+						"from-image": "yes", "owner": "image",
+						podLabelPrefix + "example.com/team":         "image",
+						podAnnotationPrefix + "example.com/default": "from image",
+					},
 				},
 			},
 		},
@@ -380,7 +384,7 @@ func TestContainerCreateMergesImageDefaults(t *testing.T) {
 		Config: &container.Config{
 			Image:  "nginx",
 			Env:    []string{"MODE=request", "REQUEST_ONLY=present"},
-			Labels: map[string]string{"owner": "request"},
+			Labels: map[string]string{"owner": "request", podLabelPrefix + "example.com/team": "request"},
 		},
 		HostConfig: &container.HostConfig{PublishAllPorts: true},
 	})
@@ -393,6 +397,10 @@ func TestContainerCreateMergesImageDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	podContainer := deployment.Spec.Template.Spec.Containers[0]
+	if deployment.Spec.Template.Labels["example.com/team"] != "request" ||
+		deployment.Spec.Template.Annotations["example.com/default"] != "from image" {
+		t.Fatalf("Pod metadata image defaults/overrides = %+v", deployment.Spec.Template.ObjectMeta)
+	}
 	if podContainer.Command == nil || len(podContainer.Command) != 1 || podContainer.Command[0] != "/image-entrypoint" || len(podContainer.Args) != 1 || podContainer.Args[0] != "--image-default" || podContainer.WorkingDir != "/image-workdir" {
 		t.Fatalf("pod command defaults = %+v", podContainer)
 	}

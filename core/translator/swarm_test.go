@@ -505,7 +505,7 @@ func TestSwarmTasksFromPods(t *testing.T) {
 		Namespace: "tenant",
 		UID:       "99999999-8888-7777-6666-555555555555",
 		Labels:    deployment.Spec.Template.Labels,
-		Spec:      corev1.PodSpec{NodeName: "node1", Containers: []corev1.Container{{Name: "web"}}},
+		Spec:      corev1.PodSpec{NodeName: "node1", Containers: []corev1.Container{{Name: "injected-sidecar"}, {Name: "web"}}},
 		Status: corev1.PodStatus{
 			Phase:             corev1.PodRunning,
 			PodIP:             "10.244.1.7",

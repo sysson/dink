@@ -58,12 +58,15 @@ func TestContainerInspectAndList(t *testing.T) {
 			Phase:     corev1.PodRunning,
 			PodIP:     "10.1.2.3",
 			StartTime: &created,
-			ContainerStatuses: []corev1.ContainerStatus{{
-				Name:    "web",
-				Image:   "localhost:5000/tenant/nginx@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-				ImageID: "containerd://sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-				State:   corev1.ContainerState{Running: &corev1.ContainerStateRunning{StartedAt: created}},
-			}},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "injected-sidecar", ImageID: "containerd://sha256:sidecar", RestartCount: 99,
+					State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 42}}},
+				{
+					Name:    "web",
+					Image:   "localhost:5000/tenant/nginx@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+					ImageID: "containerd://sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+					State:   corev1.ContainerState{Running: &corev1.ContainerStateRunning{StartedAt: created}},
+				}},
 		},
 	}
 	if _, err := client.CoreV1().Pods("tenant").Create(ctx, pod, metav1.CreateOptions{}); err != nil {
@@ -79,6 +82,9 @@ func TestContainerInspectAndList(t *testing.T) {
 	}
 	if inspect.State.Status != container.StateRunning || inspect.State.StartedAt == "" || inspect.NetworkSettings.Networks["bridge"].IPAddress.String() != "10.1.2.3" {
 		t.Fatalf("inspect state/network = %+v, %+v", inspect.State, inspect.NetworkSettings)
+	}
+	if inspect.Image != "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" || inspect.RestartCount != 0 {
+		t.Fatalf("inspect selected sidecar image or restart count: %+v", inspect)
 	}
 	port := network.MustParsePort("8080/tcp")
 	if got := inspect.NetworkSettings.Ports[port]; len(got) != 1 || got[0].HostPort != "18080" {

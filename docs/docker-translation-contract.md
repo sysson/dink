@@ -43,6 +43,59 @@ settings are translated to Pod fields. Options without a useful Kubernetes
 equivalent are rejected or reported as warnings; see the endpoint tracker for
 current option-level details.
 
+### Pod Labels and Annotations
+
+Ordinary Docker labels remain Docker metadata, preserved for inspection and
+filtering; they are not copied into Kubernetes labels. To explicitly add Pod
+metadata, use these prefixes on Docker labels:
+
+| Docker label key | Pod metadata |
+| --- | --- |
+| `dink.io/pod-label/<key>` | Label named `<key>` |
+| `dink.io/pod-annotation/<key>` | Annotation named `<key>` |
+
+For example, in Compose:
+
+```yaml
+services:
+  api:
+    image: example/api
+    labels:
+      dink.io/pod-label/example.com/team: payments
+      dink.io/pod-annotation/fluentbit.io/parser: json
+```
+
+Metadata is placed on the Deployment or Job's Pod template, not on Services or
+the workload's own metadata, so replacement Pods inherit it. Container labels
+include image defaults, with request labels taking precedence. For Swarm
+services, both service labels (`deploy.labels` in Compose) and task container
+labels (`labels`) are supported; task container values take precedence.
+Service updates replace the requested Pod metadata, removing entries no longer
+present. Original prefixed Docker labels remain available through inspection.
+
+Keys must be valid Kubernetes label/annotation keys. Label values must obey
+Kubernetes label-value rules (including the 63-character limit); annotation
+values may contain arbitrary text. Pod annotations must fit Kubernetes' combined
+256 KiB key/value size limit, including Dink-generated annotations. Kubernetes
+also enforces limits on the workload annotations containing the original Docker
+configuration.
+
+Targets named `app`, `app.kubernetes.io/managed-by`, or qualified under `dink.io`
+or its subdomains are reserved for both labels and annotations. Invalid or
+reserved entries fail the request rather than being ignored, even if their
+values match Dink's own values.
+
+This is a collector-neutral metadata bridge, not a logging driver. Users or
+cluster operators must install and configure collectors that interpret the
+metadata. Annotations and labels can also activate admission webhooks, sidecar
+injection, or NetworkPolicy selection. Exec, attach, logs, stats, and reported
+container status target the application container by name rather than the first
+container in a Pod, so prepended sidecars do not change the target. Dink protects
+its own keys, but does not
+provide an additional operator allowlist/denylist; cluster admission policy
+should restrict other metadata where required. Do not put credentials in labels
+or annotations.
+
 ### Resource Defaults
 
 The `kubernetes.defaultResources` setting supplies baseline CPU and memory

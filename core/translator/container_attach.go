@@ -57,10 +57,10 @@ func (d *Docker) ContainerAttach(ctx context.Context, name string, config *backe
 	if err != nil {
 		return err
 	}
-	if len(deployment.Template.Spec.Containers) == 0 {
-		return Conflict(fmt.Errorf("container %s has no pod template", name))
+	containerSpec, err := namedContainer(&deployment.Template.Spec, deployment.Name)
+	if err != nil {
+		return err
 	}
-	containerSpec := deployment.Template.Spec.Containers[0]
 	if config.UseStdin && !containerSpec.Stdin {
 		return InvalidArgument(fmt.Errorf("container stdin was not enabled at creation"))
 	}
@@ -160,7 +160,7 @@ func (d *Docker) attachTargetExited(ctx context.Context, deployment *containerWo
 		}
 		if err == nil {
 			for _, status := range pod.Status.ContainerStatuses {
-				if status.Name == deployment.Template.Spec.Containers[0].Name &&
+				if status.Name == deployment.Name &&
 					(status.State.Terminated != nil || hostConfig.AutoRemove && status.LastTerminationState.Terminated != nil) {
 					return true
 				}
@@ -181,7 +181,7 @@ func (d *Docker) waitAttachPod(ctx context.Context, deployment *containerWorkloa
 	if err != nil {
 		return nil, err
 	}
-	containerName := deployment.Template.Spec.Containers[0].Name
+	containerName := deployment.Name
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for {

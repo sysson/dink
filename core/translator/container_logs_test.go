@@ -24,7 +24,7 @@ func TestContainerLogs(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(&appsv1.Deployment{
 				APIVersion: "apps/v1", Kind: "Deployment",
 				Name: "web", Namespace: "tenant",
-				Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "web"}}}}},
+				Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "injected-sidecar", TTY: true}, {Name: "web"}}}}},
 			})
 		case "/api/v1/namespaces/tenant/pods":
 			if r.URL.Query().Get("labelSelector") != "app=web" {
@@ -32,10 +32,10 @@ func TestContainerLogs(t *testing.T) {
 			}
 			_ = json.NewEncoder(w).Encode(&corev1.PodList{
 				APIVersion: "v1", Kind: "PodList",
-				Items: []corev1.Pod{{Name: "web-pod", Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "web"}}}, Status: corev1.PodStatus{Phase: corev1.PodRunning}}},
+				Items: []corev1.Pod{{Name: "web-pod", Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "injected-sidecar", TTY: true}, {Name: "web"}}}, Status: corev1.PodStatus{Phase: corev1.PodRunning}}},
 			})
 		case "/api/v1/namespaces/tenant/pods/web-pod/log":
-			if r.URL.Query().Get("tailLines") != "2" || r.URL.Query().Get("timestamps") != "true" {
+			if r.URL.Query().Get("container") != "web" || r.URL.Query().Get("tailLines") != "2" || r.URL.Query().Get("timestamps") != "true" {
 				t.Errorf("log query = %s", r.URL.RawQuery)
 			}
 			w.Header().Set("Content-Type", "application/octet-stream")

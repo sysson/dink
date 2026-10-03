@@ -33,7 +33,7 @@ HOST_DOCKER := env -u DOCKER_HOST -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH DOCKE
 
 .PHONY: all build test generate lint clean fix dev image image-minikube load ca-generate ca-generate-local ca-rotate server registry-server certificates tenant bootstrap \
 	buildkit-server context context-sync context-use context-default context-rm port-forward restart release show-image \
-	deploy undeploy logs docker-env start clean-images clean-buildkit test-integration
+	deploy undeploy logs docker-env start clean-images test-integration
 
 all: build
 
@@ -218,13 +218,3 @@ docker-env:
 clean-images:
 	@$(HOST_DOCKER) $(DOCKER) system prune -a
 	@$(HOST_DOCKER) $(DOCKER) exec -it $(MINIKUBE_PROFILE) ctr -n k8s.io images prune --all
-
-## clean-buildkit: Prune all unused cache from the shared BuildKit pod (all tenants)
-clean-buildkit:
-	$(KUBECTL) -n $(NAMESPACE) exec deployment/buildkit -c buildkit -- \
-		buildctl --addr=tcp://127.0.0.1:1234 \
-		--tlsservername=buildkit.$(NAMESPACE).svc.cluster.local \
-		--tlscacert=/etc/buildkit/tls/ca.crt \
-		--tlscert=/etc/buildkit/tls/tls.crt \
-		--tlskey=/etc/buildkit/tls/tls.key \
-		prune --all

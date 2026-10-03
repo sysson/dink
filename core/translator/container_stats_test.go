@@ -36,9 +36,13 @@ func TestContainerStats(t *testing.T) {
 		APIVersion: "metrics.k8s.io/v1beta1", Kind: "PodMetrics",
 		Name: "web-pod", Namespace: "tenant",
 		Timestamp: metav1.NewTime(time.Unix(100, 0)), Window: metav1.Duration{Duration: 2 * time.Second},
-		Containers: []metricsv1beta1.ContainerMetrics{{Name: "web", Usage: corev1.ResourceList{
-			corev1.ResourceCPU: resource.MustParse("250m"), corev1.ResourceMemory: resource.MustParse("64Mi"),
-		}}},
+		Containers: []metricsv1beta1.ContainerMetrics{
+			{Name: "injected-sidecar", Usage: corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("900m"), corev1.ResourceMemory: resource.MustParse("256Mi"),
+			}},
+			{Name: "web", Usage: corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("250m"), corev1.ResourceMemory: resource.MustParse("64Mi"),
+			}}},
 	}
 	if err := metricsClient.Tracker().Create(metricsv1beta1.SchemeGroupVersion.WithResource("pods"), metric, "tenant"); err != nil {
 		t.Fatal(err)
@@ -50,9 +54,13 @@ func TestContainerStats(t *testing.T) {
 	}
 	if _, err := client.CoreV1().Pods("tenant").Create(ctx, &corev1.Pod{
 		Name: "web-pod", Namespace: "tenant", Labels: map[string]string{"app": "web"},
-		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "web", Resources: corev1.ResourceRequirements{
-			Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("128Mi")},
-		}}}},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{
+			{Name: "injected-sidecar", Resources: corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("512Mi")},
+			}},
+			{Name: "web", Resources: corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("128Mi")},
+			}}}},
 		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)

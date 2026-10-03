@@ -32,13 +32,13 @@ func TestContainerAttach(t *testing.T) {
 	client := kubernetesfake.NewClientset()
 	if _, err := client.AppsV1().Deployments("tenant").Create(ctx, &appsv1.Deployment{
 		Name: "web", Namespace: "tenant",
-		Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "web", TTY: true}}}}},
+		Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "injected-sidecar"}, {Name: "web", TTY: true}}}}},
 	}, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := client.CoreV1().Pods("tenant").Create(ctx, &corev1.Pod{
 		Name: "web-pod", Namespace: "tenant", Labels: map[string]string{"app": "web"},
-		Spec:   corev1.PodSpec{Containers: []corev1.Container{{Name: "web", TTY: true}}},
+		Spec:   corev1.PodSpec{Containers: []corev1.Container{{Name: "injected-sidecar"}, {Name: "web", TTY: true}}},
 		Status: corev1.PodStatus{Phase: corev1.PodRunning, ContainerStatuses: []corev1.ContainerStatus{{Name: "web", State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}}}},
 	}, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
