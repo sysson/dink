@@ -241,11 +241,16 @@ func (c *Client) Query(ctx context.Context, document, operationName string, vari
 // IssuePullCredential creates, or replaces, the caller's namespace pull
 // credential and returns its username and password.
 func (c *Client) IssuePullCredential(ctx context.Context) (string, string, error) {
+	return c.EnsurePullCredential(ctx, "")
+}
+
+// EnsurePullCredential reuses a valid password or replaces a stale credential.
+func (c *Client) EnsurePullCredential(ctx context.Context, existingPassword string) (string, string, error) {
 	id, err := c.requestIdentity(ctx)
 	if err != nil {
 		return "", "", err
 	}
-	response, err := c.rpc.IssuePullCredential(ctx, &registryv1.IssuePullCredentialRequest{Identity: id})
+	response, err := c.rpc.IssuePullCredential(ctx, &registryv1.IssuePullCredentialRequest{Identity: id, ExistingPassword: existingPassword})
 	if err != nil {
 		return "", "", FromConnectError(err)
 	}

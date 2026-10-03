@@ -21,7 +21,7 @@ require (
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/sysson/dink/sdk v0.0.0
 	github.com/sysson/ocistore v1.2.0
-	github.com/sysson/syskit v1.5.2
+	github.com/sysson/syskit v1.5.3
 	github.com/urfave/cli/v3 v3.14.0
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12

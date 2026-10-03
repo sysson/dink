@@ -6,12 +6,14 @@ import (
 	"net/netip"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	networktypes "github.com/moby/moby/api/types/network"
 	swarmtypes "github.com/moby/moby/api/types/swarm"
 	"github.com/moby/moby/v2/daemon/server/swarmbackend"
 	"github.com/sysson/dink/core/identity"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -20,7 +22,10 @@ func (s *Swarm) GetTasks(ctx context.Context, options swarmbackend.TaskListOptio
 	if err := validateTaskFilters(options.Filters); err != nil {
 		return nil, InvalidArgument(err)
 	}
-	tasks, err := s.tasks(ctx)
+	// The CLI's convergence progress asks for "_up-to-date" tasks only: those
+	// running the service's current spec rather than a superseded one.
+	upToDate := len(options.Filters.Get("_up-to-date")) > 0
+	tasks, err := s.tasks(ctx, upToDate)
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +42,7 @@ func (s *Swarm) GetTask(ctx context.Context, id string) (swarmtypes.Task, error)
 	if id == "" {
 		return swarmtypes.Task{}, InvalidArgument(fmt.Errorf("task ID is required"))
 	}
-	tasks, err := s.tasks(ctx)
+	tasks, err := s.tasks(ctx, false)
 	if err != nil {
 		return swarmtypes.Task{}, err
 	}
@@ -57,8 +62,9 @@ func (s *Swarm) GetTask(ctx context.Context, id string) (swarmtypes.Task, error)
 	return *match, nil
 }
 
-// tasks lists the Pods behind the namespace's Swarm services.
-func (s *Swarm) tasks(ctx context.Context) ([]swarmtypes.Task, error) {
+// tasks lists the Pods behind the namespace's Swarm services. With upToDate,
+// Pods from a Deployment's superseded ReplicaSets are left out.
+func (s *Swarm) tasks(ctx context.Context, upToDate bool) ([]swarmtypes.Task, error) {
 	namespace, err := s.namespace(ctx)
 	if err != nil {
 		return nil, err
@@ -75,6 +81,12 @@ func (s *Swarm) tasks(ctx context.Context) ([]swarmtypes.Task, error) {
 	if err != nil {
 		return nil, kubeError(err)
 	}
+	var currentHashes map[string]string
+	if upToDate {
+		if currentHashes, err = s.currentTemplateHashes(ctx, namespace); err != nil {
+			return nil, err
+		}
+	}
 	nodeIDs := s.nodeIDsByName(ctx)
 	networks := s.networksByLabel(ctx)
 	slots := make(map[string]int, len(byName))
@@ -87,12 +99,44 @@ func (s *Swarm) tasks(ctx context.Context) ([]swarmtypes.Task, error) {
 		if !ok {
 			continue
 		}
+		if upToDate && (pod.DeletionTimestamp != nil || pod.Labels[appsv1.DefaultDeploymentUniqueLabelKey] != currentHashes[service.Spec.Name]) {
+			continue
+		}
 		slots[service.Spec.Name]++
 		task := swarmTask(pod, service, slots[service.Spec.Name], nodeIDs[pod.Spec.NodeName])
 		task.NetworksAttachments = taskNetworkAttachments(pod, networks)
 		result = append(result, task)
 	}
 	return result, nil
+}
+
+// deploymentRevisionAnnotation is the revision the Deployment controller stamps
+// on each ReplicaSet it rolls out.
+const deploymentRevisionAnnotation = "deployment.kubernetes.io/revision"
+
+// currentTemplateHashes maps each service Deployment to the pod-template-hash
+// of its newest ReplicaSet, which is the one running the current spec.
+func (s *Swarm) currentTemplateHashes(ctx context.Context, namespace string) (map[string]string, error) {
+	replicaSets, err := s.k8s.AppsV1().ReplicaSets(namespace).List(ctx, metav1.ListOptions{LabelSelector: swarmServiceSelector})
+	if err != nil {
+		return nil, kubeError(err)
+	}
+	hashes := make(map[string]string)
+	revisions := make(map[string]int64)
+	for index := range replicaSets.Items {
+		replicaSet := &replicaSets.Items[index]
+		owner := metav1.GetControllerOf(replicaSet)
+		if owner == nil || owner.Kind != "Deployment" {
+			continue
+		}
+		revision, _ := strconv.ParseInt(replicaSet.Annotations[deploymentRevisionAnnotation], 10, 64)
+		if _, seen := hashes[owner.Name]; seen && revision <= revisions[owner.Name] {
+			continue
+		}
+		hashes[owner.Name] = replicaSet.Labels[appsv1.DefaultDeploymentUniqueLabelKey]
+		revisions[owner.Name] = revision
+	}
+	return hashes, nil
 }
 
 func taskNetworkAttachments(pod *corev1.Pod, networks map[string]networktypes.Network) []swarmtypes.NetworkAttachment {
@@ -202,7 +246,7 @@ func podTaskStatus(pod *corev1.Pod) swarmtypes.TaskStatus {
 }
 
 func validateTaskFilters(filters swarmFilters) error {
-	return filters.Validate(map[string]bool{"id": true, "label": true, "name": true, "node": true, "service": true, "desired-state": true})
+	return filters.Validate(map[string]bool{"id": true, "label": true, "name": true, "node": true, "service": true, "desired-state": true, "_up-to-date": true})
 }
 
 func matchesTaskFilters(filters swarmFilters, task swarmtypes.Task) bool {

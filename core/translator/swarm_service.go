@@ -3,21 +3,29 @@ package translator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"maps"
+	"net/http"
 	"net/netip"
 	"path"
 	"slices"
 	"sort"
 	"strings"
 
+	"github.com/docker/oci/ociref"
+	"github.com/moby/moby/api/pkg/authconfig"
 	"github.com/moby/moby/api/types/mount"
 	networktypes "github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/api/types/registry"
 	swarmtypes "github.com/moby/moby/api/types/swarm"
+	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	"github.com/moby/moby/v2/daemon/server/swarmbackend"
 	"github.com/sysson/dink/core/config"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/secrets"
+	"github.com/sysson/syskit/httpx"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -70,12 +78,20 @@ func (s *Swarm) GetService(ctx context.Context, idOrName string, insertDefaults 
 	return service, nil
 }
 
-func (s *Swarm) CreateService(ctx context.Context, spec swarmtypes.ServiceSpec, _ string, _ bool) (*swarmtypes.ServiceCreateResponse, error) {
+func (s *Swarm) CreateService(ctx context.Context, spec swarmtypes.ServiceSpec, encodedRegistryAuth string, _ bool) (*swarmtypes.ServiceCreateResponse, error) {
+	if spec.Name == "" {
+		spec.Name = generatedContainerName()
+	}
+	auth, err := authconfig.Decode(encodedRegistryAuth)
+	if err != nil {
+		return nil, InvalidArgument(fmt.Errorf("decoding registry auth: %w", err))
+	}
+	insertServiceDefaults(&spec)
 	namespace, err := s.namespace(ctx)
 	if err != nil {
 		return nil, err
 	}
-	deployment, services, env, warnings, err := s.buildService(ctx, namespace, spec)
+	deployment, services, env, warnings, err := s.buildService(ctx, namespace, spec, auth)
 	if err != nil {
 		return nil, err
 	}
@@ -104,6 +120,10 @@ func (s *Swarm) UpdateService(ctx context.Context, idOrName string, version uint
 	if options.Rollback != "" && options.Rollback != "none" {
 		return nil, Unsupported(fmt.Errorf("server-side rollback is not available: Kubernetes keeps its own rollout history, so use kubectl rollout undo instead"))
 	}
+	auth, err := authconfig.Decode(options.EncodedRegistryAuth)
+	if err != nil {
+		return nil, InvalidArgument(fmt.Errorf("decoding registry auth: %w", err))
+	}
 	namespace, err := s.namespace(ctx)
 	if err != nil {
 		return nil, err
@@ -116,7 +136,7 @@ func (s *Swarm) UpdateService(ctx context.Context, idOrName string, version uint
 		return nil, InvalidArgument(fmt.Errorf("renaming a service is not supported"))
 	}
 	spec.Name = current.Name
-	deployment, services, env, warnings, err := s.buildService(ctx, namespace, spec)
+	deployment, services, env, warnings, err := s.buildService(ctx, namespace, spec, auth)
 	if err != nil {
 		return nil, err
 	}
@@ -215,6 +235,16 @@ func (s *Swarm) serviceFromDeployment(ctx context.Context, deployment *appsv1.De
 		}
 	}
 	spec.Name = deployment.Name
+	// The Docker CLI cannot track a service whose mode lacks a replica count,
+	// so report the Deployment's replicas for specs stored without one.
+	if spec.Mode.Global == nil && spec.Mode.ReplicatedJob == nil && spec.Mode.GlobalJob == nil &&
+		(spec.Mode.Replicated == nil || spec.Mode.Replicated.Replicas == nil) {
+		replicas := uint64(1)
+		if deployment.Spec.Replicas != nil {
+			replicas = uint64(*deployment.Spec.Replicas)
+		}
+		spec.Mode.Replicated = &swarmtypes.ReplicatedService{Replicas: &replicas}
+	}
 	service := swarmtypes.Service{
 		ID:       identity.DockerIDFromUID(deployment.UID),
 		Meta:     swarmMeta(deployment),
@@ -311,8 +341,12 @@ func attachedNetworks(labels map[string]string, networks map[string]networktypes
 // insertServiceDefaults fills the fields Docker's daemon would have defaulted,
 // so `docker service inspect --pretty` has something to print.
 func insertServiceDefaults(spec *swarmtypes.ServiceSpec) {
-	if spec.Mode.Replicated == nil && spec.Mode.Global == nil {
-		spec.Mode.Replicated = &swarmtypes.ReplicatedService{Replicas: new(uint64(1))}
+	if spec.Mode.Replicated == nil && spec.Mode.Global == nil && spec.Mode.ReplicatedJob == nil && spec.Mode.GlobalJob == nil {
+		spec.Mode.Replicated = &swarmtypes.ReplicatedService{}
+	}
+	// The CLI sends an empty Replicated mode when --replicas is not given.
+	if spec.Mode.Replicated != nil && spec.Mode.Replicated.Replicas == nil {
+		spec.Mode.Replicated.Replicas = new(uint64(1))
 	}
 	if spec.TaskTemplate.RestartPolicy == nil {
 		spec.TaskTemplate.RestartPolicy = &swarmtypes.RestartPolicy{Condition: swarmtypes.RestartPolicyConditionAny}
@@ -324,7 +358,7 @@ func insertServiceDefaults(spec *swarmtypes.ServiceSpec) {
 
 // buildService translates a Docker ServiceSpec into a Deployment plus the
 // Services that publish it.
-func (s *Swarm) buildService(ctx context.Context, namespace string, spec swarmtypes.ServiceSpec) (*appsv1.Deployment, []*corev1.Service, secrets.Env, []string, error) {
+func (s *Swarm) buildService(ctx context.Context, namespace string, spec swarmtypes.ServiceSpec, auth *registry.AuthConfig) (*appsv1.Deployment, []*corev1.Service, secrets.Env, []string, error) {
 	var noEnv secrets.Env
 	if err := validateSwarmName("service", spec.Name); err != nil {
 		return nil, nil, noEnv, nil, err
@@ -352,7 +386,24 @@ func (s *Swarm) buildService(ctx context.Context, namespace string, spec swarmty
 	}
 	image, imageConfig, err := s.docker.podImage(ctx, namespace, containerSpec.Image)
 	if err != nil {
-		return nil, nil, noEnv, nil, err
+		var httpErr *httpx.HTTPError
+		if !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusNotFound {
+			return nil, nil, noEnv, nil, err
+		}
+		ref, err := ociref.ParseRelative(containerSpec.Image)
+		if err != nil {
+			return nil, nil, noEnv, nil, InvalidArgument(fmt.Errorf("invalid image reference %q: %w", containerSpec.Image, err))
+		}
+		if err := s.docker.registry.PullImage(ctx, ref, imagebackend.PullOptions{
+			AuthConfig: auth,
+			OutStream:  io.Discard,
+		}); err != nil {
+			return nil, nil, noEnv, nil, err
+		}
+		image, imageConfig, err = s.docker.podImage(ctx, namespace, containerSpec.Image)
+		if err != nil {
+			return nil, nil, noEnv, nil, err
+		}
 	}
 	if err := s.docker.ensurePullSecret(ctx, namespace); err != nil {
 		return nil, nil, noEnv, nil, err

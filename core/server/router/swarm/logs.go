@@ -1,10 +1,13 @@
 package swarm
 
 import (
+	"cmp"
 	"encoding/binary"
 	"fmt"
 	"math"
 	"net/http"
+	"net/url"
+	"slices"
 	"strconv"
 	"time"
 
@@ -38,9 +41,6 @@ func (sr *swarmRouter) swarmLogs(w http.ResponseWriter, r *http.Request, selecto
 	details, err := queryBool(r, "details")
 	if err != nil {
 		return err
-	}
-	if details {
-		return httpx.NewHTTPError(http.StatusNotImplemented, fmt.Errorf("kubernetes pod logs do not provide Docker log attributes"))
 	}
 	since, err := parseLogTime(r.Form.Get("since"))
 	if err != nil {
@@ -88,6 +88,9 @@ func (sr *swarmRouter) swarmLogs(w http.ResponseWriter, r *http.Request, selecto
 				return message.Err
 			}
 			line := message.Line
+			if details {
+				line = append(appendLogAttrs(nil, message.Attrs), append([]byte{' '}, line...)...)
+			}
 			if options.Timestamps {
 				line = append([]byte(message.Timestamp.Format(time.RFC3339Nano)+" "), line...)
 			}
@@ -105,6 +108,22 @@ func (sr *swarmRouter) swarmLogs(w http.ResponseWriter, r *http.Request, selecto
 			}
 		}
 	}
+}
+
+// appendLogAttrs encodes log attributes the way the Docker daemon does for
+// details=1: sorted, URL-escaped key=value pairs joined by commas.
+func appendLogAttrs(dst []byte, attrs []backend.LogAttr) []byte {
+	attrs = slices.Clone(attrs)
+	slices.SortFunc(attrs, func(a, b backend.LogAttr) int { return cmp.Compare(a.Key, b.Key) })
+	for index, attr := range attrs {
+		if index > 0 {
+			dst = append(dst, ',')
+		}
+		dst = append(dst, url.QueryEscape(attr.Key)...)
+		dst = append(dst, '=')
+		dst = append(dst, url.QueryEscape(attr.Value)...)
+	}
+	return dst
 }
 
 func parseLogTime(raw string) (time.Time, error) {

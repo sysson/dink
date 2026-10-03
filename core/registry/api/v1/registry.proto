@@ -37,7 +37,7 @@ service RegistryService {
   rpc Query(QueryRequest) returns (QueryResponse);
   // IssuePullCredential creates, or replaces, the Basic credential that
   // nodes use to pull the images of the identity's namespace. The password
-  // is only ever returned here.
+  // is only ever returned here. A valid existing password is reused.
   rpc IssuePullCredential(IssuePullCredentialRequest) returns (IssuePullCredentialResponse);
   // RevokePullCredential removes the namespace's pull credential.
   rpc RevokePullCredential(RevokePullCredentialRequest) returns (RevokePullCredentialResponse);
@@ -262,6 +262,8 @@ message QueryResponse {
 
 message IssuePullCredentialRequest {
   Identity identity = 1;
+  // If still valid, reuse this password rather than rotating the credential.
+  string existing_password = 2;
 }
 
 message IssuePullCredentialResponse {

@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net"
 	"net/url"
@@ -182,6 +183,64 @@ func (g *Gateway) ListWorkers(ctx context.Context, request *control.ListWorkersR
 		delete(worker.Labels, "org.mobyproject.buildkit.worker.snapshotter")
 	}
 	return response, nil
+}
+
+func (g *Gateway) DiskUsage(ctx context.Context, request *control.DiskUsageRequest) (*control.DiskUsageResponse, error) {
+	if _, err := g.check(ctx); err != nil {
+		return nil, err
+	}
+	return g.control.DiskUsage(ctx, request)
+}
+
+func (g *Gateway) PruneCache(ctx context.Context, request *control.PruneRequest) ([]*control.UsageRecord, error) {
+	if _, err := g.check(ctx); err != nil {
+		return nil, err
+	}
+	stream, err := g.control.Prune(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	var records []*control.UsageRecord
+	for {
+		record, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return records, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, record)
+	}
+}
+
+func (g *Gateway) Prune(request *control.PruneRequest, server grpc.ServerStreamingServer[control.UsageRecord]) error {
+	if _, err := g.check(server.Context()); err != nil {
+		return err
+	}
+	stream, err := g.control.Prune(server.Context(), request)
+	if err != nil {
+		return err
+	}
+	headers, err := stream.Header()
+	if err != nil {
+		return err
+	}
+	if err := server.SendHeader(headers); err != nil {
+		return err
+	}
+	defer func() { server.SetTrailer(stream.Trailer()) }()
+	for {
+		record, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if err := server.Send(record); err != nil {
+			return err
+		}
+	}
 }
 
 func (g *Gateway) Solve(ctx context.Context, request *control.SolveRequest) (response *control.SolveResponse, retErr error) {

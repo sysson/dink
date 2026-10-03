@@ -140,6 +140,10 @@ func TestPullCredentials(t *testing.T) {
 	if ok, err := credentials.Verify(ctx, username, password); err != nil || !ok {
 		t.Fatalf("Verify(issued) = %v, %v", ok, err)
 	}
+	_, reused, err := client.EnsurePullCredential(ctx, password)
+	if err != nil || reused != password {
+		t.Fatalf("valid credential was not reused: %v", err)
+	}
 	_, rotated, err := client.IssuePullCredential(ctx)
 	if err != nil || rotated == password {
 		t.Fatalf("reissued password = %q, %v; want a new one", rotated, err)
@@ -152,6 +156,13 @@ func TestPullCredentials(t *testing.T) {
 	}
 	if ok, _ := credentials.Verify(ctx, username, rotated); ok {
 		t.Fatal("revoked password still verifies")
+	}
+	_, recovered, err := client.EnsurePullCredential(ctx, rotated)
+	if err != nil || recovered == "" || recovered == rotated {
+		t.Fatalf("stale credential was not replaced: %v", err)
+	}
+	if ok, err := credentials.Verify(ctx, username, recovered); err != nil || !ok {
+		t.Fatalf("Verify(recovered) = %v, %v", ok, err)
 	}
 	invalid := identity.NewContext(context.Background(), identity.Identity{Namespace: "Not_Valid"})
 	if _, _, err := client.IssuePullCredential(invalid); statusCode(err) != http.StatusBadRequest {

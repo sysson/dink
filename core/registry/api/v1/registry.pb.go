@@ -1978,10 +1978,12 @@ func (x *QueryResponse) GetResponse() []byte {
 }
 
 type IssuePullCredentialRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Identity      *Identity              `protobuf:"bytes,1,opt,name=identity,proto3" json:"identity,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Identity *Identity              `protobuf:"bytes,1,opt,name=identity,proto3" json:"identity,omitempty"`
+	// If still valid, reuse this password rather than rotating the credential.
+	ExistingPassword string `protobuf:"bytes,2,opt,name=existing_password,json=existingPassword,proto3" json:"existing_password,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *IssuePullCredentialRequest) Reset() {
@@ -2019,6 +2021,13 @@ func (x *IssuePullCredentialRequest) GetIdentity() *Identity {
 		return x.Identity
 	}
 	return nil
+}
+
+func (x *IssuePullCredentialRequest) GetExistingPassword() string {
+	if x != nil {
+		return x.ExistingPassword
+	}
+	return ""
 }
 
 type IssuePullCredentialResponse struct {
@@ -2300,9 +2309,10 @@ const file_core_registry_api_v1_registry_proto_rawDesc = "" +
 	"\x0eoperation_name\x18\x02 \x01(\tR\roperationName\x12\x1c\n" +
 	"\tvariables\x18\x03 \x01(\fR\tvariables\"+\n" +
 	"\rQueryResponse\x12\x1a\n" +
-	"\bresponse\x18\x01 \x01(\fR\bresponse\"X\n" +
+	"\bresponse\x18\x01 \x01(\fR\bresponse\"\x85\x01\n" +
 	"\x1aIssuePullCredentialRequest\x12:\n" +
-	"\bidentity\x18\x01 \x01(\v2\x1e.core.registry.api.v1.IdentityR\bidentity\"U\n" +
+	"\bidentity\x18\x01 \x01(\v2\x1e.core.registry.api.v1.IdentityR\bidentity\x12+\n" +
+	"\x11existing_password\x18\x02 \x01(\tR\x10existingPassword\"U\n" +
 	"\x1bIssuePullCredentialResponse\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x1a\n" +
 	"\bpassword\x18\x02 \x01(\tR\bpassword\"Y\n" +

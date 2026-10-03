@@ -885,24 +885,30 @@ func dockerProbeSeconds(name string, duration, defaultDuration time.Duration) (i
 }
 
 // ensurePullSecret creates the namespace's pull Secret if it is missing. An
-// existing Secret is kept: issuing again would replace the credential that
-// running workloads already use. It is only replaced when it no longer covers
-// the pull host, since kubelet would otherwise pull without credentials.
+// existing credential is verified with dinki before reuse so registry storage
+// replacement or credential revocation cannot leave workloads with stale auth.
 func (d *Docker) ensurePullSecret(ctx context.Context, namespace string) error {
 	d.pullSecretMu.Lock()
 	defer d.pullSecretMu.Unlock()
 	scope := d.pullHost + "/" + namespace
 	secrets := d.k8s.CoreV1().Secrets(namespace)
-	if existing, err := secrets.Get(ctx, pullSecretName, metav1.GetOptions{}); err == nil {
-		if dockerConfigCovers(existing.Data[corev1.DockerConfigJsonKey], scope) {
-			return nil
-		}
-	} else if !apierrors.IsNotFound(err) {
+	existing, err := secrets.Get(ctx, pullSecretName, metav1.GetOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("reading pull secret: %w", err)
 	}
-	username, password, err := d.registry.IssuePullCredential(ctx)
+	if apierrors.IsNotFound(err) {
+		existing = nil
+	}
+	var previousPassword string
+	if err == nil && existing.Type == corev1.SecretTypeDockerConfigJson {
+		previousPassword = dockerConfigPassword(existing.Data[corev1.DockerConfigJsonKey], scope, namespace)
+	}
+	username, password, err := d.registry.EnsurePullCredential(ctx, previousPassword)
 	if err != nil {
-		return fmt.Errorf("issuing pull credential: %w", err)
+		return fmt.Errorf("ensuring pull credential: %w", err)
+	}
+	if previousPassword != "" && username == namespace && password == previousPassword {
+		return nil
 	}
 	config, err := dockerConfigJSON(scope, username, password)
 	if err != nil {
@@ -915,29 +921,54 @@ func (d *Docker) ensurePullSecret(ctx context.Context, namespace string) error {
 		Type:      corev1.SecretTypeDockerConfigJson,
 		Data:      map[string][]byte{corev1.DockerConfigJsonKey: config},
 	}
-	if _, err := secrets.Create(ctx, secret, metav1.CreateOptions{}); err != nil {
-		if !apierrors.IsAlreadyExists(err) {
-			return fmt.Errorf("creating pull secret: %w", err)
+	if existing != nil {
+		secret = existing.DeepCopy()
+		secret.Type = corev1.SecretTypeDockerConfigJson
+		if secret.Data == nil {
+			secret.Data = make(map[string][]byte)
 		}
-		// Ours is the credential dinki now holds, so it must win.
+		secret.Data[corev1.DockerConfigJsonKey] = config
 		if _, err := secrets.Update(ctx, secret, metav1.UpdateOptions{}); err != nil {
 			return fmt.Errorf("updating pull secret: %w", err)
 		}
+		return nil
+	}
+	if _, err := secrets.Create(ctx, secret, metav1.CreateOptions{}); err != nil {
+		return fmt.Errorf("creating pull secret: %w", err)
 	}
 	return nil
 }
 
-// dockerConfigCovers reports whether a dockerconfigjson payload already holds
-// a credential for scope.
-func dockerConfigCovers(config []byte, scope string) bool {
+func dockerConfigPassword(config []byte, scope, username string) string {
 	var parsed struct {
-		Auths map[string]json.RawMessage `json:"auths"`
+		Auths map[string]struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+			Auth     string `json:"auth"`
+		} `json:"auths"`
 	}
 	if json.Unmarshal(config, &parsed) != nil {
-		return false
+		return ""
 	}
-	_, ok := parsed.Auths[scope]
-	return ok
+	entry, ok := parsed.Auths[scope]
+	if !ok {
+		return ""
+	}
+	if entry.Auth != "" {
+		raw, err := base64.StdEncoding.DecodeString(entry.Auth)
+		if err != nil {
+			return ""
+		}
+		user, password, ok := strings.Cut(string(raw), ":")
+		if !ok || user != username {
+			return ""
+		}
+		return password
+	}
+	if entry.Username != username {
+		return ""
+	}
+	return entry.Password
 }
 
 // dockerConfigJSON scopes the credential to the namespace's repositories on

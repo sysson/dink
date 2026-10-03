@@ -34,6 +34,7 @@ type Querier interface {
 type Credentials interface {
 	Issue(ctx context.Context, namespace string) (string, error)
 	Revoke(ctx context.Context, namespace string) error
+	Verify(ctx context.Context, namespace, password string) (bool, error)
 }
 
 // Server implements registryconnect.RegistryServiceHandler.
@@ -75,6 +76,15 @@ func (s *Server) IssuePullCredential(ctx context.Context, request *registryv1.Is
 	namespace, err := credentialNamespace(request.GetIdentity())
 	if err != nil {
 		return nil, err
+	}
+	if password := request.GetExistingPassword(); password != "" {
+		valid, err := s.credentials.Verify(ctx, namespace, password)
+		if err != nil {
+			return nil, api.ToConnectError(err)
+		}
+		if valid {
+			return &registryv1.IssuePullCredentialResponse{Username: namespace, Password: password}, nil
+		}
 	}
 	password, err := s.credentials.Issue(ctx, namespace)
 	if err != nil {

@@ -104,7 +104,7 @@ type RegistryServiceClient interface {
 	Query(context.Context, *v1.QueryRequest) (*v1.QueryResponse, error)
 	// IssuePullCredential creates, or replaces, the Basic credential that
 	// nodes use to pull the images of the identity's namespace. The password
-	// is only ever returned here.
+	// is only ever returned here. A valid existing password is reused.
 	IssuePullCredential(context.Context, *v1.IssuePullCredentialRequest) (*v1.IssuePullCredentialResponse, error)
 	// RevokePullCredential removes the namespace's pull credential.
 	RevokePullCredential(context.Context, *v1.RevokePullCredentialRequest) (*v1.RevokePullCredentialResponse, error)
@@ -393,7 +393,7 @@ type RegistryServiceHandler interface {
 	Query(context.Context, *v1.QueryRequest) (*v1.QueryResponse, error)
 	// IssuePullCredential creates, or replaces, the Basic credential that
 	// nodes use to pull the images of the identity's namespace. The password
-	// is only ever returned here.
+	// is only ever returned here. A valid existing password is reused.
 	IssuePullCredential(context.Context, *v1.IssuePullCredentialRequest) (*v1.IssuePullCredentialResponse, error)
 	// RevokePullCredential removes the namespace's pull credential.
 	RevokePullCredential(context.Context, *v1.RevokePullCredentialRequest) (*v1.RevokePullCredentialResponse, error)

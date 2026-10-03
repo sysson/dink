@@ -310,6 +310,8 @@ github.com/sysson/ocistore v1.2.0 h1:EnfZ9uktyrmps8F+K7soytbOg4I0t94LllQUVrpjQGU
 github.com/sysson/ocistore v1.2.0/go.mod h1:G2R3Le27G//Q5qu2k0cgCzR/OmAGGGspCLwXf5zFusM=
 github.com/sysson/syskit v1.5.2 h1:vOmpGB7enZ9pTjcQy3ENJngSzJ1D6fFxUq67QXBdiBE=
 github.com/sysson/syskit v1.5.2/go.mod h1:rtUS665hpSTJ3oWdhg3B0KKLfrEQpI8rb1HBY/T3Zv0=
+github.com/sysson/syskit v1.5.3 h1:CZd9FquxU/OZxHxC8VTYpsK3lSN79aXGAO4tD63WHCY=
+github.com/sysson/syskit v1.5.3/go.mod h1:rtUS665hpSTJ3oWdhg3B0KKLfrEQpI8rb1HBY/T3Zv0=
 github.com/tmc/grpc-websocket-proxy v0.0.0-20220101234140-673ab2c3ae75 h1:6fotK7otjonDflCTK0BCfls4SPy3NcCVb5dqqmbRknE=
 github.com/tmc/grpc-websocket-proxy v0.0.0-20220101234140-673ab2c3ae75/go.mod h1:KO6IkyS8Y3j8OdNO85qEYBsRPuteD+YciPomcXdrMnk=
 github.com/tonistiigi/fsutil v0.0.0-20260819142231-83cac42c1c52 h1:SGUsSbltLA7/kcCcWVaw6FtqkwvOCM9Ypq0ZLtsVbUE=

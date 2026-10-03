@@ -189,6 +189,16 @@ particular, multi-platform operations can use only manifests stored in the
 registry. Tagged builds can use the optional external backend described below;
 image load and export are not implemented.
 
+Before creating a container or Swarm service, Dink verifies the tenant's
+existing node pull credential with dinki. Valid credentials are reused; stale
+credentials (for example after registry storage replacement) are regenerated
+and the existing `dinki-pull` Secret is updated. Registry verification errors
+abort creation rather than rotating credentials or using unverified auth.
+Existing workloads share this Secret and can recover on subsequent pull retries.
+Swarm service creation generates a name when `--name` is omitted. If its image
+is not yet in the tenant registry, Dink pulls it before creating the service;
+`--with-registry-auth` credentials are forwarded for that pull.
+
 `docker image ls --tree` lists all platform manifests advertised by each stored
 image index, including platforms that have not been pulled. The Docker CLI dims
 unavailable platforms. Availability means the manifest, config, and layers are
@@ -199,6 +209,14 @@ size. Dink has no unpacked image store, so unpacked sizes remain zero.
 Retagging preserves the original manifest or index bytes and image ID, including
 unpulled platform descriptors. Available content is copied into the destination
 tenant repository; missing platforms remain unavailable.
+
+`docker image rm <tag>` can remove an extra tag from an in-use image when
+another reference in the same tenant repository retains its digest. An alias
+in a different repository can be removed if no workload uses that repository's
+digest. Removing the last reference needed by a workload is rejected, even
+with `--force`; another repository's copy cannot retain that pinned reference.
+Removal by image ID or repository digest remains blocked for in-use images.
+Image pruning continues to skip all references to an in-use image.
 
 `docker search` queries Docker Hub by default. Registry-qualified terms use that
 registry's Docker-compatible `/v1/search` endpoint, not the OCI catalog or the

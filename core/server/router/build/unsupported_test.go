@@ -10,7 +10,7 @@ import (
 )
 
 func TestLegacyBuildEndpointsReturnUnsupported(t *testing.T) {
-	api := New(pruneTranslatorStub{})
+	api := New(&pruneTranslatorStub{})
 	for _, route := range api.Routes() {
 		if route.Path() == "/build/prune" {
 			continue

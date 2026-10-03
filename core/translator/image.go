@@ -4,12 +4,16 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
+	"strings"
 
 	"github.com/docker/oci/ociref"
 	imagetypes "github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sysson/dink/core/identity"
+	localregistry "github.com/sysson/dink/core/registry"
 	"github.com/sysson/dink/core/types"
 	"github.com/sysson/dink/pkg/filters"
 )
@@ -23,7 +27,11 @@ func (r *Registry) ImageDelete(ctx context.Context, name string, options imageba
 	if err != nil {
 		return nil, err
 	}
-	if count := imageContainerCount(images, image.ID); count > 0 {
+	id, ok := identity.FromContext(ctx)
+	if !ok {
+		return nil, Unauthenticated(fmt.Errorf("missing identity in context"))
+	}
+	if count := imageRemovalContainerCount(images, image.ID, name, id); count > 0 {
 		return nil, Conflict(fmt.Errorf("unable to remove %s: image is used by %d container(s)", name, count))
 	}
 	return r.registry.ImageDelete(ctx, name, options)
@@ -81,4 +89,45 @@ func imageContainerCount(images []imagetypes.Summary, imageID string) int64 {
 		}
 	}
 	return count
+}
+
+func imageRemovalContainerCount(images []imagetypes.Summary, imageID, name string, id identity.Identity) int64 {
+	name = strings.TrimSpace(name)
+	_, encoded, _ := strings.Cut(imageID, ":")
+	// IDs remove the image rather than one tag, including truncated IDs.
+	if (strings.Contains(name, ":") && strings.HasPrefix(imageID, name)) ||
+		(len(name) >= 4 && strings.HasPrefix(encoded, name)) {
+		return imageContainerCount(images, imageID)
+	}
+	ref, err := ociref.ParseRelative(name)
+	if err != nil || ref.Digest != "" {
+		return imageContainerCount(images, imageID)
+	}
+	ref = localregistry.BuildReference(id, ref)
+	if ref.Tag == "" {
+		ref.Tag = "latest"
+	}
+	tag := strings.TrimPrefix(ref.Repository, id.Namespace+"/") + ":" + ref.Tag
+	for _, target := range images {
+		if target.ID != imageID || !slices.Contains(target.RepoTags, tag) {
+			continue
+		}
+		var count int64
+		for _, image := range images {
+			if image.ID != imageID || !slices.ContainsFunc(image.RepoDigests, func(digest string) bool {
+				return slices.Contains(target.RepoDigests, digest)
+			}) {
+				continue
+			}
+			// Another reference in this repository keeps the pinned digest available.
+			if slices.ContainsFunc(image.RepoTags, func(other string) bool { return other != tag }) {
+				return 0
+			}
+			if image.Containers > count {
+				count = image.Containers
+			}
+		}
+		return count
+	}
+	return imageContainerCount(images, imageID)
 }

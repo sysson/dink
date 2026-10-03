@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"time"
 
+	control "github.com/moby/buildkit/api/services/control"
+	buildtypes "github.com/moby/moby/api/types/build"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/api/types/system"
@@ -250,9 +252,50 @@ func (d *Docker) AuthenticateToRegistry(ctx context.Context, auth *registry.Auth
 	return d.registry.Authenticate(ctx, auth)
 }
 
-// DiskUsage reports an empty build cache because Dink does not build images.
-func (b *Builder) DiskUsage(context.Context, buildbackend.DiskUsageOptions) (*buildbackend.DiskUsage, error) {
-	return &buildbackend.DiskUsage{}, nil
+func (b *Builder) DiskUsage(ctx context.Context, options buildbackend.DiskUsageOptions) (*buildbackend.DiskUsage, error) {
+	if b.gateway == nil || !b.gateway.Enabled() {
+		return &buildbackend.DiskUsage{}, nil
+	}
+	response, err := b.gateway.DiskUsage(ctx, &control.DiskUsageRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("getting BuildKit cache usage: %w", err)
+	}
+	if response == nil {
+		return nil, fmt.Errorf("getting BuildKit cache usage: backend returned an empty response")
+	}
+	usage := &buildbackend.DiskUsage{}
+	for _, record := range response.Record {
+		usage.TotalCount++
+		usage.TotalSize += record.Size
+		if record.InUse {
+			usage.ActiveCount++
+		}
+		if !record.InUse && !record.Shared {
+			usage.Reclaimable += record.Size
+		}
+		if !options.Verbose {
+			continue
+		}
+		cacheRecord := buildtypes.CacheRecord{
+			ID:          record.ID,
+			Parents:     record.Parents,
+			Type:        record.RecordType,
+			Description: record.Description,
+			InUse:       record.InUse,
+			Shared:      record.Shared,
+			Size:        record.Size,
+			UsageCount:  int(record.UsageCount),
+		}
+		if record.CreatedAt != nil {
+			cacheRecord.CreatedAt = record.CreatedAt.AsTime()
+		}
+		if record.LastUsedAt != nil {
+			lastUsed := record.LastUsedAt.AsTime()
+			cacheRecord.LastUsedAt = &lastUsed
+		}
+		usage.Items = append(usage.Items, cacheRecord)
+	}
+	return usage, nil
 }
 
 func (d *Docker) Status(context.Context) (string, error) {

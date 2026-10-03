@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -20,6 +19,7 @@ import (
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/registry/api"
 	"github.com/sysson/syskit/httpx"
+	"github.com/sysson/syskit/logx"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -100,9 +100,9 @@ func (g *Gateway) HandleHTTPRequest(ctx context.Context, w http.ResponseWriter, 
 	if err := g.handleSession(ctx, conn, r.Header); err != nil {
 		// The upgraded connection owns the response; HTTP error handlers cannot write to it.
 		if errors.Is(err, context.Canceled) {
-			slog.InfoContext(ctx, "BuildKit session disconnected", "session", r.Header.Get(sessionIDHeader), "error", err)
+			logx.G(ctx).Info("BuildKit session disconnected", "session", r.Header.Get(sessionIDHeader), "error", err)
 		} else {
-			slog.ErrorContext(ctx, "BuildKit session failed", "session", r.Header.Get(sessionIDHeader), "error", err)
+			logx.G(ctx).Error("BuildKit session failed", "session", r.Header.Get(sessionIDHeader), "error", err)
 		}
 	}
 	return nil

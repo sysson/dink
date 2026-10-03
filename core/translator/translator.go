@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/docker/oci/ociref"
+	control "github.com/moby/buildkit/api/services/control"
 	imagetypes "github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/v2/daemon/server/imagebackend"
@@ -32,7 +34,8 @@ import (
 type dockerRegistry interface {
 	Authenticate(ctx context.Context, auth *registry.AuthConfig) (string, error)
 	ImageInspect(ctx context.Context, name string, options imagebackend.ImageInspectOpts) (*imagebackend.InspectData, error)
-	IssuePullCredential(ctx context.Context) (string, string, error)
+	PullImage(ctx context.Context, ref ociref.Reference, options imagebackend.PullOptions) error
+	EnsurePullCredential(ctx context.Context, existingPassword string) (string, string, error)
 	Images(ctx context.Context, options types.ImageListOptions) ([]imagetypes.Summary, error)
 }
 
@@ -70,9 +73,17 @@ type Swarm struct {
 	systemNamespace string
 }
 
+type builderGateway interface {
+	Enabled() bool
+	DiskUsage(context.Context, *control.DiskUsageRequest) (*control.DiskUsageResponse, error)
+	PruneCache(context.Context, *control.PruneRequest) ([]*control.UsageRecord, error)
+	HandleHTTPRequest(context.Context, http.ResponseWriter, *http.Request) error
+	Close() error
+}
+
 type Builder struct {
 	k8s     *k8s.KubeClient
-	gateway *buildkit.Gateway
+	gateway builderGateway
 	grpc    *grpc.Server
 }
 

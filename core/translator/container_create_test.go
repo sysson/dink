@@ -3,6 +3,7 @@ package translator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/netip"
 	"strings"
 	"testing"
@@ -27,6 +28,57 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	kubernetesfake "k8s.io/client-go/kubernetes/fake"
 )
+
+func TestEnsurePullSecretRepairsStaleCredential(t *testing.T) {
+	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
+	for _, test := range []struct {
+		name     string
+		password string
+		fail     bool
+	}{
+		{name: "stale", password: "old-secret"},
+		{name: "valid", password: "secret"},
+		{name: "registry unavailable", password: "old-secret", fail: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			config, err := dockerConfigJSON("dinki.io/tenant", "tenant", test.password)
+			if err != nil {
+				t.Fatal(err)
+			}
+			client := kubernetesfake.NewClientset(&corev1.Secret{
+				Name: pullSecretName, Namespace: "tenant", Labels: map[string]string{"keep": "yes"},
+				Type: corev1.SecretTypeDockerConfigJson,
+				Data: map[string][]byte{corev1.DockerConfigJsonKey: config},
+			})
+			registry := &fakeRegistry{}
+			if test.fail {
+				registry.credentialError = errors.New("registry unavailable")
+			}
+			docker := &Docker{k8s: &k8s.KubeClient{Interface: client}, registry: registry, pullHost: "dinki.io"}
+			err = docker.ensurePullSecret(ctx, "tenant")
+			if test.fail != (err != nil) {
+				t.Fatalf("ensurePullSecret error = %v", err)
+			}
+			secret, err := client.CoreV1().Secrets("tenant").Get(ctx, pullSecretName, metav1.GetOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "secret"
+			if test.fail {
+				want = test.password
+			}
+			if got := dockerConfigPassword(secret.Data[corev1.DockerConfigJsonKey], "dinki.io/tenant", "tenant"); got != want {
+				t.Fatalf("pull credential not updated as expected")
+			}
+			if secret.Labels["keep"] != "yes" {
+				t.Fatal("existing metadata was lost")
+			}
+			if !test.fail && registry.issued != map[bool]int{true: 0, false: 1}[test.password == "secret"] {
+				t.Fatal("unexpected credential rotation")
+			}
+		})
+	}
+}
 
 func TestContainerCreatePullsFromDinki(t *testing.T) {
 	const digest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
