@@ -50,12 +50,16 @@ func (d *Docker) inspectContainer(ctx context.Context, deployment *containerWork
 				}
 			}
 		}
-		if len(pod.Status.ContainerStatuses) > 0 && pod.Status.ContainerStatuses[0].ImageID != "" {
-			imageID = dockerImageID(pod.Status.ContainerStatuses[0].ImageID, config.Image)
+		if status := podContainerStatus(deployment.Name, &pod); status != nil && status.ImageID != "" {
+			imageID = dockerImageID(status.ImageID, config.Image)
 		}
 	}
 	if !actualPodResources && len(deployment.Template.Spec.Containers) > 0 {
-		reconcileInspectResources(hostConfig, deployment.Template.Spec.Containers[0].Resources)
+		podContainer, err := namedContainer(&deployment.Template.Spec, deployment.Name)
+		if err != nil {
+			return nil, err
+		}
+		reconcileInspectResources(hostConfig, podContainer.Resources)
 	}
 	portBindings, err := d.containerPortBindings(ctx, deployment)
 	if err != nil {
@@ -216,9 +220,6 @@ func podContainerStatus(name string, pod *corev1.Pod) *corev1.ContainerStatus {
 			return &statuses[index]
 		}
 	}
-	if len(statuses) > 0 {
-		return &statuses[0]
-	}
 	return nil
 }
 
@@ -232,9 +233,10 @@ func lastTermination(status *corev1.ContainerStatus) *corev1.ContainerStateTermi
 // containerHealthStatus maps the readiness probe (translated from the Docker healthcheck) to a Docker health status.
 func containerHealthStatus(deployment *containerWorkload, status *corev1.ContainerStatus, now time.Time) container.HealthStatus {
 	var probe *corev1.Probe
-	for index, podContainer := range deployment.Template.Spec.Containers {
-		if podContainer.Name == deployment.Name || index == 0 {
+	for _, podContainer := range deployment.Template.Spec.Containers {
+		if podContainer.Name == deployment.Name {
 			probe = podContainer.ReadinessProbe
+			break
 		}
 	}
 	if probe == nil {

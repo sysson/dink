@@ -87,6 +87,10 @@ func (d *Docker) ContainerExecCreate(ctx context.Context, name string, config *c
 	if err != nil {
 		return "", err
 	}
+	podContainer, err := namedContainer(&pod.Spec, deployment.Name)
+	if err != nil {
+		return "", err
+	}
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {
 		return "", err
@@ -98,7 +102,7 @@ func (d *Docker) ContainerExecCreate(ctx context.Context, name string, config *c
 	}
 	d.execs[id] = &containerExec{
 		namespace: deployment.Namespace, containerID: identity.DockerIDFromUID(deployment.UID),
-		podName: pod.Name, podUID: string(pod.UID), container: pod.Spec.Containers[0].Name, config: *config,
+		podName: pod.Name, podUID: string(pod.UID), container: podContainer.Name, config: *config,
 	}
 	d.execMu.Unlock()
 	return id, nil

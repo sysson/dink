@@ -55,6 +55,12 @@ semantics. See the [endpoint status tracker](docs/docker-api-conformance.md)
 for route-level details; it is a source audit, not an external conformance-test
 result.
 
+Docker/Compose labels can explicitly add Kubernetes Pod labels and annotations
+using `dink.io/pod-label/<key>` and `dink.io/pod-annotation/<key>`. Dink validates
+the metadata and protects its internal keys. This supports user-managed logging
+collectors and other metadata-driven integrations without managing them itself;
+see [Pod labels and annotations](docs/docker-translation-contract.md#pod-labels-and-annotations).
+
 ## Production Deployment
 
 The included manifests are a starting point for a cluster installation. They
@@ -199,8 +205,11 @@ provide high availability or a production backup policy.
 - Docker API coverage is incomplete and some supported operations have
 	Kubernetes-specific behavior. Check the [endpoint status tracker](docs/docker-api-conformance.md)
 	before depending on an endpoint.
-- `docker build` and Docker's node-local image store are not implemented. Build
-	and publish images with a separate CI pipeline and registry.
+- Tagged, single-platform `docker build` and `docker buildx build` operations
+	using the Docker driver are supported through an optional external BuildKit
+	backend. Builds are disabled when `buildKit.url` is unset; the legacy
+	`POST /build` endpoint and Docker's node-local image store are not implemented.
+	See [BuildKit integration](docs/buildkit.md) for setup and supported behavior.
 - Network isolation depends on CNI NetworkPolicy enforcement. `--network host`
 	bypasses NetworkPolicies.
 - Container stats depend on Metrics Server; PVC capacity is not the same as

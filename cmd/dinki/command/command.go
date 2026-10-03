@@ -69,7 +69,6 @@ func serve(ctx context.Context, cfg config.Config, stderr io.Writer) error {
 		return fmt.Errorf("log.level: %w", err)
 	}
 	logger := slog.New(slog.NewJSONHandler(stderr, &slog.HandlerOptions{Level: level}))
-	slog.SetDefault(logger)
 	logx.SetDefault(logger)
 
 	backend, err := newBackend(ctx, cfg)

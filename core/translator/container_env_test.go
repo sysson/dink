@@ -56,8 +56,9 @@ func TestSwarmServiceResolvesSecretEnv(t *testing.T) {
 	spec := swarmtypes.ServiceSpec{
 		Name: "web",
 		TaskTemplate: swarmtypes.TaskSpec{ContainerSpec: &swarmtypes.ContainerSpec{
-			Image: "nginx",
-			Env:   []string{"PLAIN=1", "DB_PASSWORD=se://vault/db/password", "TOKEN=se://k8s/token"},
+			Image:  "nginx",
+			Env:    []string{"PLAIN=1", "DB_PASSWORD=se://vault/db/password", "TOKEN=se://k8s/token"},
+			Labels: map[string]string{podAnnotationPrefix + "fluentbit.io/parser": "json"},
 		}},
 	}
 	if _, err := swarm.CreateService(ctx, spec, "", false); err != nil {
@@ -90,6 +91,9 @@ func TestSwarmServiceResolvesSecretEnv(t *testing.T) {
 	if firstHash == "" {
 		t.Fatal("missing env hash annotation")
 	}
+	if deployment.Spec.Template.Annotations["fluentbit.io/parser"] != "json" {
+		t.Fatal("env hash overwrote user annotations")
+	}
 
 	values["tenant/db/password"] = "second"
 	if _, err := swarm.UpdateService(ctx, "web", 0, spec, swarmbackend.ServiceUpdateOptions{}, false); err != nil {
@@ -99,6 +103,9 @@ func TestSwarmServiceResolvesSecretEnv(t *testing.T) {
 	deployment, _ = client.AppsV1().Deployments("tenant").Get(ctx, "web", metav1.GetOptions{})
 	if string(stored.Data["DB_PASSWORD"]) != "second" || deployment.Spec.Template.Annotations[envHashAnnotation] == firstHash {
 		t.Fatal("changed value must update the Secret and roll the Pods")
+	}
+	if deployment.Spec.Template.Annotations["fluentbit.io/parser"] != "json" {
+		t.Fatal("secret rotation removed user annotations")
 	}
 
 	spec.TaskTemplate.ContainerSpec.Env = []string{"PLAIN=1"}

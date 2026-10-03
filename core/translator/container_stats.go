@@ -44,6 +44,10 @@ func (d *Docker) ContainerStats(ctx context.Context, name string, config *backen
 		if pod == nil || len(pod.Spec.Containers) == 0 {
 			return NotFound(fmt.Errorf("no running pod found for container %s", name))
 		}
+		podContainer, err := namedContainer(&pod.Spec, deployment.Name)
+		if err != nil {
+			return err
+		}
 		read := time.Now().UTC()
 		window := time.Second
 		sample := corev1.ResourceList{}
@@ -53,7 +57,7 @@ func (d *Docker) ContainerStats(ctx context.Context, name string, config *backen
 				return kubeError(err)
 			}
 			if err == nil {
-				containerName := pod.Spec.Containers[0].Name
+				containerName := podContainer.Name
 				for index := range metrics.Containers {
 					if metrics.Containers[index].Name == containerName {
 						sample = metrics.Containers[index].Usage
@@ -91,7 +95,7 @@ func (d *Docker) ContainerStats(ctx context.Context, name string, config *backen
 		if memory := sample.Memory(); memory != nil {
 			stats.MemoryStats.Usage = uint64(memory.Value())
 		}
-		if limit := pod.Spec.Containers[0].Resources.Limits.Memory(); limit != nil {
+		if limit := podContainer.Resources.Limits.Memory(); limit != nil {
 			stats.MemoryStats.Limit = uint64(limit.Value())
 		}
 		if encoder == nil {

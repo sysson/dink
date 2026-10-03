@@ -52,6 +52,10 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 		return container.CreateResponse{}, InvalidArgument(err)
 	}
 	cfg.Config = mergedConfig
+	podMeta, err := podMetadata(cfg.Config.Labels)
+	if err != nil {
+		return container.CreateResponse{}, err
+	}
 	resources, err := containerResources(cfg.HostConfig)
 	if err != nil {
 		return container.CreateResponse{}, InvalidArgument(err)
@@ -115,8 +119,10 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 	}
 	podLabels := dinkPodLabels(cfg.Name)
 	maps.Copy(podLabels, networkLabels)
+	maps.Copy(podLabels, podMeta.Labels)
 	template := corev1.PodTemplateSpec{
-		Labels: podLabels,
+		Labels:      podLabels,
+		Annotations: podMeta.Annotations,
 		Spec: corev1.PodSpec{
 			HostNetwork:      hostNetwork,
 			DNSPolicy:        podDNSPolicy(hostNetwork),

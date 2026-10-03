@@ -180,7 +180,7 @@ func (s *Swarm) nodeIDsByName(ctx context.Context) map[string]string {
 }
 
 func swarmTask(pod *corev1.Pod, service swarmtypes.Service, slot int, nodeID string) swarmtypes.Task {
-	status := podTaskStatus(pod)
+	status := podTaskStatus(pod, service.Spec.Name)
 	desired := swarmtypes.TaskStateRunning
 	if pod.DeletionTimestamp != nil {
 		desired = swarmtypes.TaskStateShutdown
@@ -202,7 +202,7 @@ func swarmTask(pod *corev1.Pod, service swarmtypes.Service, slot int, nodeID str
 	}
 }
 
-func podTaskStatus(pod *corev1.Pod) swarmtypes.TaskStatus {
+func podTaskStatus(pod *corev1.Pod, containerName string) swarmtypes.TaskStatus {
 	status := swarmtypes.TaskStatus{Timestamp: pod.CreationTimestamp.Time}
 	switch pod.Status.Phase {
 	case corev1.PodPending:
@@ -220,7 +220,7 @@ func podTaskStatus(pod *corev1.Pod) swarmtypes.TaskStatus {
 	status.Err = pod.Status.Reason
 	for index := range pod.Status.ContainerStatuses {
 		container := &pod.Status.ContainerStatuses[index]
-		if container.Name != pod.Spec.Containers[0].Name {
+		if container.Name != containerName {
 			continue
 		}
 		containerStatus := &swarmtypes.ContainerStatus{ContainerID: strings.TrimPrefix(container.ContainerID, "containerd://")}

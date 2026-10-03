@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"iter"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -28,9 +27,7 @@ func New(backend oci.Interface) (http.Handler, error) {
 		return nil, fmt.Errorf("OCI backend is required")
 	}
 
-	api, err := ociserver.New(backend, &ociserver.ServerConfig{
-		Logger: slog.Default(),
-	})
+	api, err := ociserver.New(backend, &ociserver.ServerConfig{})
 	if err != nil {
 		return nil, fmt.Errorf("creating OCI protocol server: %w", err)
 	}

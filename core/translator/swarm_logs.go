@@ -39,11 +39,14 @@ func (s *Swarm) ServiceLogs(ctx context.Context, selector *backend.LogSelector, 
 	}
 	streams := make([]<-chan *backend.LogMessage, 0, len(pods))
 	for index := range pods {
-		stream, err := s.docker.podLogs(ctx, namespace, &pods[index], options)
+		task, ok := byPod[pods[index].Name]
+		if !ok {
+			return nil, NotFound(fmt.Errorf("task for pod %s no longer exists", pods[index].Name))
+		}
+		stream, err := s.docker.podLogs(ctx, namespace, &pods[index], task.Labels["com.docker.swarm.service.name"], options)
 		if err != nil {
 			return nil, err
 		}
-		task := byPod[pods[index].Name]
 		streams = append(streams, withLogAttrs(ctx, stream, []backend.LogAttr{
 			{Key: "com.docker.swarm.node.id", Value: task.NodeID},
 			{Key: "com.docker.swarm.service.id", Value: task.ServiceID},

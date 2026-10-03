@@ -371,6 +371,10 @@ func (s *Swarm) buildService(ctx context.Context, namespace string, spec swarmty
 	if containerSpec == nil {
 		return nil, nil, noEnv, nil, InvalidArgument(fmt.Errorf("service task template requires a container spec"))
 	}
+	podMeta, err := podMetadata(spec.Labels, containerSpec.Labels)
+	if err != nil {
+		return nil, nil, noEnv, nil, err
+	}
 	switch spec.TaskTemplate.Runtime {
 	case "", swarmtypes.RuntimeContainer:
 	default:
@@ -462,6 +466,7 @@ func (s *Swarm) buildService(ctx context.Context, namespace string, spec swarmty
 	podLabels := dinkPodLabels(spec.Name)
 	podLabels[swarmKindLabel] = swarmServiceKind
 	maps.Copy(podLabels, networkLabels)
+	maps.Copy(podLabels, podMeta.Labels)
 	container := corev1.Container{
 		Name:            spec.Name,
 		Image:           image,
@@ -490,7 +495,8 @@ func (s *Swarm) buildService(ctx context.Context, namespace string, spec swarmty
 		}
 	}
 	template := corev1.PodTemplateSpec{
-		Labels: podLabels,
+		Labels:      podLabels,
+		Annotations: podMeta.Annotations,
 		Spec: corev1.PodSpec{
 			Hostname:         hostnameFor(containerSpec.Hostname),
 			Volumes:          volumes,
@@ -511,7 +517,10 @@ func (s *Swarm) buildService(ctx context.Context, namespace string, spec swarmty
 		template.Spec.SecurityContext = &corev1.PodSecurityContext{Sysctls: podSysctls(containerSpec.Sysctls)}
 	}
 	if hash := envHash(env.Values); hash != "" {
-		template.Annotations = map[string]string{envHashAnnotation: hash}
+		template.Annotations[envHashAnnotation] = hash
+	}
+	if err := validatePodAnnotations(template.Annotations); err != nil {
+		return nil, nil, noEnv, nil, err
 	}
 	constraints, err := placementRequirements(spec.TaskTemplate.Placement)
 	if err != nil {

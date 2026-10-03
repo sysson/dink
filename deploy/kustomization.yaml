@@ -7,11 +7,11 @@ resources:
   - buildkit.yaml
 images:
   - name: ghcr.io/sysson/dink
-    #   ghcr.io/sysson/dink:v0.1.2-beta.1
-    newTag: sha-10d46e5b55819c9758b33c28631efd2e2bdebe30
+    #   ghcr.io/sysson/dink:v0.2.1
+    newTag: sha-a3432dec5c4eba524b4d5029f7dad1a7e75ba755
   - name: ghcr.io/sysson/dinki
-    #   ghcr.io/sysson/dinki:v0.1.2-beta.1
-    newTag: sha-10d46e5b55819c9758b33c28631efd2e2bdebe30
+    #   ghcr.io/sysson/dinki:v0.2.1
+    newTag: sha-a3432dec5c4eba524b4d5029f7dad1a7e75ba755
 configMapGenerator:
   - name: dink-config
     namespace: dink-system

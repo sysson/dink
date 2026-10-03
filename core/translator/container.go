@@ -55,6 +55,15 @@ func (d *Docker) ContainerStatPath(context.Context, string, string) (*container.
 	return nil, ErrNotImplemented
 }
 
+func namedContainer(spec *corev1.PodSpec, name string) (*corev1.Container, error) {
+	for index := range spec.Containers {
+		if spec.Containers[index].Name == name {
+			return &spec.Containers[index], nil
+		}
+	}
+	return nil, NotFound(fmt.Errorf("application container %q not found in pod spec", name))
+}
+
 const tenantResourceDefaultsConfigMap = "dink-resource-defaults"
 
 func (d *Docker) ContainerChanges(context.Context, string) ([]container.FilesystemChange, error) {

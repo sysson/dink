@@ -6,7 +6,10 @@ COPY go.mod go.sum ./
 COPY sdk/go.mod sdk/go.sum ./sdk/
 RUN go mod download
 
-COPY . .
+COPY cmd/ ./cmd/
+COPY pkg/ ./pkg/
+COPY core/ ./core/
+COPY sdk/ ./sdk/
 
 FROM build AS build-dink
 ARG TARGETOS
