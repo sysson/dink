@@ -25,6 +25,7 @@ type lifecycleStub struct {
 	call           string
 	name           string
 	signal         string
+	newName        string
 	stopOptions    backend.ContainerStopOptions
 	restartOptions backend.ContainerStopOptions
 	remove         *backend.ContainerRmConfig
@@ -131,6 +132,29 @@ func (s *lifecycleStub) ContainerInspect(_ context.Context, name string, options
 func (s *lifecycleStub) ContainerKill(_ context.Context, name, signal string) error {
 	s.call, s.name, s.signal = "kill", name, signal
 	return nil
+}
+
+func (s *lifecycleStub) ContainerRename(_ context.Context, name, newName string) error {
+	s.call, s.name, s.newName = "rename", name, newName
+	return nil
+}
+
+func TestContainerRenameRoute(t *testing.T) {
+	stub := &lifecycleStub{}
+	cr := &containerRouter{translator: stub}
+	request := httptest.NewRequest(http.MethodPost, "/containers/old/rename?name=New_Name", nil)
+	request.SetPathValue("name", "old")
+	response := httptest.NewRecorder()
+	if err := cr.postContainerRename(response, request); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusNoContent || stub.call != "rename" || stub.name != "old" || stub.newName != "New_Name" {
+		t.Fatalf("rename route: status %d, stub %+v", response.Code, stub)
+	}
+	request = httptest.NewRequest(http.MethodPost, "/containers/old/rename", nil)
+	if err := cr.postContainerRename(httptest.NewRecorder(), request); err == nil {
+		t.Fatal("missing new name accepted")
+	}
 }
 
 func (s *lifecycleStub) ContainerPause(_ context.Context, name string) error {

@@ -158,7 +158,9 @@ func (d *Docker) forwardKubernetesEvents(ctx context.Context, output chan any, e
 			action = "create"
 			deployments[deployment.Name] = deployment
 		case watch.Modified:
-			if previous != nil && !apiequality.Semantic.DeepEqual(previous.Template, deployment.Template) {
+			if previous != nil && previous.dockerName() != deployment.dockerName() {
+				action = "rename"
+			} else if previous != nil && !apiequality.Semantic.DeepEqual(previous.Template, deployment.Template) {
 				action = "update"
 			}
 			deployments[deployment.Name] = deployment
@@ -389,7 +391,7 @@ func (d *Docker) historicalDockerEvents(ctx context.Context, namespace string, s
 }
 
 func containerDockerEvent(deployment *containerWorkload, action string, timestamp time.Time) events.Message {
-	attributes := map[string]string{"name": deployment.Name}
+	attributes := map[string]string{"name": deployment.dockerName()}
 	config, _, err := containerMetadata(deployment)
 	if err == nil && config != nil {
 		maps.Copy(attributes, config.Labels)

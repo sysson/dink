@@ -44,7 +44,7 @@ because dink mounts them alongside the Docker API routes.
 | `POST /containers/{name}/exec` | Partial | Attached Pod exec is supported. Custom user, privileges, environment, and working directory options are not fully supported; exec IDs are process-local. |
 | `POST /exec/{id}/start` | Partial | Attached streaming only; detached exec returns 501. TTY must match the create request. |
 | `POST /exec/{id}/resize` | Partial | Resizes an active exec TTY; IDs are process-local and Pod-scoped. |
-| `POST /containers/{name}/rename` | Todo | Translator returns not implemented. |
+| `POST /containers/{name}/rename` | Done | Changes the Docker-visible name and primary DNS Service without changing the workload UID, selectors, Pod template, published-port Service, or Docker ID. Existing explicit network aliases remain attached. |
 | `POST /containers/{name}/update` | Partial | CPU/memory resource updates only; restart-policy changes and other resource fields are rejected. Updating a running Deployment replaces its Pod and returns a warning. `--rm` containers cannot be updated. |
 | `POST /containers/prune` | Partial | Removes eligible Dink-managed workloads; filter behavior is limited to implemented container filters. Minimum API version 1.25. |
 | `POST /commit` | Todo | Container commit is not implemented. |

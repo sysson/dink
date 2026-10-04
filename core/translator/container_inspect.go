@@ -82,7 +82,7 @@ func (d *Docker) inspectContainer(ctx context.Context, deployment *containerWork
 		State:        state,
 		RestartCount: restartCount,
 		Image:        imageID,
-		Name:         "/" + deployment.Name,
+		Name:         "/" + deployment.dockerName(),
 		HostConfig:   hostConfig,
 		Config:       config,
 		NetworkSettings: &container.NetworkSettings{

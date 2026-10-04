@@ -21,9 +21,12 @@ type buildKitSetup struct {
 
 func buildKitIntegration(t *testing.T) buildKitSetup {
 	t.Helper()
+	if os.Getenv("DINK_E2E") != "1" {
+		t.Skip("run make test-e2e for disposable-cluster BuildKit tests")
+	}
 	name := os.Getenv("DINK_INTEGRATION_CONTEXT")
 	if name == "" {
-		t.Skip("set DINK_INTEGRATION_CONTEXT to a real Dink Docker context with an external BuildKit backend")
+		t.Fatal("E2E runner did not configure a Dink Docker context")
 	}
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatal("Docker CLI is required when DINK_INTEGRATION_CONTEXT is set")
@@ -53,7 +56,11 @@ func buildKitIntegration(t *testing.T) buildKitSetup {
 func (s buildKitSetup) docker(ctx context.Context, args ...string) ([]byte, error) {
 	command := exec.CommandContext(ctx, "docker", append([]string{"--context", s.context}, args...)...)
 	command.Env = s.env
-	return command.CombinedOutput()
+	output, err := command.CombinedOutput()
+	if err != nil && ctx.Err() != nil {
+		return output, fmt.Errorf("Docker command interrupted: %w (process error: %v)", ctx.Err(), err)
+	}
+	return output, err
 }
 
 func (s buildKitSetup) mustDocker(t *testing.T, args ...string) []byte {
@@ -82,9 +89,7 @@ func (s buildKitSetup) withoutRegistryCredentials(t *testing.T) buildKitSetup {
 	t.Helper()
 	dir := t.TempDir()
 	archive := filepath.Join(t.TempDir(), "context.tar")
-	if err := os.WriteFile(archive, s.mustDocker(t, "context", "export", s.context), 0600); err != nil {
-		t.Fatal(err)
-	}
+	s.mustDocker(t, "context", "export", s.context, archive)
 	isolated := s
 	isolated.env = nil
 	for _, variable := range s.env {
@@ -263,11 +268,11 @@ func TestBuildKitBuildLoadLocalOutputAndHistory(t *testing.T) {
 }
 
 func TestBuildKitPushRetainsDinkiCopy(t *testing.T) {
+	setup := buildKitIntegration(t)
 	repository := os.Getenv("DINK_INTEGRATION_PUSH_REPOSITORY")
 	if repository == "" {
-		t.Skip("set DINK_INTEGRATION_PUSH_REPOSITORY to a disposable upstream repository; docker login first")
+		t.Fatal("E2E runner did not configure the disposable push repository")
 	}
-	setup := buildKitIntegration(t)
 	dir := buildContext(t, "pushed through real Dink\n")
 	tags := []string{repository + ":" + setup.id, repository + ":" + setup.id + "-second"}
 	iid, metadata := filepath.Join(t.TempDir(), "iid"), filepath.Join(t.TempDir(), "metadata.json")

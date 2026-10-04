@@ -14,9 +14,12 @@ import (
 )
 
 func TestBuildKitBackendMutualTLS(t *testing.T) {
+	if os.Getenv("DINK_E2E") != "1" {
+		t.Skip("run make test-e2e for disposable-cluster BuildKit TLS tests")
+	}
 	address := os.Getenv("DINK_INTEGRATION_BUILDKIT_ADDR")
 	if address == "" {
-		t.Skip("set DINK_INTEGRATION_BUILDKIT_ADDR and TLS settings for a real mTLS backend")
+		t.Fatal("E2E runner did not configure the BuildKit TLS endpoint")
 	}
 	cfg := config.BuildKit{
 		URL:        address,

@@ -182,6 +182,20 @@ make test
 make lint
 ```
 
+For a disposable local cluster that tests this checkout through real Docker,
+Buildx, Compose, and Swarm-compatible commands, plus selected upstream Docker
+CLI tests, including all BuildKit integration tests:
+
+```sh
+make test-e2e
+```
+
+This runs inside the devcontainer without changing your active contexts.
+BuildKit TLS checks and authenticated registry-push tests are provisioned
+automatically; no manual endpoint setup or public registry login is needed.
+See the [local E2E guide](testing/e2e/README.md) for requirements, isolation,
+coverage, and diagnostic logs.
+
 ## Configuration and Operations
 
 - [`deploy/config.json`](deploy/config.json) configures the Docker API, TLS,

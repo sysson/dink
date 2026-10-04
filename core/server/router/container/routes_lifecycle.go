@@ -113,7 +113,18 @@ func (cr *containerRouter) postContainersWait(w http.ResponseWriter, r *http.Req
 }
 
 func (cr *containerRouter) postContainerRename(w http.ResponseWriter, r *http.Request) error {
-	return unsupportedContainerEndpoint(r)
+	if err := r.ParseForm(); err != nil {
+		return httpx.BadRequest(err)
+	}
+	name := r.Form.Get("name")
+	if name == "" {
+		return httpx.BadRequest(fmt.Errorf("new name is required"))
+	}
+	if err := cr.translator.ContainerRename(r.Context(), r.PathValue("name"), name); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 func (cr *containerRouter) postContainerUpdate(w http.ResponseWriter, r *http.Request) error {

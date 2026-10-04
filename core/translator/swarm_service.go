@@ -977,21 +977,19 @@ func retainNodePorts(desired *corev1.ServiceSpec, existing corev1.ServiceSpec) {
 }
 
 func serviceStrategy(update *swarmtypes.UpdateConfig) appsv1.DeploymentStrategy {
-	strategy := appsv1.DeploymentStrategy{Type: appsv1.RollingUpdateDeploymentStrategyType}
-	if update == nil {
-		return strategy
+	parallelism := int32(1)
+	if update != nil && update.Parallelism > 0 && update.Parallelism <= uint64(1<<31-1) {
+		parallelism = int32(update.Parallelism)
 	}
-	rolling := &appsv1.RollingUpdateDeployment{}
-	if update.Parallelism > 0 && update.Parallelism <= uint64(1<<31-1) {
-		surge := intstr.FromInt32(int32(update.Parallelism))
-		rolling.MaxSurge = &surge
+	rolling := &appsv1.RollingUpdateDeployment{
+		MaxSurge:       new(intstr.FromInt32(0)),
+		MaxUnavailable: new(intstr.FromInt32(parallelism)),
 	}
-	if update.Order == swarmtypes.UpdateOrderStartFirst {
-		unavailable := intstr.FromInt32(0)
-		rolling.MaxUnavailable = &unavailable
+	if update != nil && update.Order == swarmtypes.UpdateOrderStartFirst {
+		rolling.MaxSurge = new(intstr.FromInt32(parallelism))
+		rolling.MaxUnavailable = new(intstr.FromInt32(0))
 	}
-	strategy.RollingUpdate = rolling
-	return strategy
+	return appsv1.DeploymentStrategy{Type: appsv1.RollingUpdateDeploymentStrategyType, RollingUpdate: rolling}
 }
 
 // placementRequirements maps Swarm placement constraints onto node selector

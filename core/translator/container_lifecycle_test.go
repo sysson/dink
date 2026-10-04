@@ -20,6 +20,16 @@ import (
 	ktesting "k8s.io/client-go/testing"
 )
 
+func simulateContainerPodGC(client *kubernetesfake.Clientset) {
+	client.PrependReactor("delete", "deployments", func(ktesting.Action) (bool, runtime.Object, error) {
+		err := client.Tracker().Delete(corev1.SchemeGroupVersion.WithResource("pods"), "tenant", "web-pod")
+		if err != nil && !apierrors.IsNotFound(err) {
+			return true, nil, err
+		}
+		return false, nil, nil
+	})
+}
+
 func TestContainerUpdateResources(t *testing.T) {
 	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
 	client := kubernetesfake.NewClientset(&appsv1.Deployment{
@@ -46,6 +56,9 @@ func TestContainerUpdateResources(t *testing.T) {
 		t.Fatal(err)
 	}
 	resources := deployment.Spec.Template.Spec.Containers[0].Resources
+	if deployment.Spec.Strategy.Type != appsv1.RecreateDeploymentStrategyType || deployment.Spec.Strategy.RollingUpdate != nil {
+		t.Fatalf("legacy template update did not enforce stop-first: %+v", deployment.Spec.Strategy)
+	}
 	if resources.Limits.Cpu().MilliValue() != 500 || resources.Limits.Memory().Value() != 128<<20 || resources.Requests.Memory().Value() != 64<<20 {
 		t.Fatalf("updated Pod resources = %+v", resources)
 	}
@@ -171,7 +184,9 @@ func TestContainerLifecycle(t *testing.T) {
 		t.Fatal("ContainerStop crossed tenant namespace")
 	}
 	for _, serviceName := range []string{"web", publishedPortsServiceName("web")} {
-		if _, err := client.CoreV1().Services("tenant").Create(ctx, &corev1.Service{Name: serviceName, Namespace: "tenant"}, metav1.CreateOptions{}); err != nil {
+		service := containerDNSService(deploymentWorkload(deployment), nil)
+		service.Name = serviceName
+		if _, err := client.CoreV1().Services("tenant").Create(ctx, service, metav1.CreateOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -235,6 +250,7 @@ func TestContainerWaitAutoRemove(t *testing.T) {
 	ctx, cancel := context.WithTimeout(identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"}), 2*time.Second)
 	defer cancel()
 	client := kubernetesfake.NewClientset()
+	simulateContainerPodGC(client)
 	zero := int32(0)
 	annotations, err := containerAnnotations(backend.ContainerCreateConfig{
 		Config: &container.Config{}, HostConfig: &container.HostConfig{AutoRemove: true},
@@ -272,6 +288,7 @@ func TestContainerWaitAutoRemoveAfterRestart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"}), 3*time.Second)
 	defer cancel()
 	client := kubernetesfake.NewClientset()
+	simulateContainerPodGC(client)
 	annotations, err := containerAnnotations(backend.ContainerCreateConfig{
 		Config: &container.Config{}, HostConfig: &container.HostConfig{AutoRemove: true},
 	})

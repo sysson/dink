@@ -46,7 +46,7 @@ func (d *Docker) ContainerPrune(ctx context.Context, pruneFilters filters.Args) 
 		if active {
 			continue
 		}
-		if err := d.ContainerRm(ctx, deployment.Name, &backend.ContainerRmConfig{}); err != nil {
+		if err := d.ContainerRm(ctx, identity.DockerIDFromUID(deployment.UID), &backend.ContainerRmConfig{}); err != nil {
 			return report, err
 		}
 		report.ContainersDeleted = append(report.ContainersDeleted, identity.DockerIDFromUID(deployment.UID))

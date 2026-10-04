@@ -18,8 +18,6 @@ CLIENT ?= default
 DOCKER_CTX ?= dink
 DINK_HOST ?= tcp://localhost:2376
 DINK_PORT ?= 2376
-DINK_INTEGRATION_CONTEXT ?= $(DOCKER_CTX)
-INTEGRATION_TESTS ?= ^TestBuildKit
 
 # Image reference to build; tilt overrides this with the tag it expects.
 REF ?= $(IMAGE):$(TAG)
@@ -33,7 +31,7 @@ HOST_DOCKER := env -u DOCKER_HOST -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH DOCKE
 
 .PHONY: all build test generate lint clean fix dev image image-minikube load ca-generate ca-generate-local ca-rotate server registry-server certificates tenant bootstrap \
 	buildkit-server context context-sync context-use context-default context-rm port-forward restart release show-image \
-	deploy undeploy logs docker-env start clean-images test-integration
+	deploy undeploy logs docker-env start clean-images test-e2e
 
 all: build
 
@@ -45,16 +43,9 @@ test:
 	$(GO) test -race ./...
 	cd sdk && $(GO) test -race ./...
 
-## test-integration: Run real-setup tests (requires deployment and Tilt or make port-forward)
-test-integration:
-	$(MAKE) --no-print-directory context DOCKER_CTX="$(DINK_INTEGRATION_CONTEXT)"
-	@env -u DOCKER_HOST -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH \
-		$(DOCKER) --context "$(DINK_INTEGRATION_CONTEXT)" version >/dev/null || { \
-		echo "Dink is not reachable; start Tilt or run 'make port-forward' in another terminal" >&2; \
-		exit 1; \
-	}
-	DINK_INTEGRATION_CONTEXT="$(DINK_INTEGRATION_CONTEXT)" \
-		$(GO) test -race ./testing/integration -run "$(INTEGRATION_TESTS)" -count=1 -v
+## test-e2e: Build and test this checkout in a disposable local cluster
+test-e2e:
+	bash testing/e2e/run.sh
 
 ## generate: Re-generate protobuf + gRPC stubs from proto/ into sdk/*/gen/
 generate:

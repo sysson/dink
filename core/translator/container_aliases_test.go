@@ -25,6 +25,9 @@ func createAliasedContainer(t *testing.T, ctx context.Context, docker *Docker, n
 	if _, err := docker.ContainerCreate(ctx, *config); err != nil {
 		t.Fatalf("ContainerCreate(%s): %v", name, err)
 	}
+	if err := docker.ContainerStart(ctx, name, "", ""); err != nil {
+		t.Fatalf("ContainerStart(%s): %v", name, err)
+	}
 }
 
 func TestNetworkAliasesResolveToTheContainer(t *testing.T) {
@@ -66,7 +69,7 @@ func TestNetworkAliasConflictsAreRejected(t *testing.T) {
 
 	createAliasedContainer(t, ctx, docker, "proj-a-db-1", "postgres")
 
-	// Kubernetes Service names are namespace-unique, so a second claim must fail.
+	// A stopped replacement can be created, but cannot claim another container's alias.
 	err := func() error {
 		_, err := docker.ContainerCreate(ctx, backend.ContainerCreateConfig{
 			Name:   "proj-b-db-1",
@@ -75,7 +78,10 @@ func TestNetworkAliasConflictsAreRejected(t *testing.T) {
 				"bridge": {Aliases: []string{"postgres"}},
 			}},
 		})
-		return err
+		if err != nil {
+			return err
+		}
+		return docker.ContainerStart(ctx, "proj-b-db-1", "", "")
 	}()
 	if !IsKind(err, KindConflict) {
 		t.Fatalf("duplicate alias error = %v, want conflict", err)
@@ -96,6 +102,45 @@ func TestNetworkAliasConflictsAreRejected(t *testing.T) {
 	})
 	if !IsKind(err, KindInvalidArgument) {
 		t.Fatalf("invalid alias error = %v, want invalid argument", err)
+	}
+}
+
+func TestContainerSelfAliasSurvivesDisconnect(t *testing.T) {
+	ctx, docker, client := newPolicyFixture(t)
+	createAliasedContainer(t, ctx, docker, "web", "web", "frontend")
+	primary, err := client.CoreV1().Services("tenant").Get(ctx, "web", metav1.GetOptions{})
+	if err != nil || primary.Labels[aliasOfLabel] != "" {
+		t.Fatalf("self alias replaced primary Service: %+v, %v", primary, err)
+	}
+	if err := docker.DisconnectContainerFromNetwork(ctx, "bridge", "web", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.CoreV1().Services("tenant").Get(ctx, "frontend", metav1.GetOptions{}); err == nil {
+		t.Fatal("disconnected alias still exists")
+	}
+	after, err := client.CoreV1().Services("tenant").Get(ctx, "web", metav1.GetOptions{})
+	if err != nil || after.Spec.Selector["app"] != "web" {
+		t.Fatalf("disconnect removed primary Service: %+v, %v", after, err)
+	}
+}
+
+func TestSelfAliasDoesNotAdoptUnrelatedService(t *testing.T) {
+	ctx, docker, client := newPolicyFixture(t)
+	createAliasedContainer(t, ctx, docker, "web")
+	workload, err := docker.findContainer(ctx, "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	primary, err := client.CoreV1().Services("tenant").Get(ctx, "web", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	primary.OwnerReferences = nil
+	if _, err := client.CoreV1().Services("tenant").Update(ctx, primary, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := docker.applyAliasServices(ctx, workload, []string{"web"}, nil); !IsKind(err, KindConflict) {
+		t.Fatalf("unowned Service accepted as self alias: %v", err)
 	}
 }
 

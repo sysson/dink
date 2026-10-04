@@ -30,6 +30,11 @@ func (d *Docker) ContainerStats(ctx context.Context, name string, config *backen
 	interval := time.NewTicker(2 * time.Second)
 	defer interval.Stop()
 	for {
+		current, err := d.refreshWorkload(ctx, deployment)
+		if err != nil {
+			return kubeError(err)
+		}
+		deployment = current
 		pods, err := d.k8s.CoreV1().Pods(deployment.Namespace).List(ctx, metav1.ListOptions{LabelSelector: "app=" + deployment.Name})
 		if err != nil {
 			return kubeError(err)
@@ -84,7 +89,7 @@ func (d *Docker) ContainerStats(ctx context.Context, name string, config *backen
 			}
 		}
 		stats := container.StatsResponse{
-			ID: identity.DockerIDFromUID(deployment.UID), Name: deployment.Name, OSType: "linux",
+			ID: identity.DockerIDFromUID(deployment.UID), Name: deployment.dockerName(), OSType: "linux",
 			Read: read, PreRead: previous.Read, PreCPUStats: previous.CPUStats,
 		}
 		if cpu := sample.Cpu(); cpu != nil {
