@@ -27,6 +27,8 @@ spec:
                   minLength: 1
                 driver:
                   type: string
+                attachable:
+                  type: boolean
                 labels:
                   type: object
                   additionalProperties:

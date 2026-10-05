@@ -5,15 +5,14 @@ if [[ ${1:-} == --help ]]; then
   cat <<'EOF'
 Usage: bash testing/e2e/run.sh
 
-Creates a disposable Minikube/containerd cluster, deploys this checkout, runs
+Creates a disposable Kind/containerd cluster, deploys this checkout, runs
 real Docker/Buildx/Compose/Swarm and selected upstream CLI tests, then deletes it.
-Requires Docker, its Buildx and Compose plugins, Minikube, kubectl, Go and git.
+Requires Docker, its Buildx and Compose plugins, Kind, kubectl, Go and git.
 
 Settings:
   E2E_HOST_CONTEXT       Real Docker daemon context (default: default)
-  E2E_MEMORY             Minikube memory in MiB (default: 4096)
-  E2E_CPUS               Minikube CPUs (default: 2)
-  E2E_MTU                Test Docker bridge MTU (default: 1280)
+  E2E_MEMORY             Kind node memory in MiB (default: 4096)
+  E2E_CPUS               Kind node CPUs (default: 2)
   E2E_KUBERNETES_VERSION Kubernetes version (default: v1.37.0)
   E2E_UPSTREAM            Run pinned upstream CLI tests (default: 1; set 0 to skip)
 
@@ -29,22 +28,28 @@ fi
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$root"
-for tool in docker minikube kubectl go git; do
+for tool in docker kind kubectl go git; do
   command -v "$tool" >/dev/null || { echo "Required tool missing: $tool" >&2; exit 1; }
 done
 case ${E2E_UPSTREAM:-1} in
   0|1) ;;
   *) echo "E2E_UPSTREAM must be 0 or 1" >&2; exit 2 ;;
 esac
-mtu=${E2E_MTU:-1280}
-if [[ ! $mtu =~ ^[0-9]{3,4}$ ]] || (( 10#$mtu < 1280 || 10#$mtu > 9000 )); then
-  echo "E2E_MTU must be an integer between 1280 and 9000" >&2
+memory=${E2E_MEMORY:-4096}
+if [[ ! $memory =~ ^[0-9]+$ ]] || (( memory < 2048 )); then
+  echo "E2E_MEMORY must be an integer of at least 2048 MiB" >&2
+  exit 2
+fi
+cpus=${E2E_CPUS:-2}
+if [[ ! $cpus =~ ^[0-9]+([.][0-9]+)?$ ]] || ! awk -v cpus="$cpus" 'BEGIN { exit !(cpus > 0) }'; then
+  echo "E2E_CPUS must be a positive number" >&2
   exit 2
 fi
 
 host_context=${E2E_HOST_CONTEXT:-default}
 unset DOCKER_HOST DOCKER_TLS_VERIFY DOCKER_CERT_PATH DOCKER_API_VERSION
 unset BUILDX_BUILDER BUILDX_CONFIG BUILDX_HOST BUILDX_EXPERIMENTAL
+unset KIND_EXPERIMENTAL_DOCKER_NETWORK
 export DOCKER_CONTEXT="$host_context"
 docker info >/dev/null
 docker buildx version
@@ -53,7 +58,6 @@ docker compose version
 state=$(mktemp -d "${TMPDIR:-/tmp}/dink-e2e-state.XXXXXXXX")
 logs=""
 cluster_started=0
-network_created=0
 cleanup() {
   local status=$?
   trap - EXIT
@@ -72,22 +76,9 @@ cleanup() {
       >"$logs/e2e-registry.log" 2>&1
   fi
   if [[ $cluster_started == 1 ]]; then
-    if ! minikube delete -p "$profile"; then
+    if ! kind delete cluster --name "$profile"; then
       echo "Cluster deletion failed. State retained at $state." >&2
-      echo "Retry: MINIKUBE_HOME=$state/minikube KUBECONFIG=$state/kubeconfig DOCKER_CONFIG=$state/docker DOCKER_CONTEXT=e2e-host minikube delete -p $profile" >&2
-      echo "Logs: $logs"
-      exit 1
-    fi
-  fi
-  if [[ $network_created == 1 ]]; then
-    local network_id
-    if ! network_id=$(docker --context e2e-host network ls --filter "name=^${profile}$" --format '{{.ID}}'); then
-      echo "Unable to inspect test network. State retained at $state." >&2
-      exit 1
-    fi
-    if [[ -n $network_id ]] && ! docker --context e2e-host network rm "$profile"; then
-      echo "Test network deletion failed. State retained at $state." >&2
-      echo "Retry: DOCKER_CONFIG=$state/docker docker --context e2e-host network rm $profile" >&2
+      echo "Retry: KUBECONFIG=$state/kubeconfig DOCKER_CONFIG=$state/docker DOCKER_CONTEXT=e2e-host kind delete cluster --name $profile" >&2
       echo "Logs: $logs"
       exit 1
     fi
@@ -113,21 +104,67 @@ mkdir -p "$DOCKER_CONFIG"
 docker context import e2e-host "$state/host.dockercontext"
 export DOCKER_CONTEXT=e2e-host
 export KUBECONFIG="$state/kubeconfig"
-export MINIKUBE_HOME="$state/minikube"
 export DINK_CERTS_DIR="$state/certs"
 
 go build -o "$state/dinkle" ./cmd/dinkle
-network_created=1
-docker network create --driver=bridge --opt "com.docker.network.driver.mtu=$mtu" "$profile"
+kind_version=${E2E_KUBERNETES_VERSION:-v1.37.0}
+cat >"$state/kind.yaml" <<EOF
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  disableDefaultCNI: true
+  podSubnet: 192.168.0.0/16
+containerdConfigPatches:
+  - |-
+    version = 2
+    [plugins."io.containerd.grpc.v1.cri".registry]
+      config_path = "/etc/containerd/certs.d"
+  - |-
+    version = 3
+    [plugins."io.containerd.cri.v1.images".registry]
+      config_path = "/etc/containerd/certs.d"
+  - |-
+    version = 4
+    [plugins."io.containerd.cri.v1.images".registry]
+      config_path = "/etc/containerd/certs.d"
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 32374
+        hostPort: 32374
+        listenAddress: "127.0.0.1"
+      - containerPort: 32376
+        hostPort: 32376
+        listenAddress: "127.0.0.1"
+      - containerPort: 32500
+        hostPort: 32500
+        listenAddress: "127.0.0.1"
+EOF
 cluster_started=1
-minikube start -p "$profile" --driver=docker --container-runtime=containerd \
-  --network="$profile" --cni=calico --keep-context --embed-certs \
-  --memory="${E2E_MEMORY:-4096}" --cpus="${E2E_CPUS:-2}" \
-  --kubernetes-version="${E2E_KUBERNETES_VERSION:-v1.37.0}" --wait=all --wait-timeout=5m
-kubectl config use-context "$profile"
+kind create cluster --name "$profile" --image "kindest/node:$kind_version" \
+  --config "$state/kind.yaml" --kubeconfig "$KUBECONFIG"
+api_ready=0
+for _ in {1..60}; do
+  if kubectl get --raw=/readyz >/dev/null 2>&1; then
+    api_ready=1
+    break
+  fi
+  sleep 2
+done
+if [[ $api_ready != 1 ]]; then
+  echo "Kubernetes API did not become ready after Kind cluster creation." >&2
+  exit 1
+fi
+for node in $(kind get nodes --name "$profile"); do
+  docker update --memory="${memory}m" --memory-swap="${memory}m" --cpus="$cpus" "$node"
+done
+kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.33.0/manifests/calico.yaml
+kubectl rollout status daemonset/calico-node --namespace=kube-system --timeout=300s
+kubectl rollout status deployment/calico-kube-controllers --namespace=kube-system --timeout=300s
 kubectl wait --for=condition=Ready nodes --all --timeout=180s
 kubectl rollout status deployment/coredns --namespace=kube-system --timeout=180s
-minikube ssh -p "$profile" -- 'sudo containerd config dump' >"$logs/containerd-config.log"
+node=$(kind get nodes --name "$profile" | head -n1)
+docker exec "$node" containerd config dump >"$logs/containerd-config.log"
 if ! grep -Eq 'config_path = .*/etc/containerd/certs.d' "$logs/containerd-config.log"; then
   echo "containerd is not configured to use /etc/containerd/certs.d; Dinki pulls would bypass registry trust." >&2
   exit 1
@@ -135,11 +172,13 @@ fi
 
 for component in dink dinki; do
   docker build --target "$component" -t "ghcr.io/sysson/$component:$profile" .
-  minikube image load -p "$profile" "ghcr.io/sysson/$component:$profile"
+  kind load docker-image "ghcr.io/sysson/$component:$profile" --name "$profile"
 done
 "$state/dinkle" ca generate
-node_ip=$(minikube ip -p "$profile")
-"$state/dinkle" server issue --ip "$node_ip"
+host_ip=127.0.0.1
+node=$(kind get nodes --name "$profile" | head -n1)
+node_ip=$(docker inspect --format '{{(index .NetworkSettings.Networks "kind").IPAddress}}' "$node")
+"$state/dinkle" server issue --ip "$host_ip"
 "$state/dinkle" server issue --serviceName dinki --serverSecretName dinki-tls
 "$state/dinkle" server issue --serviceName buildkit --serverSecretName buildkit-tls
 "$state/dinkle" server issue --serviceName e2e-registry --serverSecretName e2e-registry-tls --ip "$node_ip"
@@ -226,7 +265,7 @@ for tenant in e2e-a e2e-b; do
   "$state/dinkle" tenant create "$tenant"
 done
 
-endpoint="tcp://$node_ip:32376"
+endpoint="tcp://$host_ip:32376"
 for tenant in e2e-a e2e-b; do
   certs="$state/certs/$tenant/default"
   docker context create "$tenant" --docker \
@@ -239,7 +278,7 @@ kubectl -n dink-system get secret buildkit-tls -o 'jsonpath={.data.ca\.crt}' | b
 export SSL_CERT_FILE="$state/buildkit-ca.pem"
 docker --context e2e-a login "$registry" --username e2e --password-stdin <"$state/registry-password"
 export DINK_INTEGRATION_PUSH_REPOSITORY="$registry/buildkit-e2e"
-export DINK_INTEGRATION_BUILDKIT_ADDR="tcp://$node_ip:32374"
+export DINK_INTEGRATION_BUILDKIT_ADDR="tcp://$host_ip:32374"
 export DINK_INTEGRATION_BUILDKIT_CA="$state/buildkit-ca.pem"
 export DINK_INTEGRATION_BUILDKIT_CERT="$state/certs/e2e-a/default/cert.pem"
 export DINK_INTEGRATION_BUILDKIT_KEY="$state/certs/e2e-a/default/key.pem"

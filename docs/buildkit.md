@@ -16,7 +16,7 @@ Both Dink and Dinki must run versions containing the build integration. Leaving
 
 ## Configuration
 
-### Included Minikube deployment
+### Included development deployment
 
 The default [`deploy/`](../deploy/) Kustomization includes
 [`buildkit.yaml`](../deploy/buildkit.yaml), and
@@ -41,7 +41,7 @@ the devcontainer's entire Docker storage.
 Kubernetes does not impose a cache quota in this manifest: the disk-backed
 `emptyDir` has no `sizeLimit` and no pod ephemeral-storage limit is configured.
 Adding those limits would cause pod eviction when exceeded, not graceful cache
-pruning. Keep using host/Minikube cleanup separately when needed. Changes to
+pruning. Keep using host or Kind-node cleanup separately when needed. Changes to
 `buildkitd.toml` require a BuildKit pod restart to take effect; with the current
 ephemeral volume that also discards the existing cache.
 
@@ -52,7 +52,7 @@ make buildkit-server
 ```
 
 `make certificates` also creates `buildkit-tls` if missing, so the normal
-Minikube bootstrap/Tilt setup provisions it. When ready to deploy the updated
+Kind bootstrap/Tilt setup provisions it. When ready to deploy the updated
 Dink and Dinki images, resume the existing dev loop:
 
 ```sh
@@ -72,7 +72,7 @@ This administrative command prunes unused cache for **all tenants**, including
 internal/frontend cache records. It leaves actively used records and published
 Dinki images intact, but subsequent builds may need to download or rebuild
 pruned content. Unlike `make clean-images`, it targets the BuildKit worker, not
-the host Docker daemon or Minikube's containerd image store.
+the host Docker daemon or Kind's containerd image store.
 
 Certificate wiring:
 
@@ -85,7 +85,7 @@ Certificate wiring:
 - Probes connect to loopback with a TLS server-name override, so readiness
   does not depend on the Service already having a ready endpoint.
 
-The BuildKit container is privileged for straightforward Minikube testing.
+The BuildKit container is privileged for straightforward Kind testing.
 It has no Kubernetes API token and exposes only a ClusterIP Service. This is
 not a production hardening profile. To disable the included backend, remove
 `buildkit.yaml` from the Kustomization and clear `buildKit.url` in Dink's config

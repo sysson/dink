@@ -8,43 +8,41 @@ make test-e2e
 
 This uses a **new disposable cluster**, not the development or production
 cluster. It builds both service images from the current checkout, loads them
-into Minikube, provisions certificates and two tenants using the current
+into Kind, provisions certificates and two tenants using the current
 `dinkle`, and deploys the normal manifests with a temporary image-tag overlay.
 Published Dink images are not used.
 
 ## Devcontainer or host?
 
 The repository's devcontainer is the recommended environment: its
-Docker-in-Docker daemon can run Minikube's Docker driver directly. There is no
-need to run this on the host, stop Tilt, or select a different active context.
-The runner connects directly to a test-only TLS NodePort on its own cluster
-node, avoiding kubectl port-forward interruptions during streaming operations.
-The node's IP is included in the generated server certificate.
+Docker-in-Docker daemon can run Kind directly. There is no need to run this on
+the host, stop Tilt, or select a different active context.
+The runner maps test-only TLS NodePorts to localhost, avoiding kubectl
+port-forward interruptions during streaming operations. The loopback IP is
+included in the generated server certificate.
 
-Each cluster uses a dedicated Docker bridge with MTU 1280. Nested networking
-can otherwise advertise MTU 1500 despite a smaller outbound path, causing
-Docker Hub TLS handshakes and blob downloads to stall. Calico detects the node
-interface MTU when configuring Pod networking. The bridge is removed during
-teardown; existing Docker networks and daemon settings are not changed.
-Use `E2E_MTU` to override this for an environment with a verified larger MTU.
+Clusters use Kind's normal Docker network without an MTU override. Calico
+detects the node interface MTU when configuring Pod networking. The runner
+does not change Docker network or daemon settings.
 
 A Linux host with the same tools also works. Docker-socket-mounted containers
-are a different setup: the cluster API and node IP created on the host must be
-reachable from the container. If it is not, run the harness on the host instead.
-Other host operating systems have not been validated.
+are a different setup: the cluster API and port mappings created by the Docker
+host must be reachable from the container. If they are not, run the harness on
+the host instead. Other host operating systems have not been validated.
 
 Requirements:
 
-- Bash, Go matching `go.mod`, git, Docker, Minikube and kubectl.
+- Bash, Go matching `go.mod`, git, Docker, Kind and kubectl.
 - Docker Compose and Buildx CLI plugins installed in a standard system plugin
   directory (the runner uses a fresh Docker configuration).
 - A reachable real Docker daemon, approximately 4 GiB of spare RAM for the
   cluster, plus resources for Go/image builds, and available disk space.
-- Internet access for Kubernetes/Calico/BuildKit/base images, Go dependencies,
-  and the pinned upstream Docker CLI checkout. No registry login is needed.
+- Internet access for Kubernetes, Calico v3.33.0, BuildKit and base images, Go
+  dependencies, and the pinned upstream Docker CLI checkout. No registry login
+  is needed.
 
-The runner isolates `KUBECONFIG`, `MINIKUBE_HOME`, Docker configuration, and
-certificate storage. It does not select contexts in your normal configuration,
+The runner isolates `KUBECONFIG`, Docker configuration, and certificate
+storage. It does not select contexts in your normal configuration,
 use existing tenant credentials, or prune the Docker daemon. Locally built
 image layers remain cached on the real Docker daemon.
 
@@ -69,6 +67,8 @@ image layers remain cached on the real Docker daemon.
   temporary container, old-container stop/removal, and rename/start sequence.
 - Swarm-compatible replicated service creation and scaling. This does not
   initialize a Docker Swarm.
+- Attachable overlay network creation and inspection, verifying that the CRD
+  preserves the attachable flag.
 - Selected unmodified Docker CLI upstream tests:
   `TestContainerRename`, `TestContainerRenameEmptyOldName`,
   `TestCreateWithEmptySourceVolume`, and `TestCreateWithEmptyVolumeSpec`.
@@ -86,12 +86,12 @@ is needed for these selected cases.
 `TestRunAttachedFromRemoteImageAndRemove` is deliberately not selected: it
 skips remote daemons and requires an auxiliary registry.
 
-Calico enforces NetworkPolicies and Minikube supplies local PVC provisioning.
-The runner verifies containerd's registry trust directory before deployment.
-It also waits for the CoreDNS Deployment rollout. Minikube can log a
-resource-version conflict while scaling CoreDNS during startup; that message
-alone does not indicate DNS failure, and an unsuccessful readiness check fails
-the harness rather than being ignored.
+Calico v3.33.0 enforces NetworkPolicies, and Kind provides local PVC
+provisioning. The runner configures each Kind node's containerd registry trust
+directory and verifies it before deployment. It also waits for the Calico and
+CoreDNS rollouts; an unsuccessful readiness check fails the harness rather
+than being ignored. Kind maps the test-only registry, Dink API, and BuildKit
+NodePorts to localhost on the devcontainer.
 External LoadBalancer access, public registry pushes, full Docker
 conformance, multi-node scheduling, and explicit network-isolation denial
 tests are not covered by this initial suite.
@@ -99,17 +99,15 @@ tests are not covered by this initial suite.
 ## Configuration
 
 ```sh
-# Use a different real Docker daemon context.
-E2E_HOST_CONTEXT=minikube make test-e2e
+# Use another local Docker daemon context.
+E2E_HOST_CONTEXT=my-docker-context make test-e2e
 
 # Skip downloading/running upstream tests while developing local scenarios.
 E2E_UPSTREAM=0 make test-e2e
 
-# Adjust cluster resources/version.
+# Adjust per-node resource limits and Kubernetes version.
 E2E_MEMORY=6144 E2E_CPUS=4 E2E_KUBERNETES_VERSION=v1.37.0 make test-e2e
 
-# Only when the environment supports the larger path MTU.
-E2E_MTU=1500 make test-e2e
 ```
 
 Run `bash testing/e2e/run.sh --help` for the settings.
@@ -117,8 +115,8 @@ Run `bash testing/e2e/run.sh --help` for the settings.
 The runner uses bounded readiness waits, scenario command timeouts, and Go test
 timeouts. Docker command failures report context cancellation or deadline
 expiration explicitly rather than only the resulting killed-process error.
-It preserves
-the failure exit code, gathers diagnostics, and tears down on normal exit,
+It preserves the failure exit code, gathers diagnostics, and tears down on
+normal exit,
 failure, or interrupt. An uncatchable termination (such as SIGKILL) cannot run
 cleanup. Ctrl+C during startup runs cleanup too; logging stays alive and
 additional interrupts are ignored while teardown completes. If cluster deletion

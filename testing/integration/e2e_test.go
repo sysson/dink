@@ -199,6 +199,17 @@ volumes:
 	waitDocker(t, s, "persisted", fetch...)
 }
 
+func TestE2EAttachableOverlayNetwork(t *testing.T) {
+	s := e2eSetup(t)
+	name := s.id + "-network"
+	s.mustDocker(t, "network", "create", "--driver", "overlay", "--attachable", name)
+	cleanupDocker(t, s, "network", "rm", name)
+	output := s.mustDocker(t, "network", "inspect", "--format", "{{.Driver}} {{.Scope}} {{.Attachable}}", name)
+	if strings.TrimSpace(string(output)) != "overlay swarm true" {
+		t.Fatalf("attachable overlay network properties: %s", output)
+	}
+}
+
 func TestE2ESwarmService(t *testing.T) {
 	s := e2eSetup(t)
 	name := s.id + "-service"
