@@ -105,10 +105,12 @@ jobs:
           mkdir -p release
           printf '%s\n' "$CHANGELOG" > release/notes.md
           rm -f .generated-go-semantic-release-changelog.md
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "commit=$commit" >> "$GITHUB_OUTPUT"
-          echo "date=$(date -u -d "$(git show -s --format=%cI HEAD)" +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-          echo "epoch=$(git show -s --format=%ct HEAD)" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=$tag"
+            echo "commit=$commit"
+            echo "date=$(date -u -d "$(git show -s --format=%cI HEAD)" +%Y-%m-%dT%H:%M:%SZ)"
+            echo "epoch=$(git show -s --format=%ct HEAD)"
+          } >> "$GITHUB_OUTPUT"
           # Published releases are immutable; a retry verifies rather than replaces them.
           if [ -n "$RETRY_TAG" ]; then
             gh release view "$tag" --json isDraft --jq .isDraft > release/is-draft

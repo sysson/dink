@@ -113,5 +113,5 @@ jobs:
           IMAGE: ghcr.io/${{ github.repository_owner }}/dink-init
           DIGEST: ${{ steps.publish.outputs.digest }}
         run: |
-          printf '## Tini image\n\n`%s@%s`\n\nUse this index digest rather than a mutable tag.\n' \
-            "$IMAGE" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          printf '## Tini image\n\n%s%s@%s%s\n\nUse this index digest rather than a mutable tag.\n' \
+            '`' "$IMAGE" "$DIGEST" '`' >> "$GITHUB_STEP_SUMMARY"

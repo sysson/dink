@@ -23,9 +23,11 @@ jobs:
       - name: Resolve Go cache paths
         id: go-cache-paths
         run: |
-          echo "version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
-          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
-          echo "modules=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$(go env GOVERSION)"
+            echo "build=$(go env GOCACHE)"
+            echo "modules=$(go env GOMODCACHE)"
+          } >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v6.1.0
         id: go-cache
         with:
