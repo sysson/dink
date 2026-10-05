@@ -12,6 +12,9 @@ builds:
     ldflags:
       - -s
       - -w
+      - -X github.com/sysson/dink/core/version.ReleaseVersion=v{{ .Version }}
+      - -X github.com/sysson/dink/core/version.BuildCommit={{ .FullCommit }}
+      - -X github.com/sysson/dink/core/version.BuildDate={{ .CommitDate }}
     goos:
       - linux
       - darwin
@@ -21,11 +24,11 @@ builds:
       - arm64
 
 archives:
-  - format: tar.gz
+  - formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
     files:
       - none*
 
@@ -34,4 +37,9 @@ checksum:
   algorithm: sha256
 
 release:
+  draft: true
   prerelease: auto
+  mode: keep-existing
+  extra_files:
+    - glob: release/install.yaml
+    - glob: release/install.yaml.sha256

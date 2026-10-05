@@ -14,16 +14,22 @@ COPY sdk/ ./sdk/
 FROM build AS build-dink
 ARG TARGETOS
 ARG TARGETARCH
+ARG VERSION=Dev
+ARG COMMIT=None
+ARG BUILD_DATE=Unknown
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags="-s -w" -o /out/dink ./cmd/dink
+    go build -trimpath -ldflags="-s -w -X github.com/sysson/dink/core/version.ReleaseVersion=${VERSION} -X github.com/sysson/dink/core/version.BuildCommit=${COMMIT} -X github.com/sysson/dink/core/version.BuildDate=${BUILD_DATE}" -o /out/dink ./cmd/dink
 
 FROM build AS build-dinki
 ARG TARGETOS
 ARG TARGETARCH
+ARG VERSION=Dev
+ARG COMMIT=None
+ARG BUILD_DATE=Unknown
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags="-s -w" -o /out/dinki ./cmd/dinki && \
+    go build -trimpath -ldflags="-s -w -X github.com/sysson/dink/core/version.ReleaseVersion=${VERSION} -X github.com/sysson/dink/core/version.BuildCommit=${COMMIT} -X github.com/sysson/dink/core/version.BuildDate=${BUILD_DATE}" -o /out/dinki ./cmd/dinki && \
     mkdir -p /out/dinki-data && \
     chmod 0750 /out/dinki-data && \
     chown 65532:65532 /out/dinki-data

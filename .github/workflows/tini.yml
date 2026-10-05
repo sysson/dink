@@ -1,0 +1,117 @@
+name: Tini Image
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - images/tini/**
+      - .github/workflows/tini.yml
+  push:
+    branches: [main]
+    paths:
+      - images/tini/**
+      - .github/workflows/tini.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux/amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: docker/setup-buildx-action@v4.4.1
+      - name: Build test image
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: images/tini
+          target: test
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: dink-init-test:ci
+      - name: Test process supervision
+        run: docker run --rm --network none dink-init-test:ci
+      - name: Build scratch image
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: images/tini
+          target: tini
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: dink-init:ci
+      - name: Test standalone binary
+        run: docker run --rm --network none --entrypoint /tini dink-init:ci --version
+      - name: Build PID 1 test image
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: images/tini
+          target: test-pid1
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: dink-init-pid1-test:ci
+      - name: Test production entrypoint as PID 1
+        run: |
+          docker run --rm --network none dink-init-pid1-test:ci
+          status=0
+          docker run --rm --network none dink-init-pid1-test:ci /fixture exit || status=$?
+          test "$status" -eq 42
+
+  publish:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: docker/setup-qemu-action@v3.6.0
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@v4.4.1
+      - uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v6.2.0
+        id: metadata
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/dink-init
+          tags: |
+            type=sha,format=long,prefix=sha-
+            type=raw,value=latest
+      - name: Publish multi-platform image
+        id: publish
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: images/tini
+          target: tini
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          provenance: true
+          sbom: true
+      - name: Record pinned reference
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/dink-init
+          DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          printf '## Tini image\n\n`%s@%s`\n\nUse this index digest rather than a mutable tag.\n' \
+            "$IMAGE" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"

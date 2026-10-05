@@ -21,6 +21,7 @@ import (
 	"github.com/sysson/dink/core/registry/pullauth"
 	"github.com/sysson/dink/core/registry/server"
 	"github.com/sysson/dink/core/server/middleware"
+	"github.com/sysson/dink/core/version"
 	"github.com/sysson/ocistore"
 	"github.com/sysson/ocistore/blobstore"
 	"github.com/sysson/ocistore/blobstore/fileblob"
@@ -37,9 +38,11 @@ type Runner interface {
 
 func New(stdout, stderr io.Writer) Runner {
 	var configFile string
+	build := version.Get()
 	command := &cli.Command{
 		Name:      "dinki",
 		Usage:     "Run dink's OCI registry",
+		Version:   fmt.Sprintf("%s (commit %s, built %s, dirty %t)", build.Version, build.Commit, build.Date, build.Dirty),
 		Writer:    stdout,
 		ErrWriter: stderr,
 		Flags: []cli.Flag{

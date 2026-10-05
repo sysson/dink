@@ -3,14 +3,18 @@ name: CI and Publish
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - deploy/kustomization.yaml
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to resume or verify (vX.Y.Z)
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: project-release
   cancel-in-progress: false
 
 jobs:
@@ -18,82 +22,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Select retry commit
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          sh scripts/validate-release-tag.sh "$RELEASE_TAG"
+          git checkout --detach "$RELEASE_TAG"
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: false
-      - name: Resolve Go cache paths
-        id: go-cache-paths
-        run: |
-          echo "version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
-          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
-          echo "modules=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v6.1.0
-        id: go-cache
-        with:
-          path: |
-            ${{ steps.go-cache-paths.outputs.build }}
-            ${{ steps.go-cache-paths.outputs.modules }}
-          key: ${{ runner.os }}-${{ runner.arch }}-go-${{ steps.go-cache-paths.outputs.version }}-${{ hashFiles('go.sum', 'sdk/go.sum') }}-${{ github.sha }}-${{ github.job }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-go-${{ steps.go-cache-paths.outputs.version }}-${{ hashFiles('go.sum', 'sdk/go.sum') }}-
-            ${{ runner.os }}-${{ runner.arch }}-go-${{ steps.go-cache-paths.outputs.version }}-
+          cache: true
       - run: make test
 
-  images:
+  release:
     needs: test
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: dink
-            image: ghcr.io/sysson/dink
-            description: Dink translates Docker Engine API requests into Kubernetes workloads.
-          - target: dinki
-            image: ghcr.io/sysson/dinki
-            description: Dinki is the tenant OCI registry used by Dink to store and serve container images.
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: docker/setup-buildx-action@v4.4.1
-      - uses: docker/login-action@v4.6.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/metadata-action@v6.2.0
-        id: metadata
-        with:
-          images: ${{ matrix.image }}
-          labels: |
-            org.opencontainers.image.description=${{ matrix.description }}
-          tags: |
-            type=sha,format=long,prefix=sha-
-            type=ref,event=tag
-      - uses: docker/build-push-action@v7.4.0
-        with:
-          context: .
-          file: Dockerfile
-          target: ${{ matrix.target }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.metadata.outputs.tags }}
-          labels: ${{ steps.metadata.outputs.labels }}
-          annotations: |
-            index:org.opencontainers.image.description=${{ matrix.description }}
-          cache-from: type=gha,scope=${{ matrix.target }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
-          provenance: true
-          sbom: true
-
-  release:
-    needs: [test, images]
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: write
       packages: write
@@ -101,44 +49,194 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Go Semantic Release
+      - name: Select retry commit
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          sh scripts/validate-release-tag.sh "$RELEASE_TAG"
+          git checkout --detach "$RELEASE_TAG"
+      - name: Require unfinished releases to be resumed first
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --paginate 'repos/{owner}/{repo}/releases' \
+            --jq '.[] | select(.draft and (.tag_name | test("^v[0-9]+\\."))) | .tag_name' \
+            > "$RUNNER_TEMP/draft-releases"
+          if [ -s "$RUNNER_TEMP/draft-releases" ]; then
+            echo "Resume or explicitly discard these draft releases before planning another:" >&2
+            cat "$RUNNER_TEMP/draft-releases" >&2
+            exit 1
+          fi
+      - name: Plan semantic release without publishing
+        if: github.event_name == 'push'
         id: semrel
         uses: go-semantic-release/action@v1.24.1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          hooks: goreleaser
-          force-bump-patch-version: true
+          dry: true
           allow-initial-development-versions: true
           prerelease: true
+      - name: Select release metadata
+        id: release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PLANNED_VERSION: ${{ steps.semrel.outputs.version }}
+          RETRY_TAG: ${{ inputs.release_tag }}
+          CHANGELOG: ${{ steps.semrel.outputs.changelog }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "$RETRY_TAG" ]; then
+            tag="$RETRY_TAG"
+          elif [ -n "$PLANNED_VERSION" ]; then
+            tag="v$PLANNED_VERSION"
+          else
+            echo "No release-worthy changes; no images or binaries will be published."
+            exit 0
+          fi
+          sh scripts/validate-release-tag.sh "$tag"
+          commit=$(git rev-parse HEAD)
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            test "$(git rev-parse "$tag^{commit}")" = "$commit"
+          else
+            test -z "$RETRY_TAG"
+            git tag "$tag" "$commit"
+          fi
+          mkdir -p release
+          printf '%s\n' "$CHANGELOG" > release/notes.md
+          rm -f .generated-go-semantic-release-changelog.md
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u -d "$(git show -s --format=%cI HEAD)" +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "epoch=$(git show -s --format=%ct HEAD)" >> "$GITHUB_OUTPUT"
+          # Published releases are immutable; a retry verifies rather than replaces them.
+          if [ -n "$RETRY_TAG" ]; then
+            gh release view "$tag" --json isDraft --jq .isDraft > release/is-draft
+            if [ "$(cat release/is-draft)" = false ]; then
+              echo "published=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+      - name: Restore prepared bundle on retry
+        if: steps.release.outputs.tag != '' && inputs.release_tag != ''
+        id: restore
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          PUBLISHED: ${{ steps.release.outputs.published }}
+        run: |
+          mkdir -p release/download
+          count=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')
+          if [ "$count" -gt 0 ]; then
+            gh release download "$RELEASE_TAG" --dir release/download
+          fi
+          if sh scripts/verify-release-bundle.sh release/download; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          elif [ "$PUBLISHED" = true ]; then
+            echo "Published release bundle is incomplete or invalid; refusing to change it." >&2
+            exit 1
+          else
+            echo "Draft bundle is incomplete; rebuilding, with conflicting assets rejected."
+          fi
+      - uses: actions/setup-go@v7
+        if: steps.release.outputs.tag != '' && steps.restore.outputs.ready != 'true'
+        with:
+          go-version-file: go.mod
+          cache: true
       - uses: docker/setup-buildx-action@v4.4.1
-        if: steps.semrel.outputs.version != ''
+        if: steps.release.outputs.tag != ''
       - uses: docker/login-action@v4.6.0
-        if: steps.semrel.outputs.version != ''
+        if: steps.release.outputs.tag != ''
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Tag images with semantic version
-        if: steps.semrel.outputs.version != ''
+      - name: Build Dink release image
+        if: steps.release.outputs.tag != '' && steps.restore.outputs.ready != 'true'
+        id: dink
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          target: dink
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/sysson/dink:build-${{ github.run_id }}-${{ github.run_attempt }}
+          build-args: |
+            VERSION=${{ steps.release.outputs.tag }}
+            COMMIT=${{ steps.release.outputs.commit }}
+            BUILD_DATE=${{ steps.release.outputs.date }}
+          cache-from: type=gha,scope=dink
+          cache-to: type=gha,mode=max,scope=dink
+          provenance: true
+          sbom: true
+          labels: |
+            org.opencontainers.image.version=${{ steps.release.outputs.tag }}
+            org.opencontainers.image.revision=${{ steps.release.outputs.commit }}
+            org.opencontainers.image.created=${{ steps.release.outputs.date }}
+      - name: Build Dinki release image
+        if: steps.release.outputs.tag != '' && steps.restore.outputs.ready != 'true'
+        id: dinki
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          target: dinki
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/sysson/dinki:build-${{ github.run_id }}-${{ github.run_attempt }}
+          build-args: |
+            VERSION=${{ steps.release.outputs.tag }}
+            COMMIT=${{ steps.release.outputs.commit }}
+            BUILD_DATE=${{ steps.release.outputs.date }}
+          cache-from: type=gha,scope=dinki
+          cache-to: type=gha,mode=max,scope=dinki
+          provenance: true
+          sbom: true
+          labels: |
+            org.opencontainers.image.version=${{ steps.release.outputs.tag }}
+            org.opencontainers.image.revision=${{ steps.release.outputs.commit }}
+            org.opencontainers.image.created=${{ steps.release.outputs.date }}
+      - name: Install kubectl for manifest rendering
+        if: steps.release.outputs.tag != '' && steps.restore.outputs.ready != 'true'
+        run: sh scripts/install-kubectl.sh
+      - name: Prepare digest-pinned release manifests
+        if: steps.release.outputs.tag != '' && steps.restore.outputs.ready != 'true'
         env:
-          RELEASE_TAG: v${{ steps.semrel.outputs.version }}
-          SOURCE_TAG: sha-${{ github.sha }}
-          DINK_DESCRIPTION: Dink translates Docker Engine API requests into Kubernetes workloads.
-          DINKI_DESCRIPTION: Dinki is the tenant OCI registry used by Dink to store and serve container images.
+          DINK_DIGEST: ${{ steps.dink.outputs.digest }}
+          DINKI_DIGEST: ${{ steps.dinki.outputs.digest }}
         run: |
-          docker buildx imagetools create \
-            --annotation "index:org.opencontainers.image.description=${DINK_DESCRIPTION}" \
-            --tag "ghcr.io/sysson/dink:${RELEASE_TAG}" \
-            --tag "ghcr.io/sysson/dink:latest" \
-            "ghcr.io/sysson/dink:${SOURCE_TAG}"
-          docker buildx imagetools create \
-            --annotation "index:org.opencontainers.image.description=${DINKI_DESCRIPTION}" \
-            --tag "ghcr.io/sysson/dinki:${RELEASE_TAG}" \
-            --tag "ghcr.io/sysson/dinki:latest" \
-            "ghcr.io/sysson/dinki:${SOURCE_TAG}"
+          sh scripts/release-manifests.sh "$DINK_DIGEST" "$DINKI_DIGEST" release
+          printf 'dink %s\ndinki %s\n' "$DINK_DIGEST" "$DINKI_DIGEST" > release/images.txt
+      - uses: goreleaser/goreleaser-action@v6.4.0
+        if: steps.release.outputs.tag != '' && steps.restore.outputs.ready != 'true'
+        with:
+          version: v2.12.7
+          args: release --clean --skip=publish,announce
+        env:
+          SOURCE_DATE_EPOCH: ${{ steps.release.outputs.epoch }}
+      - name: Assemble complete release bundle
+        if: steps.release.outputs.tag != '' && steps.restore.outputs.ready != 'true'
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          COMMIT: ${{ steps.release.outputs.commit }}
+          BUILD_DATE: ${{ steps.release.outputs.date }}
+        run: |
+          dist/dinkle_linux_amd64_v1/dinkle --version > release/binary-version.txt
+          grep -Fq "dinkle version $RELEASE_TAG (commit $COMMIT, built $BUILD_DATE, dirty false)" release/binary-version.txt
+          mkdir -p release/bundle
+          cp dist/dinkle_*.tar.gz dist/dinkle_*.zip release/bundle/
+          cp release/install.yaml release/install.yaml.sha256 release/images.txt release/bundle/
+          printf '%s\n' "$RELEASE_TAG" > release/bundle/version.txt
+          printf '%s\n' "$COMMIT" > release/bundle/commit.txt
+          (cd release/bundle && sha256sum dinkle_* install.yaml images.txt version.txt commit.txt > checksums.txt)
+          sh scripts/verify-release-bundle.sh release/bundle
+      - name: Verify and publish complete release
+        if: steps.release.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          COMMIT: ${{ steps.release.outputs.commit }}
+          RESTORED: ${{ steps.restore.outputs.ready }}
+          PUBLISHED: ${{ steps.release.outputs.published }}
+        run: |
+          bundle=release/bundle
+          if [ "$RESTORED" = true ]; then bundle=release/download; fi
+          sh scripts/publish-release.sh "$RELEASE_TAG" "$COMMIT" "$bundle" release/notes.md "$PUBLISHED"

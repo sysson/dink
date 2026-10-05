@@ -33,6 +33,10 @@ go.work.sum
 # Tilt build output
 /.tilt/
 
+# Generated release assets
+/release/
+/dist/
+
 # Editor/IDE
 # .idea/
 # .vscode/
