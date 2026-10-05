@@ -37,6 +37,9 @@ go.work.sum
 /release/
 /dist/
 
+# Semantic-release plugin cache
+/.semrel/
+
 # Editor/IDE
 # .idea/
 # .vscode/
