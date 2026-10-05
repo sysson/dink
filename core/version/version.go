@@ -13,9 +13,12 @@ import (
 )
 
 var (
-	v    info
-	once sync.Once
-	V    = Get()
+	ReleaseVersion string
+	BuildCommit    string
+	BuildDate      string
+	v              info
+	once           sync.Once
+	V              = Get()
 )
 
 type APIVersion struct{}
@@ -24,6 +27,7 @@ type info struct {
 	Version       string
 	Commit        string
 	Date          string
+	Dirty         bool
 	APIVersion    string
 	MinAPIVersion string
 }
@@ -35,28 +39,44 @@ func IsDev() bool {
 func Get() info {
 	once.Do(func() {
 		bs, ok := debug.ReadBuildInfo()
-		v = info{
-			Version:       "Dev",
-			Commit:        "None",
-			Date:          "Unknown",
-			MinAPIVersion: types.MinAPIVersion,
-			APIVersion:    types.APIVersion,
+		if !ok {
+			bs = nil
 		}
-		if ok {
-			if bs.Main.Version != "(devel)" {
-				v.Version = bs.Main.Version
-			}
-			for _, setting := range bs.Settings {
-				switch setting.Key {
-				case "vcs.revision":
-					v.Commit = setting.Value
-				case "vcs.time":
-					v.Date = setting.Value
-				}
-			}
-		}
+		v = buildInfo(bs, ReleaseVersion, BuildCommit, BuildDate)
 	})
 	return v
+}
+
+func buildInfo(bs *debug.BuildInfo, release, commit, date string) info {
+	result := info{
+		Version: "Dev", Commit: "None", Date: "Unknown",
+		MinAPIVersion: types.MinAPIVersion, APIVersion: types.APIVersion,
+	}
+	if bs != nil {
+		if bs.Main.Version != "" && bs.Main.Version != "(devel)" {
+			result.Version = bs.Main.Version
+		}
+		for _, setting := range bs.Settings {
+			switch setting.Key {
+			case "vcs.revision":
+				result.Commit = setting.Value
+			case "vcs.time":
+				result.Date = setting.Value
+			case "vcs.modified":
+				result.Dirty = setting.Value == "true"
+			}
+		}
+	}
+	if release != "" {
+		result.Version = release
+	}
+	if commit != "" {
+		result.Commit = commit
+	}
+	if date != "" {
+		result.Date = date
+	}
+	return result
 }
 
 func Middleware(serverVersion, defaultAPIVersion, minAPIVersion string) middleware.Middleware {
