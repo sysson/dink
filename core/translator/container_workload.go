@@ -13,6 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -105,25 +106,44 @@ func (d *Docker) findContainer(ctx context.Context, nameOrID string) (*container
 	if nameOrID == "" {
 		return nil, InvalidArgument(fmt.Errorf("container name or ID is required"))
 	}
-	if deployment, err := d.k8s.AppsV1().Deployments(id.Namespace).Get(ctx, nameOrID, metav1.GetOptions{}); err == nil && isContainerDeployment(deployment) {
-		return deploymentWorkload(deployment), nil
-	} else if err != nil && !apierrors.IsNotFound(err) {
-		return nil, kubeError(err)
+	nameOrID = strings.TrimPrefix(nameOrID, "/")
+	if len(validation.IsDNS1123Subdomain(nameOrID)) == 0 {
+		if deployment, err := d.k8s.AppsV1().Deployments(id.Namespace).Get(ctx, nameOrID, metav1.GetOptions{}); err == nil {
+			workload := deploymentWorkload(deployment)
+			if isContainerDeployment(deployment) && workload.dockerName() == nameOrID {
+				return workload, nil
+			}
+		} else if !apierrors.IsNotFound(err) {
+			return nil, kubeError(err)
+		}
+		if job, err := d.k8s.BatchV1().Jobs(id.Namespace).Get(ctx, nameOrID, metav1.GetOptions{}); err == nil {
+			workload := jobWorkload(job)
+			if isContainerJob(job) && workload.dockerName() == nameOrID {
+				return workload, nil
+			}
+		} else if !apierrors.IsNotFound(err) {
+			return nil, kubeError(err)
+		}
 	}
-	if job, err := d.k8s.BatchV1().Jobs(id.Namespace).Get(ctx, nameOrID, metav1.GetOptions{}); err == nil && isContainerJob(job) {
-		return jobWorkload(job), nil
-	} else if err != nil && !apierrors.IsNotFound(err) {
-		return nil, kubeError(err)
-	}
-
 	workloads, err := listWorkloads(ctx, d.k8s, id.Namespace)
 	if err != nil {
 		return nil, err
 	}
 	var match *containerWorkload
 	for _, workload := range workloads {
+		if workload.dockerName() == nameOrID {
+			if match != nil {
+				return nil, Conflict(fmt.Errorf("container name %s is ambiguous", nameOrID))
+			}
+			match = workload
+		}
+	}
+	if match != nil {
+		return match, nil
+	}
+	for _, workload := range workloads {
 		dockerID := identity.DockerIDFromUID(workload.UID)
-		if dockerID == "" || !strings.HasPrefix(dockerID, nameOrID) {
+		if nameOrID == "" || dockerID == "" || !strings.HasPrefix(dockerID, nameOrID) {
 			continue
 		}
 		if match != nil {

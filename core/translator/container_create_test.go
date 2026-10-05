@@ -212,14 +212,15 @@ func TestContainerCreateResources(t *testing.T) {
 		{name: "reservation", resources: container.Resources{Memory: 128 << 20, MemoryReservation: 256 << 20}, wantError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			name := strings.ToLower(strings.ReplaceAll(test.name, " ", "-"))
 			_, err := docker.ContainerCreate(ctx, backend.ContainerCreateConfig{
-				Name: test.name, Config: &container.Config{Image: "nginx"}, HostConfig: &container.HostConfig{Resources: test.resources},
+				Name: name, Config: &container.Config{Image: "nginx"}, HostConfig: &container.HostConfig{Resources: test.resources},
 			})
 			if test.wantError {
 				if err == nil {
 					t.Fatal("unsupported or invalid resources accepted")
 				}
-				if _, err := client.AppsV1().Deployments("tenant").Get(ctx, test.name, metav1.GetOptions{}); err == nil {
+				if _, err := client.AppsV1().Deployments("tenant").Get(ctx, name, metav1.GetOptions{}); err == nil {
 					t.Fatal("created a deployment with unsupported resources")
 				}
 				return
@@ -227,7 +228,7 @@ func TestContainerCreateResources(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			deployment, err := client.AppsV1().Deployments("tenant").Get(ctx, test.name, metav1.GetOptions{})
+			deployment, err := client.AppsV1().Deployments("tenant").Get(ctx, name, metav1.GetOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}

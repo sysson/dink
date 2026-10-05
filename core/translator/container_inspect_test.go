@@ -99,6 +99,9 @@ func TestContainerInspectAndList(t *testing.T) {
 		t.Fatalf("listed ports = %+v", listed[0].Ports)
 	}
 
+	if err := client.CoreV1().Pods("tenant").Delete(ctx, "web-pod", metav1.DeleteOptions{}); err != nil {
+		t.Fatal(err)
+	}
 	if err := docker.ContainerStop(ctx, "web", backend.ContainerStopOptions{}); err != nil {
 		t.Fatal(err)
 	}

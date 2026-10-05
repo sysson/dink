@@ -30,11 +30,42 @@ and [Portainer D2K](https://github.com/portainer/d2k/tree/develop/internal/adapt
 ## Containers
 
 An ordinary Docker container is represented by a Deployment, initially scaled
-to zero, with Kubernetes Services for DNS and any published ports. Starting and
-stopping it changes the Deployment's replica count. An `AutoRemove` (`--rm`)
+to zero, with Kubernetes Services for DNS and any published ports. Its update
+strategy is `Recreate`, not a rolling update: ordinary container replacements
+must stop first so database or file-lock holders do not overlap. Template
+updates also set this strategy on legacy container Deployments. Starting and
+stopping changes the replica count; stop/restart wait for controller observation
+and for nonterminal Pods, including terminating Pods, to finish. Removal waits
+for those Pods too, and a subsequent start waits for a previous stop to finish.
+These waits are bounded and report cancellation/timeouts rather than starting
+a replacement early. Lifecycle operations coordinate by immutable workload
+identity (including requests by Docker name or ID), not a global shutdown lock:
+unrelated containers can stop concurrently. Name allocation and DNS alias claims
+still serialize their short metadata operations. Kubernetes' production
+termination grace is unchanged. An `AutoRemove` (`--rm`)
 container is instead created as a suspended Job, runs once when started, and is
 removed by Kubernetes shortly after completion. Its anonymous volumes follow
 the Job lifecycle.
+
+Docker container names are stored in the workload's `dink.io/docker-name`
+annotation, separately from its immutable Kubernetes identity. New workloads
+use a readable initial internal name when possible, or a collision-resistant
+hash for Docker-valid names that Kubernetes cannot use (uppercase, underscores,
+dots, a leading digit, or names over 63 characters). A reused Docker name gets
+a fresh internal identity if the previous container still owns that initial
+Kubernetes name. Legacy workloads without the annotation retain their existing
+name until renamed.
+
+Rename updates workload metadata and DNS Services, not the Deployment or Job
+spec, Pod template, selectors, or Pod container name. Running Pods are not
+replaced; the Docker ID and published-port Service remain stable. Inspection,
+listing/filtering, stats, events, and name lookup report the Docker-visible
+name, not the internal identity. Names accept Docker's
+`[a-zA-Z0-9][a-zA-Z0-9_.-]*` syntax and are unique within a tenant. Rename
+reserves the new Service name before committing the annotation, and rejects
+collisions with other workloads or unrelated network aliases. Kubernetes
+updates across multiple objects are not a transaction: a post-commit Service
+reconciliation error is reported, and retrying by Docker ID reconciles it.
 
 Dink resolves image references through the tenant registry and merges image
 configuration defaults with the Docker create request. Supported environment,
@@ -42,6 +73,10 @@ command, working-directory, label, port, health-check, resource, and mount
 settings are translated to Pod fields. Options without a useful Kubernetes
 equivalent are rejected or reported as warnings; see the endpoint tracker for
 current option-level details.
+
+Noninteractive attach reads Pod logs, including output from a short-lived
+command that has already exited before the stream connects. Interactive/TTY
+attach still requires a running container; this is not terminal-session replay.
 
 ### Pod Labels and Annotations
 
@@ -128,18 +163,30 @@ omitted value from an explicit unlimited request, so both receive defaults.
 
 ### Service Discovery and Aliases
 
-Every container gets a Service named after it. Docker network `Aliases` and
-`DNSNames` create additional Services targeting the same Pods. These names are
-tenant-wide because Kubernetes Service names are unique within a namespace,
-whereas Docker's embedded resolver scopes names to each container's networks.
+Every container gets a primary DNS Service. A Docker name that is a valid
+Kubernetes Service name is used verbatim; other names use a deterministic hashed
+Service name. Use explicit valid network aliases for readable DNS when the
+Docker name contains characters Kubernetes DNS cannot represent. Docker network
+`Aliases` and `DNSNames` create additional Services targeting the same Pods.
+These names are tenant-wide because Kubernetes Service names are unique within
+a namespace, whereas Docker's embedded resolver scopes names to each
+container's networks.
 
 Aliases must be valid Kubernetes Service names and can be claimed only once per
 tenant. A duplicate alias, or a container name that collides with an alias,
-returns a conflict. An alias can therefore resolve across Docker networks even
-when NetworkPolicy blocks the resulting connection. Alias Services are owned
-by the workload and are removed with it; disconnecting a network removes only
-that network's aliases. Swarm service aliases follow the same tenant-wide
-scope.
+returns a conflict when the alias is claimed. Creation records requested aliases
+but defers their Services until start (or an explicit rename/network operation).
+This lets Compose create a stopped temporary replacement before stopping and
+removing the old container; the replacement cannot start until its aliases are
+available. It does not allow two running containers to share an alias.
+An alias equal to its own container's primary Service name
+reuses that Service; disconnecting the alias does not delete the primary Service.
+Rename changes the primary DNS name but retains explicitly requested aliases,
+including the old name when it was explicitly an alias. An alias can therefore
+resolve across Docker networks even when NetworkPolicy blocks the resulting
+connection. Alias Services are owned by the workload and are removed with it;
+disconnecting a network removes only that network's aliases. Swarm service
+aliases follow the same tenant-wide scope.
 
 ## Networks and Isolation
 
@@ -160,6 +207,10 @@ any source on the configured ports, including sources in other namespaces.
 `connect` and `disconnect` update membership labels, which the existing
 policies select without needing policy changes. Deleting a network removes its
 owned policy.
+
+Network removal checks logical Deployment and Job endpoints, including stopped
+containers. Pods left behind by asynchronous workload deletion do not keep a
+removed Docker container attached or prevent Compose teardown.
 
 These policies control ingress only. Pod egress, including DNS and access to
 other network destinations, remains open; Dink does not reproduce Docker's
@@ -214,6 +265,12 @@ listing, inspect, and counts. Dink does not implement Swarm cluster membership
 or node administration; use Kubernetes tooling for those operations. Global
 and job service modes are rejected. Unsupported service settings are reported
 as warnings where possible.
+
+Swarm service updates retain configurable rolling-update ordering.
+The default/`stop-first` mapping disables surge and permits the requested
+parallelism as unavailable replicas; explicit `start-first` enables that surge
+and keeps unavailable replicas at zero. These are Kubernetes rollout controls,
+not a full implementation of Swarm's task-level update scheduler.
 
 ### Swarm Networks and Ports
 

@@ -42,6 +42,11 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 	if cfg.Name == "" {
 		cfg.Name = generatedContainerName()
 	}
+	name, err := normalizeContainerName(cfg.Name)
+	if err != nil {
+		return container.CreateResponse{}, err
+	}
+	cfg.Name = name
 	// A missing image is reported as not found, which makes the docker CLI pull and retry.
 	image, imageConfig, err := d.podImage(ctx, id.Namespace, cfg.Config.Image)
 	if err != nil {
@@ -76,10 +81,16 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 		return container.CreateResponse{}, InvalidArgument(err)
 	}
 	warnings = append(warnings, probeWarnings...)
+	d.containerNameMu.Lock()
+	defer d.containerNameMu.Unlock()
 	if err := d.ensureNameAvailable(ctx, id.Namespace, cfg.Name); err != nil {
 		return container.CreateResponse{}, err
 	}
-	env, err := d.resolveEnv(ctx, id, cfg.Name, cfg.Config.Env)
+	objectName, err := d.containerObjectName(ctx, id.Namespace, cfg.Name)
+	if err != nil {
+		return container.CreateResponse{}, err
+	}
+	env, err := d.resolveEnv(ctx, id, objectName, cfg.Config.Env)
 	if err != nil {
 		return container.CreateResponse{}, err
 	}
@@ -101,6 +112,7 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 	if err != nil {
 		return container.CreateResponse{}, InvalidArgument(fmt.Errorf("encoding container metadata: %w", err))
 	}
+	annotations[containerNameAnnotation] = cfg.Name
 	var endpoints map[string]*network.EndpointSettings
 	if cfg.NetworkingConfig != nil {
 		endpoints = cfg.NetworkingConfig.EndpointsConfig
@@ -117,7 +129,7 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 	} else if encoded != "" {
 		annotations[containerAliasAnnotation] = encoded
 	}
-	podLabels := dinkPodLabels(cfg.Name)
+	podLabels := dinkPodLabels(objectName)
 	maps.Copy(podLabels, networkLabels)
 	maps.Copy(podLabels, podMeta.Labels)
 	template := corev1.PodTemplateSpec{
@@ -130,7 +142,7 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 			ImagePullSecrets: []corev1.LocalObjectReference{{Name: pullSecretName}},
 			Containers: []corev1.Container{
 				{
-					Name:           cfg.Name,
+					Name:           objectName,
 					Image:          image,
 					Ports:          podPorts(ports),
 					Command:        cfg.Config.Entrypoint,
@@ -150,9 +162,9 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 	}
 	applyNodePlacement(&template.Spec, d.nodePlacement, id.Namespace)
 	meta := metav1.ObjectMeta{
-		Name:        cfg.Name,
+		Name:        objectName,
 		Namespace:   id.Namespace,
-		Labels:      dinkPodLabels(cfg.Name),
+		Labels:      dinkPodLabels(objectName),
 		Annotations: annotations,
 	}
 	var workload *containerWorkload
@@ -177,9 +189,10 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 			ObjectMeta: meta,
 			Spec: appsv1.DeploymentSpec{
 				Replicas: new(int32(0)),
+				Strategy: appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType},
 				Selector: &metav1.LabelSelector{
 					MatchLabels: map[string]string{
-						"app": cfg.Name,
+						"app": objectName,
 					},
 				},
 				Template: template,
@@ -197,7 +210,7 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 		}
 	}
 	// The workload has no running Pods yet, so the Secret only needs to exist before start.
-	if err := d.applyEnvSecret(ctx, id.Namespace, cfg.Name, env, workload.ownerReference()); err != nil {
+	if err := d.applyEnvSecret(ctx, id.Namespace, objectName, env, workload.ownerReference()); err != nil {
 		_ = d.deleteWorkload(ctx, workload, true)
 		return container.CreateResponse{}, err
 	}
@@ -216,13 +229,7 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 	}
 	// Host-network Pods bypass NetworkPolicy, so they need no published-port rule.
 	if !hostNetwork {
-		if err := d.applyPublishedPortsPolicy(ctx, id.Namespace, cfg.Name, workload.ownerReference(), podPorts(ports)); err != nil {
-			_ = d.deleteWorkload(ctx, workload, true)
-			return container.CreateResponse{}, err
-		}
-	}
-	if len(aliases) > 0 {
-		if err := d.applyAliasServices(ctx, workload, distinctAliases(aliases), ports); err != nil {
+		if err := d.applyPublishedPortsPolicy(ctx, id.Namespace, objectName, workload.ownerReference(), podPorts(ports)); err != nil {
 			_ = d.deleteWorkload(ctx, workload, true)
 			return container.CreateResponse{}, err
 		}
@@ -235,26 +242,7 @@ func (d *Docker) ContainerCreate(ctx context.Context, cfg backend.ContainerCreat
 
 // ensureNameAvailable enforces Docker's unique container names across Deployments, Jobs and network aliases.
 func (d *Docker) ensureNameAvailable(ctx context.Context, namespace, name string) error {
-	inUse := Conflict(fmt.Errorf("the container name %q is already in use", name))
-	if _, err := d.k8s.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
-		return inUse
-	} else if !apierrors.IsNotFound(err) {
-		return kubeError(err)
-	}
-	if _, err := d.k8s.BatchV1().Jobs(namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
-		return inUse
-	} else if !apierrors.IsNotFound(err) {
-		return kubeError(err)
-	}
-	if service, err := d.k8s.CoreV1().Services(namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
-		if owner := service.Labels[aliasOfLabel]; owner != "" {
-			return Conflict(fmt.Errorf("the container name %q is already a network alias of %s", name, owner))
-		}
-		return inUse
-	} else if !apierrors.IsNotFound(err) {
-		return kubeError(err)
-	}
-	return nil
+	return d.ensureContainerNameAvailable(ctx, namespace, name, nil)
 }
 
 // adoptClaims makes w own its anonymous volumes, so Kubernetes removes them along with it.
@@ -618,9 +606,10 @@ func containerDNSService(deployment *containerWorkload, ports []publishedPort) *
 		spec.ClusterIP = corev1.ClusterIPNone
 	}
 	return &corev1.Service{
-		Name:            deployment.Name,
+		Name:            containerServiceName(deployment.dockerName()),
 		Namespace:       deployment.Namespace,
 		Labels:          map[string]string{"app": deployment.Name},
+		Annotations:     map[string]string{containerNameAnnotation: deployment.dockerName()},
 		OwnerReferences: []metav1.OwnerReference{deployment.ownerReference()},
 		Spec:            spec,
 	}

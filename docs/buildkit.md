@@ -16,7 +16,7 @@ Both Dink and Dinki must run versions containing the build integration. Leaving
 
 ## Configuration
 
-### Included Minikube deployment
+### Included development deployment
 
 The default [`deploy/`](../deploy/) Kustomization includes
 [`buildkit.yaml`](../deploy/buildkit.yaml), and
@@ -41,7 +41,7 @@ the devcontainer's entire Docker storage.
 Kubernetes does not impose a cache quota in this manifest: the disk-backed
 `emptyDir` has no `sizeLimit` and no pod ephemeral-storage limit is configured.
 Adding those limits would cause pod eviction when exceeded, not graceful cache
-pruning. Keep using host/Minikube cleanup separately when needed. Changes to
+pruning. Keep using host or Kind-node cleanup separately when needed. Changes to
 `buildkitd.toml` require a BuildKit pod restart to take effect; with the current
 ephemeral volume that also discards the existing cache.
 
@@ -52,7 +52,7 @@ make buildkit-server
 ```
 
 `make certificates` also creates `buildkit-tls` if missing, so the normal
-Minikube bootstrap/Tilt setup provisions it. When ready to deploy the updated
+Kind bootstrap/Tilt setup provisions it. When ready to deploy the updated
 Dink and Dinki images, resume the existing dev loop:
 
 ```sh
@@ -72,7 +72,7 @@ This administrative command prunes unused cache for **all tenants**, including
 internal/frontend cache records. It leaves actively used records and published
 Dinki images intact, but subsequent builds may need to download or rebuild
 pruned content. Unlike `make clean-images`, it targets the BuildKit worker, not
-the host Docker daemon or Minikube's containerd image store.
+the host Docker daemon or Kind's containerd image store.
 
 Certificate wiring:
 
@@ -85,7 +85,7 @@ Certificate wiring:
 - Probes connect to loopback with a TLS server-name override, so readiness
   does not depend on the Service already having a ready endpoint.
 
-The BuildKit container is privileged for straightforward Minikube testing.
+The BuildKit container is privileged for straightforward Kind testing.
 It has no Kubernetes API token and exposes only a ClusterIP Service. This is
 not a production hardening profile. To disable the included backend, remove
 `buildkit.yaml` from the Kustomization and clear `buildKit.url` in Dink's config
@@ -309,61 +309,33 @@ go test -race ./core/buildkit ./core/config ./core/registry/pullauth ./core/regi
 ```
 
 End-to-end tests live in [`testing/integration/`](../testing/integration/) and use
-the real Docker CLI against an existing Dink, Dinki, and BuildKit deployment.
+the real Docker CLI against a disposable Dink, Dinki, and BuildKit deployment.
 They verify image configuration/layers, image IDs, metadata/provenance, build
-history listing/inspection/logs, `--load`, and local output. Select an existing
-Docker context explicitly; these tests never launch substitute services, deploy
-Pods, or restart Tilt:
+history listing/inspection/logs, `--load`, and local output. Run them together
+with the container, Compose, Swarm-compatible, and upstream CLI scenarios:
 
 ```sh
-make test-integration
-# Or invoke the tests directly:
-DINK_INTEGRATION_CONTEXT=dink \
-go test ./testing/integration -run '^TestBuildKit' -count=1 -v
+make test-e2e
 ```
 
 Build and history commands explicitly select the Docker builder named after that
 context, rather than `default`, which Buildx can resolve to another Docker context.
 
-The Makefile target creates or refreshes the selected Docker context using
-`TENANT`, `CLIENT`, and `DINK_HOST`, checks API connectivity, and runs the tests
-with race detection. It requires an existing deployment and Tilt's port-forward
-or `make port-forward` running in another terminal. It does not change the active
-Docker context, rebuild images, or restart services. Override
-`DINK_INTEGRATION_CONTEXT` to select the context name to configure, and
-`INTEGRATION_TESTS` to select test names.
+The runner builds this checkout, creates the cluster and certificates, and
+configures both tenant Docker contexts without touching your active contexts or
+Tilt. It also provisions an authenticated TLS registry inside the cluster with
+random disposable credentials. The push test checks multiple upstream tags
+against their retained Dinki copies over trusted registry transport, then verifies
+that a client without credentials cannot push. No public registry login is needed.
 
-The push test additionally requires `DINK_INTEGRATION_PUSH_REPOSITORY`, for example
-`ghcr.io/team/dink-integration`, and an existing `docker login` for that registry.
-Use a repository that requires authentication to push. The test checks multiple
-upstream tags against their retained Dinki copies over normal, trusted registry
-transport, and verifies that a client without registry credentials cannot push.
-The test uses the current Docker configuration for
-registry authentication, but clears endpoint overrides so the selected context
-is authoritative.
-
-```sh
-make test-integration \
-  DINK_INTEGRATION_PUSH_REPOSITORY=ghcr.io/team/dink-integration
-```
-
-Optional `DINK_INTEGRATION_*` settings can be supplied as environment variables
-or Make command-line variables; they are forwarded to the tests. Registry login
-is intentionally not automated.
+The real-backend mTLS test connects to the disposable BuildKit service and checks
+a valid connection, rejection of the wrong server name, and rejection of a client
+without a certificate. Backend addresses and TLS files are wired automatically.
 
 Tests use unique tags and clean their Dinki images and build-history records.
-Upstream tags remain in the disposable repository; configure its retention policy
-or remove them separately. A rejected upstream push may also leave a partial
-Dinki image or failed history record because publication is not atomic.
-Shared worker cache is not pruned.
-Set `DINK_INTEGRATION_OTHER_CONTEXT` to a different tenant/client context to also
-check that the built image and history are not visible there. Without the required
-environment variables, integration tests skip rather than targeting a default
-Docker daemon.
-
-The former simulated mTLS handshake check is also an opt-in real-backend test.
-Set `DINK_INTEGRATION_BUILDKIT_ADDR` to a reachable backend endpoint and provide
-`DINK_INTEGRATION_BUILDKIT_CA`, `DINK_INTEGRATION_BUILDKIT_CERT`,
-`DINK_INTEGRATION_BUILDKIT_KEY`, and `DINK_INTEGRATION_BUILDKIT_SERVER_NAME`.
-It checks a valid connection, rejection of the wrong server name, and rejection
-of a client without a certificate. It does not alter backend TLS configuration.
+The disposable cluster removes registry contents, worker cache, and any partial
+publication left by a rejected push. The runner also checks image/history
+isolation between its two tenants. These tests skip during ordinary `make test`;
+missing configuration in an E2E run fails rather than silently skipping coverage.
+The former manual `make test-integration` target has been removed. See the
+[local E2E guide](../testing/e2e/README.md) for requirements and diagnostics.

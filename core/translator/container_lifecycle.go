@@ -13,6 +13,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
@@ -24,10 +25,11 @@ func (d *Docker) ContainerKill(ctx context.Context, name, signal string) error {
 	if signal != "" && signal != "KILL" && signal != "SIGKILL" && signal != "INT" && signal != "SIGINT" {
 		return InvalidArgument(fmt.Errorf("container signal %q is not supported by the Kubernetes backend", signal))
 	}
-	deployment, err := d.findContainer(ctx, name)
+	deployment, unlock, err := d.lockContainer(ctx, name)
 	if err != nil {
 		return err
 	}
+	defer unlock()
 	code := "137"
 	if signal == "INT" || signal == "SIGINT" {
 		code = "130"
@@ -50,20 +52,26 @@ func (d *Docker) ContainerPause(context.Context, string) error {
 	return ErrNotImplemented
 }
 
-func (d *Docker) ContainerRename(context.Context, string, string) error {
-	return ErrNotImplemented
-}
-
 func (d *Docker) ContainerRestart(ctx context.Context, name string, options backend.ContainerStopOptions) error {
 	if err := validateStopOptions(options); err != nil {
 		return err
 	}
-	deployment, err := d.findContainer(ctx, name)
+	deployment, unlock, err := d.lockContainer(ctx, name)
 	if err != nil {
 		return err
 	}
+	defer unlock()
 	if deployment.OneShot {
 		return Unsupported(fmt.Errorf("restarting a --rm container is not supported by the Kubernetes backend"))
+	}
+	if err := d.setContainerReplicas(ctx, deployment, 0, ""); err != nil {
+		return err
+	}
+	if err := d.waitContainerStopped(ctx, deployment); err != nil {
+		return err
+	}
+	if err := d.claimContainerAliases(ctx, deployment); err != nil {
+		return err
 	}
 	return d.setContainerReplicas(ctx, deployment, 1, time.Now().UTC().Format(time.RFC3339Nano))
 }
@@ -72,10 +80,11 @@ func (d *Docker) ContainerRm(ctx context.Context, name string, config *backend.C
 	if config != nil && config.RemoveLink {
 		return InvalidArgument(fmt.Errorf("link removal is not supported by the Kubernetes backend"))
 	}
-	deployment, err := d.findContainer(ctx, name)
+	deployment, unlock, err := d.lockContainer(ctx, name)
 	if err != nil {
 		return err
 	}
+	defer unlock()
 	force := config != nil && config.ForceRemove
 	if !force && deployment.Started && !deployment.Finished {
 		return Conflict(fmt.Errorf("cannot remove container %s: container is running: stop the container before removing or force remove", name))
@@ -83,11 +92,13 @@ func (d *Docker) ContainerRm(ctx context.Context, name string, config *backend.C
 	if err := d.deleteWorkload(ctx, deployment, force); err != nil {
 		return err
 	}
-	services := d.k8s.CoreV1().Services(deployment.Namespace)
-	for _, serviceName := range []string{deployment.Name, publishedPortsServiceName(deployment.Name)} {
-		if err := services.Delete(ctx, serviceName, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
-			return kubeError(err)
-		}
+	if err := d.waitContainerStopped(ctx, deployment); err != nil {
+		return err
+	}
+	d.containerNameMu.Lock()
+	defer d.containerNameMu.Unlock()
+	if err := d.removeContainerServices(ctx, deployment); err != nil {
+		return err
 	}
 	d.execMu.Lock()
 	for execID, entry := range d.execs {
@@ -153,8 +164,17 @@ func (d *Docker) ContainerStart(ctx context.Context, name, checkpoint, checkpoin
 	if checkpoint != "" || checkpointDir != "" {
 		return InvalidArgument(fmt.Errorf("container checkpoints are not supported by the Kubernetes backend"))
 	}
-	deployment, err := d.findContainer(ctx, name)
+	deployment, unlock, err := d.lockContainer(ctx, name)
 	if err != nil {
+		return err
+	}
+	defer unlock()
+	if !deployment.Started {
+		if err := d.waitContainerStopped(ctx, deployment); err != nil {
+			return err
+		}
+	}
+	if err := d.claimContainerAliases(ctx, deployment); err != nil {
 		return err
 	}
 	if deployment.OneShot {
@@ -170,14 +190,18 @@ func (d *Docker) ContainerStop(ctx context.Context, name string, options backend
 	if err := validateStopOptions(options); err != nil {
 		return err
 	}
-	deployment, err := d.findContainer(ctx, name)
+	deployment, unlock, err := d.lockContainer(ctx, name)
 	if err != nil {
 		return err
 	}
+	defer unlock()
 	if deployment.OneShot {
 		return d.stopOneShot(ctx, deployment, "143")
 	}
-	return d.setContainerReplicas(ctx, deployment, 0, "")
+	if err := d.setContainerReplicas(ctx, deployment, 0, ""); err != nil {
+		return err
+	}
+	return d.waitContainerStopped(ctx, deployment)
 }
 
 // stopOneShot removes a --rm container, as Docker does when one stops, keeping the exit code visible to waiters while its Pod terminates.
@@ -201,7 +225,50 @@ func (d *Docker) stopOneShot(ctx context.Context, w *containerWorkload, exitCode
 	if err != nil && !apierrors.IsNotFound(err) {
 		return kubeError(err)
 	}
-	return nil
+	return d.waitContainerStopped(ctx, w)
+}
+
+func (d *Docker) waitContainerStopped(ctx context.Context, workload *containerWorkload) error {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		controllerStopped := workload.OneShot
+		if !workload.OneShot {
+			current, err := d.k8s.AppsV1().Deployments(workload.Namespace).Get(ctx, workload.Name, metav1.GetOptions{})
+			if err != nil && !apierrors.IsNotFound(err) {
+				return kubeError(err)
+			}
+			controllerStopped = apierrors.IsNotFound(err)
+			if err == nil {
+				if current.UID != workload.UID {
+					return Conflict(fmt.Errorf("container %s was replaced while stopping", workload.dockerName()))
+				}
+				controllerStopped = (current.Spec.Replicas == nil || *current.Spec.Replicas == 0) &&
+					current.Status.ObservedGeneration >= current.Generation && current.Status.Replicas == 0
+			}
+		}
+		pods, err := d.k8s.CoreV1().Pods(workload.Namespace).List(ctx, metav1.ListOptions{LabelSelector: "app=" + workload.Name})
+		if err != nil {
+			return kubeError(err)
+		}
+		active := false
+		for _, pod := range pods.Items {
+			if pod.Status.Phase != corev1.PodSucceeded && pod.Status.Phase != corev1.PodFailed {
+				active = true
+				break
+			}
+		}
+		if controllerStopped && !active {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for container %s to stop: %w", workload.dockerName(), ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 func (d *Docker) hasActivePod(ctx context.Context, w *containerWorkload) (bool, error) {
@@ -232,10 +299,11 @@ func (d *Docker) ContainerUpdate(ctx context.Context, name string, update *conta
 	if err != nil {
 		return container.UpdateResponse{}, InvalidArgument(err)
 	}
-	deployment, err := d.findContainer(ctx, name)
+	deployment, unlock, err := d.lockContainer(ctx, name)
 	if err != nil {
 		return container.UpdateResponse{}, err
 	}
+	defer unlock()
 	if deployment.OneShot {
 		return container.UpdateResponse{}, Unsupported(fmt.Errorf("updating a --rm container is not supported by the Kubernetes backend"))
 	}
@@ -338,7 +406,7 @@ func (d *Docker) ContainerWait(ctx context.Context, name string, condition conta
 				}
 			}
 			if autoRemove && exitCode != nil {
-				if err := d.ContainerRm(ctx, deployment.Name, &backend.ContainerRmConfig{ForceRemove: true, RemoveVolume: true}); err != nil {
+				if err := d.ContainerRm(ctx, identity.DockerIDFromUID(current.UID), &backend.ContainerRmConfig{ForceRemove: true, RemoveVolume: true}); err != nil {
 					return container.WaitResponse{}, err
 				}
 				removedExitCode = exitCode
@@ -364,6 +432,7 @@ func (d *Docker) ContainerWait(ctx context.Context, name string, condition conta
 func (d *Docker) setContainerReplicas(ctx context.Context, deployment *containerWorkload, replicas int32, restartAt string) error {
 	_, err := d.updateContainerDeployment(ctx, deployment, func(current *appsv1.Deployment) error {
 		current.Spec.Replicas = &replicas
+		current.Spec.Strategy = appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType}
 		if replicas > 0 {
 			delete(current.Annotations, containerSignalExitCodeAnnotation)
 		}
@@ -388,8 +457,12 @@ func (d *Docker) updateContainerDeployment(ctx context.Context, original *contai
 		if current.UID != original.UID {
 			return apierrors.NewNotFound(appsv1.Resource("deployments"), original.Name)
 		}
+		template := current.Spec.Template.DeepCopy()
 		if err := mutate(current); err != nil {
 			return err
+		}
+		if !apiequality.Semantic.DeepEqual(*template, current.Spec.Template) {
+			current.Spec.Strategy = appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType}
 		}
 		updated, err = d.k8s.AppsV1().Deployments(current.Namespace).Update(ctx, current, metav1.UpdateOptions{})
 		return err

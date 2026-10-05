@@ -2,13 +2,14 @@ BUF ?= buf
 GO  ?= go
 GOLANGLINT ?= golangci-lint
 TILT ?= tilt
-KUBECTL ?= kubectl
-MINI ?= minikube
+KIND ?= kind
+KIND_CLUSTER ?= dink-dev
+KIND_CONTEXT ?= kind-$(KIND_CLUSTER)
+KUBECTL ?= kubectl --context $(KIND_CONTEXT)
 DOCKER ?= docker
 
 IMAGE ?= ghcr.io/sysson/dink
 TAG ?= dev
-MINIKUBE_PROFILE ?= dink-dev
 NAMESPACE ?= dink-system
 DINK_CONFIG ?= $(HOME)/.config/dink
 CERT_DIR ?= $(DINK_CONFIG)/.certs
@@ -18,8 +19,6 @@ CLIENT ?= default
 DOCKER_CTX ?= dink
 DINK_HOST ?= tcp://localhost:2376
 DINK_PORT ?= 2376
-DINK_INTEGRATION_CONTEXT ?= $(DOCKER_CTX)
-INTEGRATION_TESTS ?= ^TestBuildKit
 
 # Image reference to build; tilt overrides this with the tag it expects.
 REF ?= $(IMAGE):$(TAG)
@@ -27,13 +26,12 @@ REF ?= $(IMAGE):$(TAG)
 DOCKER_CERT_DIR := $(CERT_DIR)/$(TENANT)/$(CLIENT)
 CTX_ENDPOINT := host=$(DINK_HOST),ca=$(DOCKER_CERT_DIR)/ca.pem,cert=$(DOCKER_CERT_DIR)/cert.pem,key=$(DOCKER_CERT_DIR)/key.pem
 
-# minikube's docker driver runs the cluster node as a container on the host
-# daemon, so anything touching minikube must bypass the dink context. 
-HOST_DOCKER := env -u DOCKER_HOST -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH DOCKER_CONTEXT=minikube
+# Always use the devcontainer's Docker daemon, even when the CLI is pointed at dink.
+HOST_DOCKER := env -u DOCKER_HOST -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH DOCKER_CONTEXT=default
 
-.PHONY: all build test generate lint clean fix dev image image-minikube load ca-generate ca-generate-local ca-rotate server registry-server certificates tenant bootstrap \
+.PHONY: all build test generate lint clean fix dev image image-kind load ca-generate ca-generate-local ca-rotate server registry-server certificates tenant bootstrap \
 	buildkit-server context context-sync context-use context-default context-rm port-forward restart release show-image \
-	deploy undeploy logs docker-env start clean-images test-integration
+	deploy undeploy logs docker-env start clean-images test-e2e
 
 all: build
 
@@ -45,16 +43,9 @@ test:
 	$(GO) test -race ./...
 	cd sdk && $(GO) test -race ./...
 
-## test-integration: Run real-setup tests (requires deployment and Tilt or make port-forward)
-test-integration:
-	$(MAKE) --no-print-directory context DOCKER_CTX="$(DINK_INTEGRATION_CONTEXT)"
-	@env -u DOCKER_HOST -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH \
-		$(DOCKER) --context "$(DINK_INTEGRATION_CONTEXT)" version >/dev/null || { \
-		echo "Dink is not reachable; start Tilt or run 'make port-forward' in another terminal" >&2; \
-		exit 1; \
-	}
-	DINK_INTEGRATION_CONTEXT="$(DINK_INTEGRATION_CONTEXT)" \
-		$(GO) test -race ./testing/integration -run "$(INTEGRATION_TESTS)" -count=1 -v
+## test-e2e: Build and test this checkout in a disposable local cluster
+test-e2e:
+	bash testing/e2e/run.sh
 
 ## generate: Re-generate protobuf + gRPC stubs from proto/ into sdk/*/gen/
 generate:
@@ -73,23 +64,43 @@ fix:
 	$(GO) fix ./...
 
 start:
-	@$(HOST_DOCKER) $(MINI) status -p $(MINIKUBE_PROFILE) >/dev/null 2>&1 && echo "minikube profile '$(MINIKUBE_PROFILE)' already running" || $(HOST_DOCKER) $(MINI) start -p $(MINIKUBE_PROFILE)
+	@if $(HOST_DOCKER) $(KIND) get clusters | grep -Fxq "$(KIND_CLUSTER)"; then \
+		echo "Kind cluster '$(KIND_CLUSTER)' already running"; \
+	else \
+		$(HOST_DOCKER) $(KIND) create cluster --name "$(KIND_CLUSTER)"; \
+	fi
+	@$(HOST_DOCKER) $(KIND) export kubeconfig --name "$(KIND_CLUSTER)"
 
-## dev: Run the Tilt dev loop against the local minikube cluster
+## dev: Run the Tilt dev loop against the local Kind cluster; restore the default Docker context when it exits
 dev: start context-use
+	@interrupted=0; \
+	cleanup() { \
+		status=$$?; \
+		trap - EXIT INT TERM; \
+		if ! $(HOST_DOCKER) $(DOCKER) context use default >/dev/null; then \
+			echo "failed to restore default Docker context" >&2; \
+			status=1; \
+		else \
+			echo "docker context set to default"; \
+			[ $$interrupted -eq 0 ] || status=0; \
+		fi; \
+		exit $$status; \
+	}; \
+	trap cleanup EXIT; \
+	trap 'interrupted=1; exit 0' INT; \
+	trap 'exit 143' TERM; \
 	$(TILT) up
 
-## image: Build the release container image in docker
+## image: Build the container image in the local Docker daemon
 image:
 	$(HOST_DOCKER) $(DOCKER) build --target $(TARGET) -t $(REF) .
 
-## load: Push the image into the minikube node's image store
+## load: Build and load the image into the Kind cluster
 load: image
-	$(HOST_DOCKER) $(MINI) -p $(MINIKUBE_PROFILE) image load $(REF)
+	$(HOST_DOCKER) $(KIND) load docker-image $(REF) --name "$(KIND_CLUSTER)"
 
-## image-minikube: Build straight into the minikube node's image store; override REF to retag
-image-minikube:
-	$(HOST_DOCKER) $(MINI) -p $(MINIKUBE_PROFILE) image build -t $(REF) .
+## image-kind: Build and load the image into the Kind cluster; override REF to retag
+image-kind: load
 
 ## ca-generate: Create the CA and namespaces if they don't exist yet, and apply the CA Secret
 # Idempotent: reuses the cached (or cluster) CA and only (re)issues the server cert, so it's
@@ -214,7 +225,13 @@ docker-env:
 	@echo 'export DOCKER_TLS_VERIFY=1'
 	@echo 'export DOCKER_CERT_PATH=$(DOCKER_CERT_DIR)'
 
-## clean-images: Remove all local docker images and prune images from the minikube containerd instance
+## clean-images: Remove local Docker images and prune images from every Kind node
 clean-images:
 	@$(HOST_DOCKER) $(DOCKER) system prune -a
-	@$(HOST_DOCKER) $(DOCKER) exec -it $(MINIKUBE_PROFILE) ctr -n k8s.io images prune --all
+	@nodes=$$($(HOST_DOCKER) $(KIND) get nodes --name "$(KIND_CLUSTER)") || exit $$?; \
+	if [ -z "$$nodes" ]; then \
+		echo "no nodes found for Kind cluster '$(KIND_CLUSTER)'" >&2; exit 1; \
+	fi; \
+	for node in $$nodes; do \
+		$(HOST_DOCKER) $(DOCKER) exec "$$node" ctr -n k8s.io images prune --all; \
+	done

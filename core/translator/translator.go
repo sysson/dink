@@ -56,15 +56,18 @@ type Docker struct {
 	defaultResources config.ResourceDefaults
 	nodePlacement    config.NodePlacement
 	// pullHost is where nodes pull tenant images from.
-	pullHost     string
-	pullSecretMu sync.Mutex
-	execMu       sync.Mutex
-	execs        map[string]*containerExec
-	attachMu     sync.Mutex
-	attaches     map[string]map[*containerAttachSession]struct{}
-	eventsMu     sync.Mutex
-	eventCancels map[chan any]context.CancelFunc
-	podStream    func(context.Context, string, string, corev1.PodExecOptions, remotecommand.StreamOptions, bool) error
+	pullHost         string
+	pullSecretMu     sync.Mutex
+	containerNameMu  sync.Mutex
+	containerLocksMu sync.Mutex
+	containerLocks   map[string]*containerOperationLock
+	execMu           sync.Mutex
+	execs            map[string]*containerExec
+	attachMu         sync.Mutex
+	attaches         map[string]map[*containerAttachSession]struct{}
+	eventsMu         sync.Mutex
+	eventCancels     map[chan any]context.CancelFunc
+	podStream        func(context.Context, string, string, corev1.PodExecOptions, remotecommand.StreamOptions, bool) error
 }
 
 type Swarm struct {

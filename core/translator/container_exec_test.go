@@ -72,6 +72,9 @@ func TestContainerExecCreateInspect(t *testing.T) {
 	if err := docker.ContainerExecStart(ctx, execID, backend.ExecStartConfig{Stdout: &stdout}); err == nil {
 		t.Fatal("completed exec restarted")
 	}
+	if err := client.CoreV1().Pods("tenant").Delete(ctx, "web-pod", metav1.DeleteOptions{}); err != nil {
+		t.Fatal(err)
+	}
 	if err := docker.ContainerRm(ctx, "web", &backend.ContainerRmConfig{ForceRemove: true}); err != nil {
 		t.Fatal(err)
 	}

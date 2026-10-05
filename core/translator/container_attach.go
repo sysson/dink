@@ -97,7 +97,7 @@ func (d *Docker) ContainerAttach(ctx context.Context, name string, config *backe
 		}
 		_ = stdin.Close()
 	}()
-	pod, err := d.waitAttachPod(ctx, deployment)
+	pod, err := d.waitAttachPod(ctx, deployment, !containerSpec.TTY && !config.UseStdin)
 	if err != nil {
 		return err
 	}
@@ -176,7 +176,7 @@ func (d *Docker) attachTargetExited(ctx context.Context, deployment *containerWo
 	}
 }
 
-func (d *Docker) waitAttachPod(ctx context.Context, deployment *containerWorkload) (*corev1.Pod, error) {
+func (d *Docker) waitAttachPod(ctx context.Context, deployment *containerWorkload, replayExited bool) (*corev1.Pod, error) {
 	_, hostConfig, err := containerMetadata(deployment)
 	if err != nil {
 		return nil, err
@@ -206,6 +206,9 @@ func (d *Docker) waitAttachPod(ctx context.Context, deployment *containerWorkloa
 					continue
 				}
 				if status.State.Terminated != nil || hostConfig.AutoRemove && status.LastTerminationState.Terminated != nil {
+					if replayExited && status.State.Terminated != nil {
+						return pod, nil
+					}
 					return nil, nil
 				}
 				if pod.Status.Phase == corev1.PodRunning && status.State.Running != nil {

@@ -11,6 +11,7 @@ import (
 	"github.com/sysson/dink/core/k8s"
 	"github.com/sysson/dink/pkg/filters"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -36,6 +37,53 @@ func newNetworkDynamicClient() *fake.FakeDynamicClient {
 		return false, nil, nil
 	})
 	return dynamicClient
+}
+
+func TestNetworkInUseTracksLogicalEndpoints(t *testing.T) {
+	network := &unstructured.Unstructured{}
+	network.SetName("test")
+	network.SetNamespace("tenant")
+	membership := map[string]string{networkLabelPrefix + "test": "true"}
+	template := corev1.PodTemplateSpec{Labels: membership}
+	now := metav1.Now()
+	for _, test := range []struct {
+		name   string
+		object runtime.Object
+		inUse  bool
+	}{
+		{"stopped deployment", &appsv1.Deployment{
+			Name: "web", Namespace: "tenant", Spec: appsv1.DeploymentSpec{Replicas: new(int32(0)), Template: template},
+		}, true},
+		{"deleting deployment", &appsv1.Deployment{
+			Name: "web", Namespace: "tenant", DeletionTimestamp: &now, Spec: appsv1.DeploymentSpec{Template: template},
+		}, false},
+		{"suspended job", &batchv1.Job{
+			Name: "web", Namespace: "tenant", Spec: batchv1.JobSpec{Suspend: new(true), Template: template},
+		}, true},
+		{"deleting job", &batchv1.Job{
+			Name: "web", Namespace: "tenant", DeletionTimestamp: &now, Spec: batchv1.JobSpec{Template: template},
+		}, false},
+		{"orphaned managed pod awaiting GC", &corev1.Pod{
+			Name: "web", Namespace: "tenant", Labels: map[string]string{
+				networkLabelPrefix + "test": "true", managedByLabel: managedByDink,
+			},
+		}, false},
+		{"unmanaged pod", &corev1.Pod{
+			Name: "web", Namespace: "tenant", Labels: membership,
+		}, true},
+		{"terminating unmanaged pod", &corev1.Pod{
+			Name: "web", Namespace: "tenant", Labels: membership, DeletionTimestamp: &now,
+		}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := kubernetesfake.NewClientset(test.object)
+			docker := &Docker{k8s: &k8s.KubeClient{Interface: client}}
+			inUse, err := docker.networkInUse(context.Background(), network)
+			if err != nil || inUse != test.inUse {
+				t.Fatalf("network in use = %t, want %t, err = %v", inUse, test.inUse, err)
+			}
+		})
+	}
 }
 
 func TestDockerNetworkLifecycle(t *testing.T) {

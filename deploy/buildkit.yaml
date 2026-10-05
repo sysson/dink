@@ -1,5 +1,5 @@
 ---
-# Development BuildKit backend. Privileged execution is for trusted Minikube
+# Development BuildKit backend. Privileged execution is for trusted Kind
 # testing; review worker isolation before using this in a production cluster.
 apiVersion: v1
 kind: ConfigMap

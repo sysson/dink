@@ -154,17 +154,30 @@ Protect each client key and only distribute the credentials to that client.
 
 ## Local Development
 
-The development loop uses Minikube, Docker, Tilt, `kubectl`, Go 1.27.1 or
-newer, and Make. `make bootstrap` starts the configured Minikube profile,
-creates the local CA and server certificates, and creates the `dev` tenant.
-Then start Tilt:
+The devcontainer uses `mcr.microsoft.com/devcontainers/base:trixie` with
+[`.devcontainer/Dockerfile`](.devcontainer/Dockerfile) installing Kind 0.33.0,
+kubectl 1.37.0, Buf 1.72.0, and Tilt 0.37.7.
+These tool downloads are checksum-verified and support Linux amd64 and arm64.
+The Go devcontainer feature installs Go 1.27.1, golangci-lint 2.13.2, the
+common Go development tools (including `gopls`, `staticcheck`, and `dlv`),
+and the VS Code Go extension.
+Docker-in-Docker remains enabled with Buildx and Compose; KVM is not required.
+The existing configuration and Go cache volumes are retained.
+
+The Makefile, Tilt, and E2E runner all use Kind.
+Devcontainer creation bootstraps the development cluster, creates the local CA
+and server certificates, and creates the `dev` tenant; `make bootstrap` safely
+repeats these steps.
+
+The development loop uses Kind, Docker, Tilt, `kubectl`, Go 1.27.1 or newer,
+and Make. Start Tilt with:
 
 ```sh
 make bootstrap
 make dev
 ```
 
-Tilt builds and loads the `dink` and `dinki` images into Minikube, applies the
+Tilt builds and loads the `dink` and `dinki` images into Kind, applies the
 Kubernetes resources, and forwards the Docker API and registry ports. The Make
 targets create and select a Docker context named `dink`:
 
@@ -173,7 +186,7 @@ docker --context dink info
 docker --context dink run --rm hello-world
 ```
 
-`tilt down` stops the dev loop. The Minikube cluster remains available. Useful
+`tilt down` stops the dev loop. The Kind cluster remains available. Useful
 project checks are:
 
 ```sh
@@ -181,6 +194,20 @@ make build
 make test
 make lint
 ```
+
+For a disposable local cluster that tests this checkout through real Docker,
+Buildx, Compose, and Swarm-compatible commands, plus selected upstream Docker
+CLI tests, including all BuildKit integration tests:
+
+```sh
+make test-e2e
+```
+
+This runs inside the devcontainer without changing your active contexts.
+BuildKit TLS checks and authenticated registry-push tests are provisioned
+automatically; no manual endpoint setup or public registry login is needed.
+See the [local E2E guide](testing/e2e/README.md) for requirements, isolation,
+coverage, and diagnostic logs.
 
 ## Configuration and Operations
 

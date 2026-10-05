@@ -172,10 +172,28 @@ func (d *Docker) networkInUse(ctx context.Context, obj *unstructured.Unstructure
 		return false, err
 	}
 	for _, deployment := range deployments.Items {
-		if _, attached := deployment.Spec.Template.Labels[selector]; attached {
+		if _, attached := deployment.Spec.Template.Labels[selector]; attached && deployment.DeletionTimestamp == nil {
+			return true, nil
+		}
+	}
+	jobs, err := d.k8s.BatchV1().Jobs(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return false, err
+	}
+	for _, job := range jobs.Items {
+		if _, attached := job.Spec.Template.Labels[selector]; attached && job.DeletionTimestamp == nil {
 			return true, nil
 		}
 	}
 	pods, err := d.k8s.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
-	return err == nil && len(pods.Items) > 0, err
+	if err != nil {
+		return false, err
+	}
+	for _, pod := range pods.Items {
+		// Dink endpoints belong to workloads, not their asynchronously deleted Pods.
+		if pod.DeletionTimestamp == nil && pod.Labels[managedByLabel] != managedByDink {
+			return true, nil
+		}
+	}
+	return false, nil
 }

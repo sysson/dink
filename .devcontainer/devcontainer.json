@@ -1,23 +1,21 @@
 {
     "name": "dink-dev",
-    "image": "mcr.microsoft.com/devcontainers/base:trixie",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": "."
+    },
     "runArgs": [
-        "--privileged",
-        "--device",
-        "/dev/kvm"
+        "--privileged"
     ],
     "features": {
-        "ghcr.io/devcontainers/features/docker-in-docker:4.1.0": {
+        "ghcr.io/devcontainers/features/docker-in-docker:4.1.2": {
             "enableNonRootDocker": "true",
             "moby": "false"
         },
-        "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
-            "version": "latest",
-            "helm": "latest",
-            "minikube": "latest"
-        },
-        "ghcr.io/devcontainers/features/go:1": {
-            "version": "latest"
+        "ghcr.io/devcontainers/features/go:1.4.0": {
+            "version": "1.27.1",
+            "golangciLintVersion": "2.13.2",
+            "installGoTools": "true"
         }
     },
     "remoteUser": "vscode",

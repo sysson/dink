@@ -21,10 +21,13 @@ func (d *Docker) ConnectContainerToNetwork(ctx context.Context, networkID, conta
 			return InvalidArgument(fmt.Errorf("network endpoint settings other than aliases are not supported by the Kubernetes backend"))
 		}
 	}
-	workload, err := d.findContainer(ctx, containerID)
+	workload, unlock, err := d.lockContainer(ctx, containerID)
 	if err != nil {
 		return err
 	}
+	defer unlock()
+	d.containerNameMu.Lock()
+	defer d.containerNameMu.Unlock()
 	networkObject, err := d.findNetwork(ctx, networkID)
 	if err != nil {
 		return err
@@ -53,10 +56,13 @@ func (d *Docker) ConnectContainerToNetwork(ctx context.Context, networkID, conta
 }
 
 func (d *Docker) DisconnectContainerFromNetwork(ctx context.Context, networkID, containerID string, force bool) error {
-	workload, err := d.findContainer(ctx, containerID)
+	workload, unlock, err := d.lockContainer(ctx, containerID)
 	if err != nil {
 		return err
 	}
+	defer unlock()
+	d.containerNameMu.Lock()
+	defer d.containerNameMu.Unlock()
 	networkObject, err := d.findNetwork(ctx, networkID)
 	if err != nil {
 		return err

@@ -1,5 +1,5 @@
 # Dev loop for dink: builds the binary on the host, bakes it into a thin image,
-# deploys to the local minikube cluster and port-forwards the docker API.
+# deploys to the local Kind cluster and port-forwards the docker API.
 #
 #   tilt up          # start the loop
 #   tilt down        # tear everything down

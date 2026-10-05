@@ -8,16 +8,23 @@ import (
 	"github.com/moby/moby/v2/daemon/server/backend"
 	"github.com/sysson/dink/core/identity"
 	"github.com/sysson/dink/core/k8s"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	kubernetesfake "k8s.io/client-go/kubernetes/fake"
+	ktesting "k8s.io/client-go/testing"
 )
 
 func newOneShotTestDocker(t *testing.T) (context.Context, *kubernetesfake.Clientset, *Docker) {
 	t.Helper()
 	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
 	client := kubernetesfake.NewClientset()
+	client.PrependReactor("create", "jobs", func(action ktesting.Action) (bool, runtime.Object, error) {
+		action.(ktesting.CreateAction).GetObject().(*batchv1.Job).UID = "12345678-1234-1234-1234-123456789abc"
+		return false, nil, nil
+	})
 	docker := &Docker{
 		k8s:      &k8s.KubeClient{Interface: client},
 		registry: &fakeRegistry{digests: map[string]string{"postgres": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}},

@@ -72,49 +72,59 @@ func TestContainerAttach(t *testing.T) {
 }
 
 func TestContainerAttachReplaysNonInteractiveOutput(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/apis/apps/v1/namespaces/tenant/deployments/web":
-			_ = json.NewEncoder(w).Encode(&appsv1.Deployment{
-				APIVersion: "apps/v1", Kind: "Deployment", Name: "web", Namespace: "tenant",
-				Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "web"}}}}},
-			})
-		case "/api/v1/namespaces/tenant/pods":
-			_ = json.NewEncoder(w).Encode(&corev1.PodList{
-				APIVersion: "v1", Kind: "PodList", Items: []corev1.Pod{{
-					Name: "web-pod", Namespace: "tenant", Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "web"}}},
-					Status: corev1.PodStatus{Phase: corev1.PodRunning, ContainerStatuses: []corev1.ContainerStatus{{Name: "web", State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}}}},
-				}},
-			})
-		case "/api/v1/namespaces/tenant/pods/web-pod/log":
-			if r.URL.Query().Get("follow") != "true" || r.URL.Query().Get("container") != "web" || r.URL.Query().Has("tailLines") {
-				t.Errorf("log query = %s", r.URL.RawQuery)
+	for _, exited := range []bool{false, true} {
+		t.Run(fmt.Sprintf("exited=%t", exited), func(t *testing.T) {
+			phase := corev1.PodRunning
+			state := corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}
+			if exited {
+				phase = corev1.PodSucceeded
+				state = corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 0}}
 			}
-			w.Header().Set("Content-Type", "application/octet-stream")
-			_, _ = io.WriteString(w, "startup output\n")
-			w.(http.Flusher).Flush()
-			_, _ = io.WriteString(w, "later output\n")
-		default:
-			t.Errorf("unexpected Kubernetes request: %s", r.URL.Path)
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-	client, err := kubernetes.NewForConfig(&rest.Config{Host: server.URL})
-	if err != nil {
-		t.Fatal(err)
-	}
-	docker := &Docker{k8s: &k8s.KubeClient{Interface: client}}
-	ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
-	var output bytes.Buffer
-	if err := docker.ContainerAttach(ctx, "web", &backend.ContainerAttachConfig{
-		Stream: true, UseStdout: true, UseStderr: true,
-		GetStreams: func(bool, func()) (io.ReadCloser, io.Writer, io.Writer, error) {
-			return io.NopCloser(strings.NewReader("")), &output, io.Discard, nil
-		},
-	}); err != nil || output.String() != "startup output\nlater output\n" {
-		t.Fatalf("non-interactive attach output = %q, err = %v", output.String(), err)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/apis/apps/v1/namespaces/tenant/deployments/web":
+					_ = json.NewEncoder(w).Encode(&appsv1.Deployment{
+						APIVersion: "apps/v1", Kind: "Deployment", Name: "web", Namespace: "tenant",
+						Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "web"}}}}},
+					})
+				case "/api/v1/namespaces/tenant/pods":
+					_ = json.NewEncoder(w).Encode(&corev1.PodList{
+						APIVersion: "v1", Kind: "PodList", Items: []corev1.Pod{{
+							Name: "web-pod", Namespace: "tenant", Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "web"}}},
+							Status: corev1.PodStatus{Phase: phase, ContainerStatuses: []corev1.ContainerStatus{{Name: "web", State: state}}},
+						}},
+					})
+				case "/api/v1/namespaces/tenant/pods/web-pod/log":
+					if r.URL.Query().Get("follow") != "true" || r.URL.Query().Get("container") != "web" || r.URL.Query().Has("tailLines") {
+						t.Errorf("log query = %s", r.URL.RawQuery)
+					}
+					w.Header().Set("Content-Type", "application/octet-stream")
+					_, _ = io.WriteString(w, "startup output\n")
+					w.(http.Flusher).Flush()
+					_, _ = io.WriteString(w, "later output\n")
+				default:
+					t.Errorf("unexpected Kubernetes request: %s", r.URL.Path)
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			client, err := kubernetes.NewForConfig(&rest.Config{Host: server.URL})
+			if err != nil {
+				t.Fatal(err)
+			}
+			docker := &Docker{k8s: &k8s.KubeClient{Interface: client}}
+			ctx := identity.NewContext(context.Background(), identity.Identity{Namespace: "tenant"})
+			var output bytes.Buffer
+			if err := docker.ContainerAttach(ctx, "web", &backend.ContainerAttachConfig{
+				Stream: true, UseStdout: true, UseStderr: true,
+				GetStreams: func(bool, func()) (io.ReadCloser, io.Writer, io.Writer, error) {
+					return io.NopCloser(strings.NewReader("")), &output, io.Discard, nil
+				},
+			}); err != nil || output.String() != "startup output\nlater output\n" {
+				t.Fatalf("non-interactive attach output = %q, err = %v", output.String(), err)
+			}
+		})
 	}
 }
 

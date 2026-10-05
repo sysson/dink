@@ -101,11 +101,26 @@ func (d *Docker) applyAliasServices(ctx context.Context, workload *containerWork
 		if _, keep := wanted[service.Name]; keep {
 			continue
 		}
-		if err := services.Delete(ctx, service.Name, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
-			return kubeError(err)
+		if service.Name == containerServiceName(workload.dockerName()) {
+			continue
+		}
+		if err := d.deleteOwnedService(ctx, workload, service); err != nil {
+			return err
 		}
 	}
 	for _, alias := range aliases {
+		if alias == containerServiceName(workload.dockerName()) {
+			current, err := services.Get(ctx, alias, metav1.GetOptions{})
+			if err != nil {
+				return kubeError(err)
+			}
+			if !workloadOwnsService(workload, current) {
+				return Conflict(fmt.Errorf("network alias %q is already in use in this namespace", alias))
+			}
+			// A self-alias is served by the primary DNS Service, never relabeled
+			// as an alias that network disconnect would delete.
+			continue
+		}
 		service := aliasService(workload, alias, ports)
 		_, err := services.Create(ctx, service, metav1.CreateOptions{})
 		if apierrors.IsAlreadyExists(err) {
@@ -113,9 +128,16 @@ func (d *Docker) applyAliasServices(ctx context.Context, workload *containerWork
 			if getErr != nil {
 				return kubeError(getErr)
 			}
-			if current.Labels[aliasOfLabel] != workload.Name {
+			if !workloadOwnsService(workload, current) {
 				return Conflict(fmt.Errorf("network alias %q is already in use in this namespace", alias))
 			}
+			if current.Annotations[containerNameAnnotation] != "" {
+				if current.Annotations[containerNameAnnotation] == workload.dockerName() {
+					continue
+				}
+				delete(current.Annotations, containerNameAnnotation)
+			}
+			service.Annotations = current.Annotations
 			service.ResourceVersion = current.ResourceVersion
 			service.Spec.ClusterIP = current.Spec.ClusterIP
 			if _, err := services.Update(ctx, service, metav1.UpdateOptions{}); err != nil {
@@ -133,12 +155,30 @@ func (d *Docker) applyAliasServices(ctx context.Context, workload *containerWork
 func aliasService(workload *containerWorkload, alias string, ports []publishedPort) *corev1.Service {
 	service := containerDNSService(workload, ports)
 	service.Name = alias
+	service.Annotations = nil
 	service.Labels = map[string]string{
 		"app":          workload.Name,
 		aliasOfLabel:   workload.Name,
 		managedByLabel: managedByDink,
 	}
 	return service
+}
+
+func (d *Docker) claimContainerAliases(ctx context.Context, workload *containerWorkload) error {
+	d.containerNameMu.Lock()
+	defer d.containerNameMu.Unlock()
+	aliases, err := decodeContainerAliases(workload.Annotations)
+	if err != nil {
+		return err
+	}
+	if len(aliases) == 0 {
+		return nil
+	}
+	ports, err := workloadPublishedPorts(workload)
+	if err != nil {
+		return err
+	}
+	return d.applyAliasServices(ctx, workload, distinctAliases(aliases), ports)
 }
 
 // setContainerAliases rewrites the stored aliases and reconciles the Services
@@ -170,7 +210,11 @@ func workloadPublishedPorts(workload *containerWorkload) ([]publishedPort, error
 	if len(workload.Template.Spec.Containers) == 0 {
 		return nil, nil
 	}
-	containerPorts := workload.Template.Spec.Containers[0].Ports
+	application, err := namedContainer(&workload.Template.Spec, workload.Name)
+	if err != nil {
+		return nil, err
+	}
+	containerPorts := application.Ports
 	ports := make([]publishedPort, 0, len(containerPorts))
 	for _, port := range containerPorts {
 		if port.ContainerPort < 0 || port.ContainerPort > 65535 {
